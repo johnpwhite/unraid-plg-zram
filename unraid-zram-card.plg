@@ -2,15 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.18">
-<!ENTITY launch    "Settings/UnraidZramCard">
+<!ENTITY version   "2026.01.25.20">
+<!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
-<!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.18" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.0" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.20" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.0" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.20
+- Fix: Hybrid XML structure. Hardcoded PLUGIN tag attributes to fix install errors, while keeping flexible entities for file downloads.
+## 2026.01.25.19
+- Fix: Restored XML entities for flexible versioning while maintaining hardcoded pluginURL entity definition to prevent 'XML parse error'.
 ## 2026.01.25.18
 - Fix: Hardcoded all attributes in PLUGIN tag to resolve stubborn XML parsing errors during installation.
 - Fix: Removed dependency on recursive entities for critical plugin metadata.
@@ -82,7 +85,7 @@
 <INLINE>
 #!/bin/bash
 # Clean up existing files to force a fresh download
-PLUGIN_DIR="/usr/local/emhttp/plugins/unraid-zram-card"
+PLUGIN_DIR="/usr/local/emhttp/plugins/&name;"
 if [ -d "$PLUGIN_DIR" ]; then
     rm -rf "$PLUGIN_DIR"
 fi
@@ -152,17 +155,17 @@ log_msg() {
 log_msg "Starting uninstallation..."
 
 # 1. Remove the RAM directory explicitly
-if [ -d "/usr/local/emhttp/plugins/unraid-zram-card" ]; then
-    log_msg "Removing plugin directory: /usr/local/emhttp/plugins/unraid-zram-card"
-    rm -rf "/usr/local/emhttp/plugins/unraid-zram-card"
+if [ -d "&emhttp;" ]; then
+    log_msg "Removing plugin directory: &emhttp;"
+    rm -rf "&emhttp;"
 else
     log_msg "Plugin directory not found."
 fi
 
 # 2. Remove the Package (if registered)
 log_msg "Removing package manifest..."
-removepkg unraid-zram-card-&version;
-removepkg unraid-zram-card
+removepkg &name;-&version;
+removepkg &name;
 
 # 3. Update Plugin Cache (Crucial for UI refresh)
 if [ -f /usr/local/sbin/update_plugin_cache ]; then
