@@ -2,27 +2,37 @@
 // ZramCard.php
 // Dashboard Card for ZRAM Statistics
 
-// Load Settings
-$configFile = "/boot/config/plugins/unraid-zram-card/settings.ini";
-$settings = [
-    'enabled' => 'yes',
-    'refresh_interval' => 3000
-];
-if (file_exists($configFile)) {
-    $loaded = parse_ini_file($configFile);
-    if ($loaded) $settings = array_merge($settings, $loaded);
-}
+(function() {
+    // 1. Load Settings safely
+    $configFile = "/boot/config/plugins/unraid-zram-card/settings.ini";
+    $settings = [
+        'enabled' => 'yes',
+        'refresh_interval' => 3000
+    ];
+    
+    if (file_exists($configFile)) {
+        $loaded = @parse_ini_file($configFile); // Suppress warnings
+        if ($loaded && is_array($loaded)) {
+            $settings = array_merge($settings, $loaded);
+        }
+    }
 
-// Check if enabled
-if ($settings['enabled'] != 'yes') {
-    return;
-}
+    // 2. Check if enabled
+    if (($settings['enabled'] ?? 'yes') !== 'yes') {
+        return; // Exit closure, outputs nothing
+    }
 
-// Check for Unraid 7.2+ Responsive GUI
-$isResponsiveWebgui = version_compare(parse_ini_file('/etc/unraid-version')['version'] ?? '6.0.0', '7.2.0-beta', '>=');
+    // 3. Check for Unraid 7.2+ Responsive GUI safely
+    $isResponsiveWebgui = false;
+    if (file_exists('/etc/unraid-version')) {
+        $ver = @parse_ini_file('/etc/unraid-version');
+        if ($ver && isset($ver['version'])) {
+            $isResponsiveWebgui = version_compare($ver['version'], '7.2.0-beta', '>=');
+        }
+    }
 
-// Unique ID for this card's elements to avoid collisions
-$cardId = 'zram-dashboard-card';
+    // Unique ID for this card's elements
+    $cardId = 'zram-dashboard-card';
 ?>
 
 <style>
@@ -80,7 +90,7 @@ $cardId = 'zram-dashboard-card';
           </div>
         </span>
         <span class='tile-header-right'>
-           <!-- Settings Cog (could link to settings page) -->
+           <!-- Settings Cog -->
           <span class='tile-ctrl'>
              <a href="/Settings/UnraidZramCard" title="Settings"><i class="fa fa-cog"></i></a>
           </span>
@@ -112,7 +122,7 @@ $cardId = 'zram-dashboard-card';
                 <canvas id="zramChart" style="display: block; width: 100%; height: 100%;"></canvas>
             </div>
 
-            <!-- Device Table (Collapsible or small) -->
+            <!-- Device Table -->
             <div class="TableContainer">
                 <table id="zram-device-table">
                     <thead>
@@ -138,9 +148,11 @@ $cardId = 'zram-dashboard-card';
                 url: '/plugins/unraid-zram-card/zram_status.php'
             };
         </script>
-        <!-- Load Chart.js and then our logic -->
         <script src="/plugins/unraid-zram-card/js/chart.min.js"></script>
         <script src="/plugins/unraid-zram-card/js/zram-card.js"></script>
     </td>
   </tr>
 </tbody>
+<?php
+})(); // End of closure
+?>

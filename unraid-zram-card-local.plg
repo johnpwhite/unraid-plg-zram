@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.3">
+<!ENTITY version   "2026.01.25.4">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY pluginURL "/boot/config/plugins/&name;/unraid-zram-card-local.plg">
 <!ENTITY boot      "/boot/config/plugins/&name;">
@@ -11,6 +11,8 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.4
+- Fix: Prevented potential fatal PHP errors in dashboard card by safely checking version files and isolating scope with a closure.
 ## 2026.01.25.3
 - Fix: Corrected 'Menu' attributes in .page files to ensure visibility in Settings and Dashboard.
 ## 2026.01.25.2
