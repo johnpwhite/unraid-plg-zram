@@ -2,40 +2,16 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.20">
+<!ENTITY version   "2026.01.25.10">
+<!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
-<!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
-<!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
+<!ENTITY pluginURL "&gitURL;/unraid-zram-card.plg">
+<!ENTITY boot      "/boot/config/plugins/&name;">
+<!ENTITY emhttp    "/usr/local/emhttp/plugins/&name;">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.20" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.0" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="&gitURL;/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
-## 2026.01.25.20
-- Fix: Hybrid XML structure. Hardcoded PLUGIN tag attributes to fix install errors, while keeping flexible entities for file downloads.
-## 2026.01.25.19
-- Fix: Restored XML entities for flexible versioning while maintaining hardcoded pluginURL entity definition to prevent 'XML parse error'.
-## 2026.01.25.18
-- Fix: Hardcoded all attributes in PLUGIN tag to resolve stubborn XML parsing errors during installation.
-- Fix: Removed dependency on recursive entities for critical plugin metadata.
-## 2026.01.25.17
-- Fix: Reverted .plg header structure to match known-good version .10 to resolve installation XML errors.
-- Debug: Dashboard card remains in 'Inline Styles Only' mode (no Chart.js) to verify layout stability.
-## 2026.01.25.16
-- Fix: Removed all recursive XML entities to satisfy Unraid's strict/simple parser.
-## 2026.01.25.15
-- Fix: Flattened XML entities in .plg file to resolve 'XML parse error' during installation.
-## 2026.01.25.14
-- Debug: Removed all <style> blocks and converted to inline styles.
-- Debug: Validating if Unraid's dashboard parser chokes on <style> tags within tiles.
-## 2026.01.25.13
-- Debug: Re-enabled full HTML structure (Grid, Table) but disabled Chart.js/Scripts.
-- Debug: Testing if HTML structure/CSS causes layout crashes.
-## 2026.01.25.12
-- Debug: Reverted to minimal card but added Settings loading logic to verify PHP backend.
-- Debug: Validating if 'parse_ini_file' or logic blocks are causing crashes.
-## 2026.01.25.11
-- Fix: Restored full card functionality using the safe Function Pattern verified in version .10.
-- Fix: Removed debug logging.
 ## 2026.01.25.10
 - Debug: Replaced dashboard card with minimal "Hello World" version to isolate rendering issues.
 - Debug: Added logging to /tmp/zram_debug.log to trace execution flow.
@@ -85,7 +61,7 @@
 <INLINE>
 #!/bin/bash
 # Clean up existing files to force a fresh download
-PLUGIN_DIR="/usr/local/emhttp/plugins/&name;"
+PLUGIN_DIR="/usr/local/emhttp/plugins/unraid-zram-card"
 if [ -d "$PLUGIN_DIR" ]; then
     rm -rf "$PLUGIN_DIR"
 fi
@@ -155,17 +131,17 @@ log_msg() {
 log_msg "Starting uninstallation..."
 
 # 1. Remove the RAM directory explicitly
-if [ -d "&emhttp;" ]; then
-    log_msg "Removing plugin directory: &emhttp;"
-    rm -rf "&emhttp;"
+if [ -d "/usr/local/emhttp/plugins/unraid-zram-card" ]; then
+    log_msg "Removing plugin directory: /usr/local/emhttp/plugins/unraid-zram-card"
+    rm -rf "/usr/local/emhttp/plugins/unraid-zram-card"
 else
     log_msg "Plugin directory not found."
 fi
 
 # 2. Remove the Package (if registered)
 log_msg "Removing package manifest..."
-removepkg &name;-&version;
-removepkg &name;
+removepkg unraid-zram-card-&version;
+removepkg unraid-zram-card
 
 # 3. Update Plugin Cache (Crucial for UI refresh)
 if [ -f /usr/local/sbin/update_plugin_cache ]; then

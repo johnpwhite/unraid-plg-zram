@@ -2,17 +2,34 @@ Menu="Dashboard:0"
 Icon="server"
 ---
 <?php
+// Debugging Logger
+function zram_log($msg) {
+    file_put_contents('/tmp/zram_debug.log', date('Y-m-d H:i:s') . " - " . $msg . "\n", FILE_APPEND);
+}
+
+zram_log("Dashboard Page Loaded");
+
 try {
     $docroot = $docroot ?? $_SERVER['DOCUMENT_ROOT'] ?: '/usr/local/emhttp';
     $includeFile = "{$docroot}/plugins/unraid-zram-card/ZramCard.php";
 
     if (file_exists($includeFile)) {
+        zram_log("Including file: $includeFile");
         require_once $includeFile;
+        
         if (function_exists('getZramDashboardCard')) {
-            $mytiles['unraid-zram-card']['column2'] = getZramDashboardCard();
+            zram_log("Calling getZramDashboardCard...");
+            $content = getZramDashboardCard();
+            $mytiles['unraid-zram-card']['column2'] = $content;
+            zram_log("Card content assigned (" . strlen($content) . " bytes)");
+        } else {
+            zram_log("ERROR: Function getZramDashboardCard not found!");
         }
+    } else {
+        zram_log("ERROR: File not found: $includeFile");
     }
 } catch (Throwable $e) {
-    $mytiles['unraid-zram-card']['column2'] = '<tbody title="Unraid ZRAM Card"><tr><td>Error: ' . htmlspecialchars($e->getMessage()) . '</td></tr></tbody>';
+    zram_log("EXCEPTION: " . $e->getMessage());
+    if (ob_get_level() > 0) ob_end_clean();
 }
 ?>
