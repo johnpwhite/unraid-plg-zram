@@ -1,20 +1,22 @@
 <?php
-// ZramCard.php - Live Stats with Chart
+// ZramCard.php - Compact Version with Chart
 
 if (!function_exists('getZramDashboardCard')) {
     function getZramDashboardCard() {
         // Debug Logger
         $log = function($msg) {
-            file_put_contents('/tmp/zram_debug.log', date('[Y-m-d H:i:s] ') . $msg . "\n", FILE_APPEND);
+            @file_put_contents('/tmp/zram_debug.log', date('[Y-m-d H:i:s] ') . $msg . "\n", FILE_APPEND);
         };
         
-try {
+        try {
             // --- HELPER: Format Bytes ---
             $formatBytes = function($bytes, $precision = 2) {
                 $units = ['B', 'KB', 'MB', 'GB', 'TB'];
                 $bytes = max($bytes, 0);
-                $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
+                if ($bytes < 1) return '0 B';
+                $pow = floor(log($bytes) / log(1024));
                 $pow = min($pow, count($units) - 1);
+                $pow = max($pow, 0);
                 $bytes /= pow(1024, $pow);
                 return round($bytes, $precision) . ' ' . $units[$pow];
             };
@@ -85,7 +87,7 @@ try {
                                     <?php else: ?>
                                         ZRAM Status<br>
                                     <?php endif; ?>
-                                    <span class="zram-subtitle">
+                                    <span class="zram-subtitle" style="font-size: 0.9em; opacity: 0.8;">
                                         <?php echo count($devices) > 0 ? 'Active (' . count($devices) . ' devs)' : 'Inactive'; ?>
                                     </span>
                                 </div>
@@ -100,50 +102,50 @@ try {
                 </tr>
                 <tr>
                     <td>
-                        <div class="zram-content" style="padding: 0 10px;">
-                            <!-- Stats Grid -->
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 10px; margin-top: 10px;">
-                                <div style="background-color: rgba(0,0,0,0.1); padding: 10px; border-radius: 4px; text-align: center;">
-                                    <span id="zram-saved" style="font-size: 1.2em; font-weight: bold; display: block; color: #7fba59;">
+                        <div class="zram-content" style="padding: 0 8px;">
+                            <!-- Stats Grid (Tightened) -->
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 6px; margin-bottom: 8px; margin-top: 5px;">
+                                <div style="background-color: rgba(0,0,0,0.1); padding: 6px; border-radius: 4px; text-align: center;">
+                                    <span id="zram-saved" style="font-size: 1.1em; font-weight: bold; display: block; color: #7fba59;">
                                         <?php echo $formatBytes($memorySaved); ?>
                                     </span>
-                                    <span style="font-size: 0.8em; opacity: 0.7;">RAM Saved</span>
+                                    <span style="font-size: 0.75em; opacity: 0.7;">RAM Saved</span>
                                 </div>
-                                <div style="background-color: rgba(0,0,0,0.1); padding: 10px; border-radius: 4px; text-align: center;">
-                                    <span id="zram-ratio" style="font-size: 1.2em; font-weight: bold; display: block; color: #ffae00;">
+                                <div style="background-color: rgba(0,0,0,0.1); padding: 6px; border-radius: 4px; text-align: center;">
+                                    <span id="zram-ratio" style="font-size: 1.1em; font-weight: bold; display: block; color: #ffae00;">
                                         <?php echo $ratio; ?>x
                                     </span>
-                                    <span style="font-size: 0.8em; opacity: 0.7;">Ratio</span>
+                                    <span style="font-size: 0.75em; opacity: 0.7;">Ratio</span>
                                 </div>
-                                <div style="background-color: rgba(0,0,0,0.1); padding: 10px; border-radius: 4px; text-align: center;">
-                                    <span id="zram-used" style="font-size: 1.2em; font-weight: bold; display: block; color: #00a4d8;">
+                                <div style="background-color: rgba(0,0,0,0.1); padding: 6px; border-radius: 4px; text-align: center;">
+                                    <span id="zram-used" style="font-size: 1.1em; font-weight: bold; display: block; color: #00a4d8;">
                                         <?php echo $formatBytes($totalUsed); ?>
                                     </span>
-                                    <span style="font-size: 0.8em; opacity: 0.7;">Actual Used</span>
+                                    <span style="font-size: 0.75em; opacity: 0.7;">Actual Used</span>
                                 </div>
                             </div>
 
-                            <!-- Chart Canvas -->
-                            <div style="height: 100px; width: 100%; margin-bottom: 15px;">
+                            <!-- Chart Canvas (Smaller Height) -->
+                            <div style="height: 70px; width: 100%; margin-bottom: 8px;">
                                 <canvas id="zramChart"></canvas>
                             </div>
 
-                            <!-- Device List -->
-                            <div id="zram-device-list" style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 5px;">
+                            <!-- Device List (Compact) -->
+                            <div id="zram-device-list" style="margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 3px;">
                                 <?php if (count($devices) > 0): ?>
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 5px; opacity: 0.6; font-size: 0.85em; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; opacity: 0.5; font-size: 0.8em; margin-bottom: 2px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 1px;">
                                         <div style="text-align: left;">Dev</div><div style="text-align: right;">Size</div><div style="text-align: right;">Used</div><div style="text-align: right;">Comp</div>
                                     </div>
                                     <?php foreach ($devices as $dev): ?>
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 5px; font-size: 0.85em; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.02);">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; font-size: 0.8em; padding: 2px 0;">
                                         <div style="text-align: left; font-weight: bold;"><?php echo htmlspecialchars($dev['name'] ?? '?'); ?></div>
-                                        <div style="text-align: right; opacity: 0.8;"><?php echo $formatBytes(intval($dev['disksize'] ?? 0)); ?></div>
-                                        <div style="text-align: right; opacity: 0.8;"><?php echo $formatBytes(intval($dev['total'] ?? 0)); ?></div>
-                                        <div style="text-align: right; opacity: 0.8;"><?php echo htmlspecialchars($dev['algorithm'] ?? '?'); ?></div>
+                                        <div style="text-align: right; opacity: 0.7;"><?php echo $formatBytes(intval($dev['disksize'] ?? 0)); ?></div>
+                                        <div style="text-align: right; opacity: 0.7;"><?php echo $formatBytes(intval($dev['total'] ?? 0)); ?></div>
+                                        <div style="text-align: right; opacity: 0.7;"><?php echo htmlspecialchars($dev['algorithm'] ?? '?'); ?></div>
                                     </div>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <div style="text-align: center; opacity: 0.6; padding: 10px;">No ZRAM devices active.</div>
+                                    <div style="text-align: center; opacity: 0.5; padding: 5px; font-size: 0.85em;">No ZRAM devices active.</div>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -166,7 +168,7 @@ try {
         } catch (Throwable $e) {
             if (ob_get_level() > 0) ob_end_clean();
             $log("CRITICAL ERROR: " . $e->getMessage());
-            return "<tbody title='ZRAM Error'><tr><td><div style='padding: 15px; color: #E57373; text-align: center;'><strong>ZRAM Plugin Error</strong><br><small>Run: cat /tmp/zram_debug.log</small></div></td></tr></tbody>";
+            return "<tbody title='ZRAM Error'><tr><td><div style='padding: 10px; color: #E57373; text-align: center;'><strong>ZRAM Plugin Error</strong><br><small>Run: cat /tmp/zram_debug.log</small></div></td></tr></tbody>";
         }
     }
 }
