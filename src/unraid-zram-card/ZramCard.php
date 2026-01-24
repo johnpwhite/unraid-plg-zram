@@ -197,8 +197,26 @@ if (!function_exists('getZramDashboardCard')) {
             $log("CRITICAL ERROR: " . $e->getMessage());
             $log("Stack Trace: " . $e->getTraceAsString());
             
-            // Return a safe error card
-            return "<tbody><tr><td><div style='color: #d9534f; padding: 10px;'><strong>ZRAM Card Error</strong><br>Check /tmp/zram_debug.log</div></td></tr></tbody>";
+            // Return a safe error card with instructions
+            return "
+            <tbody title='ZRAM Card Error'>
+                <tr>
+                    <td>
+                        <div style='padding: 15px; color: #E57373; text-align: center;'>
+                            <i class='fa fa-exclamation-triangle fa-2x' style='margin-bottom: 10px;'></i><br>
+                            <strong style='font-size: 1.1em;'>ZRAM Plugin Error</strong>
+                            <p style='margin: 10px 0; font-size: 0.9em; color: #ccc;'>
+                                The dashboard card encountered an error.
+                            </p>
+                            <div style='background: rgba(0,0,0,0.3); padding: 8px; border-radius: 4px; text-align: left; font-family: monospace; font-size: 0.85em; margin: 10px 0;'>
+                                1. Open Web Terminal (>_ top right)<br>
+                                2. Run: <span style='color: #4FC3F7;'>cat /tmp/zram_debug.log</span>
+                            </div>
+                            <small style='opacity: 0.6;'>Please report this log to the developer.</small>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>";
         }
     }
 }
