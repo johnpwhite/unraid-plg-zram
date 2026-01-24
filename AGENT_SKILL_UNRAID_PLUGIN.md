@@ -258,3 +258,30 @@ Plugins should download assets to the USB drive (persistent) and then install to
 *   **Symptom**: Checkbox or Select options revert after clicking Save.
 *   **Cause**: PHP `isset($_POST['val'])` is always true for `<select>` elements.
 *   **Fix**: Check the *value*: `($_POST['enabled'] === 'yes')`.
+
+## Quality Assurance & Diagnostics
+
+### 1. Code Quality Tools (Recommended)
+Adopting tools from the community (e.g., `dkaser/unraid-plugin-template`) significantly improves stability.
+*   **PHPStan**: Static analysis to catch bugs before runtime.
+    *   `vendor/bin/phpstan analyse src`
+*   **PHP-CS-Fixer**: Enforces standard PHP coding styles.
+    *   `vendor/bin/php-cs-fixer fix src`
+*   **ShellCheck**: Essential for validating `.plg` and `install/remove` scripts.
+
+### 2. Diagnostics Framework
+Unraid allows plugins to hook into the system diagnostics zip.
+*   **Method**: Place a `diagnostics.json` file in your plugin dir (`/usr/local/emhttp/plugins/my-plugin/`).
+*   **Format** (Reference: `dkaser/unraid-plugin-diagnostics`):
+    ```json
+    {
+      "files": [
+        "/boot/config/plugins/my-plugin/settings.ini",
+        "/var/log/my-plugin.log"
+      ],
+      "commands": {
+        "zram-status": "zramctl"
+      }
+    }
+    ```
+
