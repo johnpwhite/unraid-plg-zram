@@ -27,11 +27,39 @@ You are an expert Unraid Plugin Developer. You specialize in creating plugins fo
 ### 2. The `.plg` File (The Heart)
 The `.plg` file is an XML document containing bash scripts for lifecycle events.
 
-**CRITICAL: XML Parsing & Entities**
-*   **Flatten Entities:** Do NOT use recursive entities (e.g., `<!ENTITY pluginURL "&gitURL;/file.plg">`) in the `pluginURL` attribute. Unraid's pre-installer often fails to expand them, causing "XML parse error". Use the full literal URL string for `pluginURL`.
-*   **MD5 Checksums:** Always recommended for remote files to ensure integrity.
+**CRITICAL: XML Parsing & Entities (The "Hybrid Strategy")**
+Unraid's pre-installer parser (used during the initial `installplg` phase) can be fragile with recursive XML entities in the root `<PLUGIN>` tag.
+*   **Rule:** **Hardcode** critical attributes (`pluginURL`, `support`, `name`, `version`) in the `<PLUGIN>` tag.
+*   **Rule:** Use **Entities** (`&gitURL;`, `&emhttp;`) for the payload (`<FILE>` tags) to maintain maintainability.
 
-### 3. Unraid 7.2 Specifics & Dashboard Cards (The "Trailblazer" Method)
+**Bad (Risk of "XML Parse Error"):**
+```xml
+<!ENTITY gitURL "...">
+<!ENTITY pluginURL "&gitURL;/my.plg"> <!-- Recursive dependency -->
+<PLUGIN pluginURL="&pluginURL;">
+```
+
+**Good (Robust):**
+```xml
+<!ENTITY gitURL "...">
+<PLUGIN pluginURL="https://.../my.plg"> <!-- Hardcoded/Literal -->
+  <FILE Name="&gitURL;/script.sh"> ... </FILE>
+</PLUGIN>
+```
+
+### 3. Best Practices from Vendor (Limetech)
+Analysis of official system plugins reveals robust patterns:
+
+*   **Flash Safety:** Always run `sync -f /boot` after writing to the flash drive to prevent corruption.
+*   **Version Comparison:** Use PHP inside Bash for reliable semantic version checks:
+    ```bash
+    if [[ $(php -r "echo version_compare('$version', '6.12.0');") -lt 0 ]]; then ... fi
+    ```
+*   **Network Checks:** Verify connectivity before attempting downloads (ping check).
+*   **Checksums:** Explicitly verify MD5 or SHA256 sums for critical binaries.
+*   **Atomic Swaps:** Download to `/tmp` first, verify, then move to `/boot` or `/usr/local/emhttp`.
+
+### 4. Unraid 7.2 Specifics & Dashboard Cards (The "Trailblazer" Method)
 
 **Dashboard Integration has changed significantly.** The old method of just including a PHP file often leads to **Blank Page Crashes** due to variable scope collisions or buffer leaks.
 
@@ -72,81 +100,30 @@ if (!function_exists('myPluginGetDashCard')) {
 *   **Menu Attribute:** MUST be `Menu="Dashboard:0"` (The `:0` is crucial for ordering).
 *   **Logic:** Require the file, check for the function, and assign the result.
 
-```php
-Menu="Dashboard:0"
-Icon="server"
----
-<?php
-$docroot = $docroot ?? $_SERVER['DOCUMENT_ROOT'] ?: '/usr/local/emhttp';
-$file = "{$docroot}/plugins/my-plugin/MyCard.php";
+### 5. Robust Installation & Cleanup (Preventing "File Already Exists")
 
-if (file_exists($file)) {
-    require_once $file;
-    if (function_exists('myPluginGetDashCard')) {
-        // Assign to the standard tiles array
-        $mytiles['my-plugin']['column2'] = myPluginGetDashCard();
-    }
-}
-?>
-```
+Unraid does not clean up old files during an update. You MUST handle this manually.
 
-**Common Crashes (The "Blank Page" Symptom):**
-*   **Cause:** Using `(function(){ ... })();` closures containing mixed HTML/PHP. Unraid's loader dislikes this structure.
-*   **Cause:** `<style>` tags inside the dashboard tile HTML. Unraid 7's parser may choke on them. **Use Inline Styles** or load an external CSS file via a proper hook.
-*   **Cause:** PHP Fatal Errors (e.g., `parse_ini_file` on missing files) inside the rendering loop. Always use `@` suppression or `file_exists` checks.
-
-### 4. Robust Installation & Cleanup (Preventing "File Already Exists")
-
-Unraid does not clean up old files during an update. You MUST handle this manually in **two** places.
-
-**1. Pre-Install Cleanup (Updates):**
-*   **Crucial:** You must assign a `Name` attribute (e.g., `Name="/tmp/cleanup"`) to the `<FILE>` tag containing your script. If omitted, the script is ignored.
-
+**1. Pre-Install Cleanup:**
+*   **Crucial:** Assign a `Name` attribute to the pre-install `<FILE>` tag so it executes before downloads.
 ```xml
-<!-- Run this FIRST -->
-<FILE Run="/bin/bash" Name="/tmp/plugin-cleanup">
+<FILE Run="/bin/bash" Name="/tmp/cleanup">
 <INLINE>
-#!/bin/bash
-# Nuke the old directory to ensure a clean install
 rm -rf /usr/local/emhttp/plugins/&name;
-echo "Cleanup complete."
 </INLINE>
 </FILE>
 ```
 
-**2. Uninstall Cleanup (Removal):**
-Duplicate the cleanup logic in the `<REMOVE>` script.
-
+**2. Uninstall Cleanup:**
 ```xml
 <REMOVE Script="remove.sh">
 #!/bin/bash
 removepkg &name;-&version;
 rm -rf /usr/local/emhttp/plugins/&name;
-# Force WebGUI refresh to remove ghost pages
+# Force WebGUI refresh
 if [ -f /usr/local/sbin/update_plugin_cache ]; then
     /usr/local/sbin/update_plugin_cache
 fi
 /etc/rc.d/rc.nginx reload
 </REMOVE>
 ```
-
-### 5. UI Development (PHP/HTML)
-*   **Page Files**: A `.page` file in your plugin dir registers a menu item.
-    *   **Settings Page:** `Menu="Utilities"` (or `Settings/Utilities`), `Icon="database"` (font awesome name without `fa-` prefix).
-*   **DOM Structure Changes (Unraid 7.x)**:
-    *   **Dashboard Tiles**: Use the new flexbox structure with `.tile-header`, `.tile-header-left/right`.
-    *   **Grid**: Use CSS Grid for content layout inside the tile.
-
-### 6. Development Workflow
-1.  **Draft**: Edit files locally.
-2.  **Package**: Create the `.plg` (and optional `.txz` archive of sources).
-3.  **Deploy**:
-    *   *Option A (Dev)*: SCP files directly to `/usr/local/emhttp/plugins/unraid-zram-card/` on the server for instant UI updates.
-    *   *Option B (Install)*: Copy `.plg` to `/boot/config/plugins/` and reboot or run `installplg /boot/config/plugins/my.plg`.
-4.  **Debug**:
-    *   **System Log**: `tail -f /var/log/syslog` (for installer scripts).
-    *   **Nginx Error Log**: `tail -f /var/log/nginx/error.log` (for "Blank Page" PHP fatal errors).
-
-### 7. Diagnostics Framework
-Unraid allows plugins to hook into the system diagnostics zip.
-*   **Method**: Place a `diagnostics.json` file in your plugin dir (`/usr/local/emhttp/plugins/my-plugin/`).
