@@ -1,4 +1,4 @@
-<!ENTITY version   "2026.01.25.7">
+<!ENTITY version   "2026.01.25.8">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY pluginURL "/boot/config/plugins/&name;/unraid-zram-card-local.plg">
 <!ENTITY boot      "/boot/config/plugins/&name;">
@@ -7,6 +7,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.8
+- Fix: Refactored dashboard card to use a Function Pattern for safer execution and variable isolation.
+- Fix: Removed manual output buffering in dash page in favor of function return.
 ## 2026.01.25.7
 - Fix: Removed closure in ZramCard.php to avoid potential PHP version/context parsing issues.
 - Fix: Renamed internal variables in ZramCard.php to avoid global collision.

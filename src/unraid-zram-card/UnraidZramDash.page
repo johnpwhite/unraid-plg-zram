@@ -3,23 +3,16 @@ Icon="server"
 ---
 <?php
 try {
-    // Determine docroot (handle different Unraid versions/environments)
     $docroot = $docroot ?? $_SERVER['DOCUMENT_ROOT'] ?: '/usr/local/emhttp';
+    $includeFile = "{$docroot}/plugins/unraid-zram-card/ZramCard.php";
 
-    // Start output buffering to capture the HTML from ZramCard.php
-    ob_start();
-    include "{$docroot}/plugins/unraid-zram-card/ZramCard.php";
-    $cardContent = ob_get_clean();
-
-    // Assign to the dashboard tiles array
-    $mytiles['unraid-zram-card']['column2'] = $cardContent;
-
-} catch (Throwable $e) {
-    // Clear the buffer if it's still open to prevent breaking the dashboard
-    if (ob_get_level() > 0) {
-        ob_end_clean();
+    if (file_exists($includeFile)) {
+        require_once $includeFile;
+        if (function_exists('getZramDashboardCard')) {
+            $mytiles['unraid-zram-card']['column2'] = getZramDashboardCard();
+        }
     }
-    // Fallback error display
-    $mytiles['unraid-zram-card']['column2'] = '<tbody title="Unraid ZRAM Card"><tr><td>Error loading ZRAM Card: ' . htmlspecialchars($e->getMessage()) . '</td></tr></tbody>';
+} catch (Throwable $e) {
+    $mytiles['unraid-zram-card']['column2'] = '<tbody title="Unraid ZRAM Card"><tr><td>Error: ' . htmlspecialchars($e->getMessage()) . '</td></tr></tbody>';
 }
 ?>
