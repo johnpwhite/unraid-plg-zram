@@ -1,4 +1,4 @@
-<!ENTITY version   "2026.01.25.14">
+<!ENTITY version   "2026.01.25.15">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY pluginURL "/boot/config/plugins/&name;/unraid-zram-card-local.plg">
 <!ENTITY boot      "/boot/config/plugins/&name;">
@@ -7,6 +7,8 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.15
+- Fix: Flattened XML entities in .plg file to resolve 'XML parse error' during installation.
 ## 2026.01.25.14
 - Debug: Removed all <style> blocks and converted to inline styles.
 - Debug: Validating if Unraid's dashboard parser chokes on <style> tags within tiles.
