@@ -4,55 +4,16 @@
 <!ENTITY author    "Gemini Agent">
 <!ENTITY version   "2026.01.24">
 <!ENTITY launch    "Settings/UnraidZramCard">
-<!ENTITY pluginURL "https://github.com/user/unraid-zram-card/raw/main/unraid-zram-card.plg">
-<!ENTITY boot      "/boot/config/plugins/&name;">
-<!ENTITY emhttp    "/usr/local/emhttp/plugins/&name;">
-]>
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="https://forums.unraid.net/">
-
-<CHANGES>
-## 2026.01.24
-- Initial Release: ZRAM Dashboard Card with Chart.js
-</CHANGES>
-
-<!-- 1. PRE-INSTALL: Clean up old versions -->
-<INSTALL Script="pre-install.sh">
-#!/bin/bash
-# Remove old installation
-rm -rf &emhttp;
-echo "Cleaning up old installation..."
-</INSTALL>
-
-<!-- 2. DEFINE FILES -->
-
-<!-- Dashboard Card PHP -->
-<FILE Name="&emhttp;/ZramCard.php">
-<LOCAL>&boot;/ZramCard.php</LOCAL>
-</FILE>
-
-<!-- Backend Status Script -->
-<FILE Name="&emhttp;/zram_status.php" Mode="0755">
-<LOCAL>&boot;/zram_status.php</LOCAL>
-</FILE>
-
-<!-- Settings/Page Registration -->
-<FILE Name="&emhttp;/UnraidZramCard.page">
-<LOCAL>&boot;/UnraidZramCard.page</LOCAL>
-</FILE>
-
-<!-- JS Logic -->
-<FILE Name="&emhttp;/js/zram-card.js">
-<LOCAL>&boot;/js/zram-card.js</LOCAL>
-</FILE>
-
+<!ENTITY pluginURL "http://192.168.1.38:9080/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
+...
 <!-- Icon -->
 <FILE Name="&emhttp;/icon.png">
-<URL>https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/linuxserver-ls-logo.png</URL> <!-- Placeholder Icon -->
+<URL>http://192.168.1.38:9080/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/icon.png</URL>
 </FILE>
 
-<!-- Chart.js Library (Downloading from CDN to local for resilience) -->
+<!-- Chart.js Library -->
 <FILE Name="&emhttp;/js/chart.min.js">
-<URL>https://cdn.jsdelivr.net/npm/chart.js</URL>
+<URL>http://192.168.1.38:9080/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/js/chart.js</URL>
 </FILE>
 
 <!-- 3. POST-INSTALL -->
