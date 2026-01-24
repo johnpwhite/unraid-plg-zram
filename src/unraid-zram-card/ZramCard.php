@@ -158,29 +158,25 @@ if (!function_exists('getZramDashboardCard')) {
                                 </div>
                             </div>
 
-                            <!-- Device Table -->
+                            <!-- Device List (Div-based to avoid nested tbody crash) -->
                             <?php if (count($devices) > 0): ?>
-                            <div class="TableContainer" style="overflow-x: auto;">
-                                <table style="width: 100%; font-size: 0.85em; margin-bottom: 10px; border-collapse: separate; border-spacing: 0 4px;">
-                                    <thead>
-                                        <tr>
-                                            <th style="text-align: left; opacity: 0.6; padding-bottom: 5px;">Dev</th>
-                                            <th style="text-align: right; opacity: 0.6; padding-bottom: 5px;">Size</th>
-                                            <th style="text-align: right; opacity: 0.6; padding-bottom: 5px;">Used</th>
-                                            <th style="text-align: right; opacity: 0.6; padding-bottom: 5px;">Comp</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach ($devices as $dev): ?>
-                                        <tr style="background-color: rgba(255,255,255,0.03);">
-                                            <td style="padding: 4px; border-radius: 3px 0 0 3px;"><?php echo htmlspecialchars($dev['name'] ?? '?'); ?></td>
-                                            <td style="text-align: right; padding: 4px;"><?php echo $formatBytes(intval($dev['disksize'] ?? 0)); ?></td>
-                                            <td style="text-align: right; padding: 4px;"><?php echo $formatBytes(intval($dev['total'] ?? 0)); ?></td>
-                                            <td style="text-align: right; padding: 4px; border-radius: 0 3px 3px 0;"><?php echo htmlspecialchars($dev['algorithm'] ?? '?'); ?></td>
-                                        </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
+                            <div class="zram-dev-list" style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 5px;">
+                                <!-- Header -->
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 5px; opacity: 0.6; font-size: 0.85em; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
+                                    <div style="text-align: left;">Dev</div>
+                                    <div style="text-align: right;">Size</div>
+                                    <div style="text-align: right;">Used</div>
+                                    <div style="text-align: right;">Comp</div>
+                                </div>
+                                <!-- Rows -->
+                                <?php foreach ($devices as $dev): ?>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 5px; font-size: 0.85em; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.02);">
+                                    <div style="text-align: left; font-weight: bold;"><?php echo htmlspecialchars($dev['name'] ?? '?'); ?></div>
+                                    <div style="text-align: right; opacity: 0.8;"><?php echo $formatBytes(intval($dev['disksize'] ?? 0)); ?></div>
+                                    <div style="text-align: right; opacity: 0.8;"><?php echo $formatBytes(intval($dev['total'] ?? 0)); ?></div>
+                                    <div style="text-align: right; opacity: 0.8;"><?php echo htmlspecialchars($dev['algorithm'] ?? '?'); ?></div>
+                                </div>
+                                <?php endforeach; ?>
                             </div>
                             <?php endif; ?>
                         </div>
