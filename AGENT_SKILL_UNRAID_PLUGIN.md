@@ -24,71 +24,62 @@ You are an expert Unraid Plugin Developer. You specialize in creating plugins fo
         *   Contains the actual PHP, JS, and asset files.
     *   **State/Settings**: `/boot/config/plugins/plugin-name/` (Persistent config usually goes here).
 
-### 2. The `.plg` File (The Heart)
+### 2. The `.plg` File (The Installer)
+
 The `.plg` file is an XML document containing bash scripts for lifecycle events.
 
-**CRITICAL: XML Parsing & Entities (The "Hybrid Strategy")**
-Unraid's pre-installer parser (used during the initial `installplg` phase) can be fragile with recursive XML entities in the root `<PLUGIN>` tag.
-*   **Rule:** **Hardcode** critical attributes (`pluginURL`, `support`, `name`, `version`) in the `<PLUGIN>` tag.
-*   **Rule:** Use **Entities** (`&gitURL;`, `&emhttp;`) for the payload (`<FILE>` tags) to maintain maintainability.
+#### The "Hybrid XML" Strategy (CRITICAL for Install Stability)
+Unraid's pre-installer parser is strict and can fail with "XML parse error" if the root `<PLUGIN>` tag relies on recursive entities.
 
-**Bad (Risk of "XML Parse Error"):**
-```xml
-<!ENTITY gitURL "...">
-<!ENTITY pluginURL "&gitURL;/my.plg"> <!-- Recursive dependency -->
-<PLUGIN pluginURL="&pluginURL;">
-```
+*   **Rule 1: Hardcode Header Attributes.** The `pluginURL`, `support`, `name`, and `version` in the `<PLUGIN>` tag MUST be literal strings. Do not use entities like `&pluginURL;` here.
+*   **Rule 2: Use Entities for Payload.** For the `<FILE>` tags (download lists), use entities (`&gitURL;`, `&emhttp;`) to keep the file maintainable.
 
-**Good (Robust):**
+**Correct Example:**
 ```xml
-<!ENTITY gitURL "...">
-<PLUGIN pluginURL="https://.../my.plg"> <!-- Hardcoded/Literal -->
-  <FILE Name="&gitURL;/script.sh"> ... </FILE>
+<!ENTITY gitURL "https://gitlab.com/user/repo/raw/master">
+<!ENTITY emhttp "/usr/local/emhttp/plugins/my-plugin">
+<PLUGIN 
+    name="my-plugin" 
+    pluginURL="https://gitlab.com/user/repo/raw/master/my-plugin.plg" 
+    version="2026.01.25.01"
+>
+  <!-- Payload uses entities -->
+  <FILE Name="&emhttp;/script.sh"><URL>&gitURL;/src/script.sh</URL></FILE>
 </PLUGIN>
 ```
 
-### 3. Best Practices from Vendor (Limetech)
-Analysis of official system plugins reveals robust patterns:
-
+#### Best Practices (Vendor/Limetech Standards)
 *   **Flash Safety:** Always run `sync -f /boot` after writing to the flash drive to prevent corruption.
 *   **Version Comparison:** Use PHP inside Bash for reliable semantic version checks:
     ```bash
     if [[ $(php -r "echo version_compare('$version', '6.12.0');") -lt 0 ]]; then ... fi
     ```
-*   **Network Checks:** Verify connectivity before attempting downloads (ping check).
-*   **Checksums:** Explicitly verify MD5 or SHA256 sums for critical binaries.
-*   **Atomic Swaps:** Download to `/tmp` first, verify, then move to `/boot` or `/usr/local/emhttp`.
+*   **Network Checks:** Verify connectivity (e.g., ping `8.8.8.8`) before attempting downloads.
+*   **Pre-Install Cleanup:** Unraid overwrites, so manually clean old directories *before* downloading new files to prevent "file exists" errors.
+    ```xml
+    <FILE Run="/bin/bash" Name="/tmp/cleanup"><INLINE>rm -rf /usr/local/emhttp/plugins/my-plugin</INLINE></FILE>
+    ```
 
-### 4. Unraid 7.2 Specifics & Dashboard Cards (The "Trailblazer" Method)
+### 3. Dashboard Integration (Unraid 7.x)
 
-**Dashboard Integration has changed significantly.** The old method of just including a PHP file often leads to **Blank Page Crashes** due to variable scope collisions or buffer leaks.
+**Dashboard Integration has changed.** The old method of just including a PHP file often leads to **Blank Page Crashes** due to variable scope collisions.
 
-#### The Safe "Function Pattern" (Required for Stability)
-Do not write raw HTML/PHP logic at the top level of your included card file. Instead, wrap everything in a function.
+#### The "Function Pattern" (Required for Stability)
+Do not write raw HTML/PHP logic at the top level of the included card file. Wrap it in a unique function.
 
-**1. The Card Logic File (`MyCard.php`):**
+**1. The Card Logic (`MyCard.php`):
 ```php
 <?php
-// Check for function existence to avoid redeclaration crashes
 if (!function_exists('myPluginGetDashCard')) {
     function myPluginGetDashCard() {
         // 1. Safe Settings Loading (Use unique variable prefixes!)
-        $my_config = parse_ini_file('/boot/config/plugins/my-plugin/settings.ini');
+        $settings = parse_ini_file('/boot/config/plugins/my-plugin/settings.ini');
         
-        // 2. Logic & Checks
-        if ($my_config['enabled'] !== 'yes') return '';
-
-        // 3. Output Generation (Buffer Capture)
+        // 2. Output Generation (Buffer Capture)
         ob_start();
 ?>
-        <!-- INLINE STYLES ONLY - Do not use <style> blocks inside tiles -->
-        <tbody title="My Plugin">
-            <tr>
-                <td>
-                    <div style="display: grid; ...">...</div>
-                </td>
-            </tr>
-        </tbody>
+        <!-- INLINE STYLES ONLY - Do not use <style> blocks inside tiles to prevent grid crashes -->
+        <tbody title="My Plugin">...</tbody>
 <?php
         return ob_get_clean();
     }
@@ -96,34 +87,38 @@ if (!function_exists('myPluginGetDashCard')) {
 ?>
 ```
 
-**2. The Dashboard Registration File (`MyPluginDash.page`):**
-*   **Menu Attribute:** MUST be `Menu="Dashboard:0"` (The `:0` is crucial for ordering).
-*   **Logic:** Require the file, check for the function, and assign the result.
+**2. The Registration (`MyPluginDash.page`):
+*   **Menu Attribute:** `Menu="Dashboard:0"` (The `:0` orders it).
+*   **Logic:**
+    ```php
+    <?php
+    $file = "/usr/local/emhttp/plugins/my-plugin/MyCard.php";
+    if (file_exists($file)) {
+        require_once $file;
+        if (function_exists('myPluginGetDashCard')) {
+            $mytiles['my-plugin']['column2'] = myPluginGetDashCard();
+        }
+    }
+    ?>
+    ```
 
-### 5. Robust Installation & Cleanup (Preventing "File Already Exists")
+### 4. System Tools & Data Retrieval
+When calling system tools (like `zramctl`, `lsblk`):
+*   **Prefer JSON:** Use `--json` output flags if available (Unraid 7 has modern tools). It is far more robust than parsing raw text columns.
+*   **Fallback:** If JSON fails, fall back to raw parsing with explicit columns (`--output-all --bytes --noheadings --raw`).
 
-Unraid does not clean up old files during an update. You MUST handle this manually.
-
-**1. Pre-Install Cleanup:**
-*   **Crucial:** Assign a `Name` attribute to the pre-install `<FILE>` tag so it executes before downloads.
-```xml
-<FILE Run="/bin/bash" Name="/tmp/cleanup">
-<INLINE>
-rm -rf /usr/local/emhttp/plugins/&name;
-</INLINE>
-</FILE>
+```php
+exec('zramctl --output-all --bytes --json 2>/dev/null', $output, $return);
+if ($return === 0) {
+    $data = json_decode(implode("\n", $output), true);
+}
 ```
 
-**2. Uninstall Cleanup:**
-```xml
-<REMOVE Script="remove.sh">
-#!/bin/bash
-removepkg &name;-&version;
-rm -rf /usr/local/emhttp/plugins/&name;
-# Force WebGUI refresh
-if [ -f /usr/local/sbin/update_plugin_cache ]; then
-    /usr/local/sbin/update_plugin_cache
-fi
-/etc/rc.d/rc.nginx reload
-</REMOVE>
+### 5. Deployment Workflow
+1.  **Draft:** Edit files locally.
+2.  **Sync:** Copy `.plg` to `release/` folder to match root.
+3.  **Push:** Commit and push to git.
+4.  **Install:** `installplg https://.../my-plugin.plg` on Unraid.
+5.  **Debug:** Check `/var/log/syslog` or `/boot/config/plugins-error/` if installation fails.
+
 ```
