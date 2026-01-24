@@ -66,6 +66,8 @@ echo "Plugin &name; installed."
 <REMOVE>
 removepkg &name;-&version;
 rm -rf /usr/local/emhttp/plugins/&name;
+# Force WebGUI refresh to remove ghost pages
+/etc/rc.d/rc.nginx reload
 echo "Plugin &name; removed."
 </REMOVE>
 
@@ -223,9 +225,36 @@ Plugins should download assets to the USB drive (persistent) and then install to
 4.  **Debug**: Check `/var/log/syslog` and Web Developer Console.
 
 ## Conventions
-*   **Naming**: Kebab-case for directories/repos (`unraid-zram-card`).
-*   **Icons**: standard FontAwesome or local PNGs.
-*   **Safety**: Read-only operations for the dashboard card (do not modify system ZRAM settings unless explicitly commanded).
-*   **Versioning**: Strict YYYY.MM.DD format. If multiple releases occur on the same day, use `.1`, `.2`, etc. (e.g., `2024.01.24.1`). Do NOT use letters (e.g., `2024.01.24a` is invalid).
-*   **Display Name**: The name shown in the "Installed Plugins" list is derived from the **filename** of the `.plg` file. To have a friendly name like "UnraidZramCard", name your file `UnraidZramCard.plg`.
-*   **Description**: To show a description in the "Installed Plugins" list, include a `README.md` file in your plugin directory (`/usr/local/emhttp/plugins/my-plugin/README.md`). The Plugin Manager parses this file.
+*   **Naming (File/Dir)**: Kebab-case is common for directories/repos (`unraid-zram-card`).
+*   **Naming (Display)**: The "Installed Plugins" list uses the **filename** of the `.plg` file. Name your file `UnraidZramCard.plg` (CamelCase) if you want a friendly display name.
+*   **Icons**: Standard FontAwesome or local PNGs.
+*   **Safety**: Read-only operations for the dashboard card.
+*   **Versioning**: Strict `YYYY.MM.DD` format. Use `.1`, `.2` for intraday releases (e.g., `2024.01.24.1`). **NO letters** (e.g., `2024.01.24a` is invalid).
+*   **Metadata**:
+    *   **Description**: Include a `README.md` in your plugin directory and reference it in the `.plg` file. Use HTML `<br>` tags for line breaks in lists.
+    *   **Support**: The `support` attribute in the `<PLUGIN>` tag must be a valid URL (e.g., GitHub Issues or Forum Thread).
+
+## Troubleshooting & Common Pitfalls
+
+### 1. "Ghost" UI Elements after Uninstall
+*   **Symptom**: Settings pages or dashboard cards remain visible even after removing the plugin files.
+*   **Cause**: Unraid's WebGUI and Nginx cache the menu structure and page mappings.
+*   **Fix**: Your uninstall script (`<REMOVE>`) must explicitly reload Nginx.
+    ```bash
+    removepkg &name;-&version;
+    rm -rf &emhttp;
+    /etc/rc.d/rc.nginx reload  # Forces WebGUI refresh
+    ```
+
+### 2. Dashboard Card Sizing (Unraid 7.x)
+*   **Symptom**: Custom cards look "huge" or break the grid layout.
+*   **Cause**: Unraid 7.2 uses a CSS Grid/Flexbox layout. Fixed heights or unconstrained widths break this.
+*   **Fix**:
+    *   Use CSS constraints: `max-width: 100%; overflow: hidden;`.
+    *   Avoid large fixed heights for Charts/Canvas (keep < 150px).
+    *   Ensure your `canvas` has `display: block` to avoid inline whitespace issues.
+
+### 3. Settings Not Saving
+*   **Symptom**: Checkbox or Select options revert after clicking Save.
+*   **Cause**: PHP `isset($_POST['val'])` is always true for `<select>` elements.
+*   **Fix**: Check the *value*: `($_POST['enabled'] === 'yes')`.
