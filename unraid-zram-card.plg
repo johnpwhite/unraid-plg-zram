@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.4">
+<!ENTITY version   "2026.01.25.5">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "&gitURL;/unraid-zram-card.plg">
@@ -12,6 +12,9 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="&gitURL;/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.5
+- Fix: Aggressive uninstall script with logging to diagnose removal issues.
+- Fix: Hardcoded paths in removal script to prevent variable expansion failures.
 ## 2026.01.25.4
 - Fix: Prevented potential fatal PHP errors in dashboard card by safely checking version files and isolating scope with a closure.
 ## 2026.01.25.3
@@ -105,29 +108,39 @@ echo "&name; installed successfully."
 <!-- 4. REMOVE -->
 <REMOVE Script="remove.sh">
 #!/bin/bash
-# Define path variable to avoid XML entity issues in script
-PLUGIN_DIR="/usr/local/emhttp/plugins/unraid-zram-card"
+# Aggressive Removal Script with Logging
 
-# Remove the plugin directory
-if [ -d "$PLUGIN_DIR" ]; then
-    rm -rf "$PLUGIN_DIR"
-    echo "Removed $PLUGIN_DIR"
+log_msg() {
+    logger -t "unraid-zram-card-uninstall" "$1"
+    echo "$1"
+}
+
+log_msg "Starting uninstallation..."
+
+# 1. Remove the RAM directory explicitly
+if [ -d "/usr/local/emhttp/plugins/unraid-zram-card" ]; then
+    log_msg "Removing plugin directory: /usr/local/emhttp/plugins/unraid-zram-card"
+    rm -rf "/usr/local/emhttp/plugins/unraid-zram-card"
 else
-    echo "$PLUGIN_DIR not found"
+    log_msg "Plugin directory not found."
 fi
 
-# Attempt to remove the package if it was registered (handling both naming conventions)
+# 2. Remove the Package (if registered)
+log_msg "Removing package manifest..."
 removepkg unraid-zram-card-&version;
 removepkg unraid-zram-card
 
-# Force WebGUI refresh
+# 3. Update Plugin Cache (Crucial for UI refresh)
 if [ -f /usr/local/sbin/update_plugin_cache ]; then
+    log_msg "Updating plugin cache..."
     /usr/local/sbin/update_plugin_cache
 fi
 
-# Reload Nginx to clear cached pages
+# 4. Reload Nginx
+log_msg "Reloading Nginx..."
 /etc/rc.d/rc.nginx reload
-echo "&name; removed."
+
+log_msg "Uninstallation complete."
 </REMOVE>
 
 </PLUGIN>
