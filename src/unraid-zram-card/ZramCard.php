@@ -108,8 +108,8 @@ $cardId = 'zram-dashboard-card';
             </div>
 
             <!-- Chart -->
-            <div style="position: relative; height: 150px; width: 100%;">
-                <canvas id="zramChart"></canvas>
+            <div style="position: relative; height: 120px; width: 100%; max-width: 100%; overflow: hidden;">
+                <canvas id="zramChart" style="display: block; width: 100%; height: 100%;"></canvas>
             </div>
 
             <!-- Device Table (Collapsible or small) -->
