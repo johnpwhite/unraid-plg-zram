@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.24.4">
+<!ENTITY version   "2026.01.24.5">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY pluginURL "/boot/config/plugins/&name;/unraid-zram-card-local.plg">
 <!ENTITY boot      "/boot/config/plugins/&name;">
@@ -66,6 +66,8 @@ echo "&name; installed successfully."
 #!/bin/bash
 removepkg &name;-&version;
 rm -rf &emhttp;
+# Reload Nginx to clear cached pages
+/etc/rc.d/rc.nginx reload
 echo "&name; removed."
 </REMOVE>
 

@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.24.4">
+<!ENTITY version   "2026.01.24.5">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "&gitURL;/unraid-zram-card.plg">
@@ -12,6 +12,8 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="&gitURL;/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.24.5
+- Fix: Improved uninstall script to refresh WebGUI and remove artifacts.
 ## 2026.01.24.4
 - Fix: Formatting of plugin description in plugin manager.
 - Update: Changed author and support link.
@@ -86,6 +88,8 @@ echo "&name; installed successfully."
 #!/bin/bash
 removepkg &name;-&version;
 rm -rf &emhttp;
+# Reload Nginx to clear cached pages
+/etc/rc.d/rc.nginx reload
 echo "&name; removed."
 </REMOVE>
 
