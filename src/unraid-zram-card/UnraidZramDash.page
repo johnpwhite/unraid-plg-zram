@@ -1,0 +1,7 @@
+Menu="Dashboard"
+Icon="server"
+---
+<?php
+// Include the actual card logic
+include '/usr/local/emhttp/plugins/unraid-zram-card/ZramCard.php';
+?>
