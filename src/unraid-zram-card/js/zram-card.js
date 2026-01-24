@@ -71,10 +71,12 @@
                     x: { display: false },
                     y: {
                         beginAtZero: true,
+                        suggestedMax: 102400, // Show at least 100KB scale if empty
                         grid: { color: gridColor },
                         ticks: {
                             color: textColor,
                             font: { size: 10 },
+                            maxTicksLimit: 5,
                             callback: function(value) {
                                 return formatBytes(value, 0);
                             }
