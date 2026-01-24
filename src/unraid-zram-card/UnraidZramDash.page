@@ -1,4 +1,4 @@
-Menu="Dashboard"
+Menu="Dashboard:0"
 Icon="server"
 ---
 <?php
