@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.28">
+<!ENTITY version   "2026.01.25.29">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "&gitURL;/unraid-zram-card.plg">
@@ -12,6 +12,8 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="&gitURL;/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.29
+- Design: Further reduced padding in the device list for an ultra-compact layout.
 ## 2026.01.25.28
 - UX: Chart Y-axis now self-adjusts based on data with a graceful minimum range.
 ## 2026.01.25.27

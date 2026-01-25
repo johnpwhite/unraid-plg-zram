@@ -115,10 +115,10 @@
             const listContainer = document.getElementById('zram-device-list');
             if (listContainer) {
                 if (!data.devices || data.devices.length === 0) {
-                    listContainer.innerHTML = '<div style="text-align: center; opacity: 0.6; padding: 10px;">No ZRAM devices active.</div>';
+                    listContainer.innerHTML = '<div style="text-align: center; opacity: 0.5; padding: 3px; font-size: 0.8em;">No ZRAM devices active.</div>';
                 } else {
                     let html = `
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 5px; opacity: 0.6; font-size: 0.85em; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; opacity: 0.5; font-size: 0.75em; margin-bottom: 1px; border-bottom: 1px solid rgba(255,255,255,0.05);">
                             <div style="text-align: left;">Dev</div>
                             <div style="text-align: right;">Size</div>
                             <div style="text-align: right;">Used</div>
@@ -127,11 +127,11 @@
                     
                     data.devices.forEach(dev => {
                         html += `
-                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 5px; font-size: 0.85em; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.02);">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; font-size: 0.8em; padding: 1px 0;">
                                 <div style="text-align: left; font-weight: bold;">${dev.name}</div>
-                                <div style="text-align: right; opacity: 0.8;">${formatBytes(dev.disksize)}</div>
-                                <div style="text-align: right; opacity: 0.8;">${formatBytes(dev.total)}</div>
-                                <div style="text-align: right; opacity: 0.8;">${dev.algorithm}</div>
+                                <div style="text-align: right; opacity: 0.7;">${formatBytes(dev.disksize)}</div>
+                                <div style="text-align: right; opacity: 0.7;">${formatBytes(dev.total)}</div>
+                                <div style="text-align: right; opacity: 0.7;">${dev.algorithm}</div>
                             </div>`;
                     });
                     listContainer.innerHTML = html;

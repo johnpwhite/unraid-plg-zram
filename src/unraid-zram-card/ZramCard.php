@@ -131,13 +131,13 @@ if (!function_exists('getZramDashboardCard')) {
                             </div>
 
                             <!-- Device List (Compact) -->
-                            <div id="zram-device-list" style="margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 3px;">
+                            <div id="zram-device-list" style="margin-top: 3px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 2px;">
                                 <?php if (count($devices) > 0): ?>
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; opacity: 0.5; font-size: 0.8em; margin-bottom: 2px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 1px;">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; opacity: 0.5; font-size: 0.75em; margin-bottom: 1px; border-bottom: 1px solid rgba(255,255,255,0.05);">
                                         <div style="text-align: left;">Dev</div><div style="text-align: right;">Size</div><div style="text-align: right;">Used</div><div style="text-align: right;">Comp</div>
                                     </div>
                                     <?php foreach ($devices as $dev): ?>
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; font-size: 0.8em; padding: 2px 0;">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; font-size: 0.8em; padding: 1px 0;">
                                         <div style="text-align: left; font-weight: bold;"><?php echo htmlspecialchars($dev['name'] ?? '?'); ?></div>
                                         <div style="text-align: right; opacity: 0.7;"><?php echo $formatBytes(intval($dev['disksize'] ?? 0)); ?></div>
                                         <div style="text-align: right; opacity: 0.7;"><?php echo $formatBytes(intval($dev['total'] ?? 0)); ?></div>
@@ -145,7 +145,7 @@ if (!function_exists('getZramDashboardCard')) {
                                     </div>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <div style="text-align: center; opacity: 0.5; padding: 5px; font-size: 0.85em;">No ZRAM devices active.</div>
+                                    <div style="text-align: center; opacity: 0.5; padding: 3px; font-size: 0.8em;">No ZRAM devices active.</div>
                                 <?php endif; ?>
                             </div>
                         </div>
