@@ -62,7 +62,8 @@ try {
         "CHANGES.public.xml",
         "publish-to-github.ps1",
         "debug files",
-        "screen-shots"
+        "screen-shots",
+        "release"
     )
 
     foreach ($file in $internalFiles) {
