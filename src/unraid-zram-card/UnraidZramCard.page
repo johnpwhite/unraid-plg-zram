@@ -62,16 +62,16 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
 
 <style>
     .zram-layout { display: flex; gap: 20px; align-items: flex-start; width: 100%; margin-top: 10px; }
-    .zram-cards { flex: 0 0 500px; }
+    .zram-cards { flex: 0 0 550px; }
     
-    .zram-card {
+    .zram-card { 
         background: #1e1e1e; 
         border-radius: 8px; 
         border: 1px solid #333; 
         margin-bottom: 15px; 
         box-shadow: 0 4px 12px rgba(0,0,0,0.5);
     }
-    .zram-card-header {
+    .zram-card-header { 
         background: #2a2a2a; 
         padding: 10px 15px; 
         border-bottom: 1px solid #333;
@@ -84,7 +84,7 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
     }
     .zram-card-body { padding: 15px; color: #ccc; }
 
-    .zram-console-pane {
+    .zram-console-pane { 
         flex: 1; 
         background: #0d0d0d; 
         border-radius: 8px; 
@@ -98,13 +98,13 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
         flex-direction: column;
     }
     
-    .zram-btn { padding: 6px 12px; border-radius: 4px; cursor: pointer; border: none; font-weight: bold; font-size: 0.85em; transition: all 0.2s; }
+    .zram-btn { padding: 6px 14px; border-radius: 4px; cursor: pointer; border: none; font-weight: bold; font-size: 0.85em; transition: all 0.2s; }
     .zram-btn:hover { filter: brightness(1.2); }
     .zram-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     
-    .btn-create { background-color: #ff8c00; color: #fff; }
+    .btn-create { background-color: #ff8c00; color: #fff; white-space: nowrap; }
     .btn-remove { background-color: #cc0000; color: #fff; }
-    .btn-save { background-color: #ff8c00; color: #fff; width: 100%; margin-top: 10px; }
+    .btn-save { background-color: #ff8c00 !important; color: #fff !important; width: 100%; margin-top: 10px; }
     .btn-small { padding: 3px 8px; font-size: 0.75em; }
     
     .dev-table { width: 100%; border-collapse: collapse; margin-top: 5px; background: transparent; }
@@ -119,13 +119,37 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
     .log-cmd { color: #4444ff; font-weight: bold; }
     .log-debug { color: #666; padding-left: 15px; font-style: italic; font-size: 0.85em; }
 
-    .input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
-    .input-label { width: 80px; color: #aaa; font-size: 0.9em; }
+    /* Shaded Action Box */
+    .create-box { 
+        display: flex; 
+        align-items: center; 
+        gap: 15px; 
+        background: rgba(255,255,255,0.05); 
+        padding: 12px; 
+        border-radius: 6px; 
+        margin-bottom: 15px;
+        border: 1px solid #333;
+    }
+    .create-item { display: flex; align-items: center; gap: 8px; font-size: 0.9em; color: #aaa; }
     
-    /* Settings Form Tweaks */
-    .zram-card-body dl dt { color: #aaa; font-weight: normal; margin-bottom: 3px; font-size: 0.9em; width: 180px; }
-    .zram-card-body dl dd { margin-bottom: 8px; color: #eee; }
-    .zram-card-body select, .zram-card-body input { background: #111; border: 1px solid #444; color: #eee; padding: 4px; border-radius: 3px; font-size: 0.9em; }
+    /* Input Fixes */
+    .zram-card-body input, .zram-card-body select { 
+        background: #111 !important; 
+        border: 1px solid #444 !important; 
+        color: #eee !important; 
+        padding: 4px 8px !important; 
+        border-radius: 3px; 
+        font-size: 0.95em;
+    }
+    .zram-card-body input:focus, .zram-card-body select:focus {
+        background: #000 !important;
+        border-color: #ff8c00 !important;
+        outline: none;
+    }
+
+    /* Tighten Settings Rows */
+    .zram-card-body dl dt { color: #aaa; font-weight: normal; font-size: 0.9em; width: 180px; line-height: 2.2; }
+    .zram-card-body dl dd { margin-bottom: 4px; color: #eee; }
 </style>
 
 <div class="zram-layout">
@@ -134,32 +158,32 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
         <div class="zram-card">
             <div class="zram-card-header">
                 <span><i class="fa fa-server"></i> ZRAM Management</span>
-                <div style="display: flex; gap: 5px;">
-                    <button type="button" class="zram-btn btn-create" onclick="manageZram('create')">CREATE</button>
-                    <button type="button" class="zram-btn btn-remove" onclick="manageZram('remove', '')">REMOVE ALL</button>
-                </div>
+                <button type="button" class="zram-btn btn-remove btn-small" onclick="manageZram('remove', '')">REMOVE ALL</button>
             </div>
             <div class="zram-card-body">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 15px; align-items: center; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px;">
-                    <div class="input-row" style="margin-bottom: 0;">
-                        <span style="color: #aaa; font-size: 0.85em;">Size:</span>
+                <!-- Compact Action Box -->
+                <div class="create-box">
+                    <div class="create-item">
+                        <span>Size:</span>
                         <input type="text" id="swap_size_val" value="<?php echo htmlspecialchars($settings['swap_size']); ?>" style="width: 60px; text-align: center;">
                     </div>
-                    <div class="input-row" style="margin-bottom: 0;">
-                        <span style="color: #aaa; font-size: 0.85em;">Algo:</span>
-                        <select id="swap_algo_val" style="width: 90px;">
+                    <div class="create-item">
+                        <span>Algo:</span>
+                        <select id="swap_algo_val" style="width: 100px;">
                             <?php foreach ($algos as $a): ?>
                                 <option value="<?php echo $a; ?>" <?php echo ($settings['compression_algo'] == $a) ? 'selected' : ''; ?>><?php echo $a; ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <button type="button" class="zram-btn btn-create" onclick="manageZram('create')">CREATE DEVICE</button>
                 </div>
 
                 <table class="dev-table">
                     <thead><tr><th>Device</th><th>Size</th><th>Algo</th><th style="text-align: right;">Action</th></tr></thead>
                     <tbody>
                         <?php if (count($devices) > 0): ?>
-                            <?php foreach ($devices as $dev): ?>
+                            <?php foreach ($devices as $dev):
+                            ?>
                             <tr>
                                 <td><strong>/dev/<?php echo $dev['name']; ?></strong></td>
                                 <td><?php echo $dev['size']; ?></td>
@@ -169,7 +193,8 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                                 </td>
                             </tr>
                             <?php endforeach; ?>
-                        <?php else: ?>
+                        <?php else:
+                        ?>
                             <tr><td colspan="4" style="text-align: center; opacity: 0.4; font-style: italic; padding: 20px;">No active ZRAM devices</td></tr>
                         <?php endif; ?>
                     </tbody>
@@ -183,7 +208,7 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                 <div class="zram-card-header">
                     <span><i class="fa fa-cog"></i> Plugin Settings</span>
                 </div>
-                <div class="zram-card-body">
+                <div class="zram-card-body" style="padding-top: 10px;">
                     <dl>
                         <dt>Enable Dashboard Card:</dt>
                         <dd><select name="enabled"><option value="yes" <?php echo ($settings['enabled'] == 'yes') ? 'selected' : ''; ?>>Yes</option><option value="no" <?php echo ($settings['enabled'] == 'no') ? 'selected' : ''; ?>>No</option></select></dd>
@@ -200,9 +225,11 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                         <dt>Default Algorithm:</dt>
                         <dd>
                             <select name="compression_algo" style="width: 100px;">
-                                <?php foreach ($algos as $a): ?>
+                                <?php foreach ($algos as $a):
+                                ?>
                                     <option value="<?php echo $a; ?>" <?php echo ($settings['compression_algo'] == $a) ? 'selected' : ''; ?>><?php echo $a; ?></option>
-                                <?php endforeach; ?>
+                                <?php endforeach;
+                                ?>
                             </select>
                         </dd>
                     </dl>
