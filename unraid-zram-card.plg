@@ -2,22 +2,22 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.50">
+<!ENTITY version   "2026.01.25.51">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.50" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.51" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.51
+- Fix: Reverted uninstallation to the standard FILE Run Method="remove" pattern for guaranteed execution.
+- Fix: Unified button styling. All buttons now use the high-contrast orange-outline theme.
+- Fix: Styled the "Clear Logs" button to match the orange-outline theme.
 ## 2026.01.25.50
-- Fix: Resolved uninstallation hang by restoring stdout/stderr output to the WebUI.
-- Fix: Removed disruptive Nginx reload during removal to prevent connection drops.
-- Design: Cleaned up uninstall logging to use 'tee' for simultaneous console and file output.
-## 2026.01.25.49
-- Design: Forced orange theme on Save button.
+- Fix: Resolved uninstallation hang.
 </CHANGES>
 
 <!-- 1. HYBRID INSTALLER SCRIPT -->
@@ -86,9 +86,9 @@ echo "unraid-zram-card installed and ZRAM re-applied if configured."
 </INSTALL>
 
 <!-- 3. REMOVE -->
-<REMOVE>
-#!/bin/bash
-# Removal script for unraid-zram-card
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+# Robust removal script for unraid-zram-card
 LOG_DIR="/tmp/unraid-zram-card"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/uninstall.log"
@@ -111,10 +111,7 @@ rm -rf "$PLUGIN_DIR"
 echo "Removing package manifest..." | tee -a "$LOG_FILE"
 removepkg "$NAME" 2&gt;&amp;1 | tee -a "$LOG_FILE"
 
-# 4. Cleanup settings (Optional - following guide)
-# rm -rf "/boot/config/plugins/$NAME"
-
-# 5. Refresh UI Cache
+# 4. Refresh UI Cache
 echo "Refreshing UI cache..." | tee -a "$LOG_FILE"
 if [ -f /usr/local/sbin/update_plugin_cache ]; then
     /usr/local/sbin/update_plugin_cache
@@ -122,6 +119,7 @@ fi
 
 echo "--- UNINSTALL COMPLETE ---" | tee -a "$LOG_FILE"
 exit 0
-</REMOVE>
+</INLINE>
+</FILE>
 
 </PLUGIN>
