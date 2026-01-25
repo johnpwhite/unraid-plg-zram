@@ -71,14 +71,16 @@
                     x: { display: false },
                     y: {
                         beginAtZero: true,
-                        suggestedMax: 102400, // Show at least 100KB scale if empty
+                        grace: '10%', // Add headroom at the top
+                        suggestedMax: 1048576, // 1MB minimum scale
                         grid: { color: gridColor },
                         ticks: {
                             color: textColor,
                             font: { size: 10 },
-                            maxTicksLimit: 5,
+                            maxTicksLimit: 6,
                             callback: function(value) {
-                                return formatBytes(value, 0);
+                                // Use 1 decimal for better alignment on larger scales
+                                return formatBytes(value, value >= 1048576 ? 1 : 0);
                             }
                         }
                     }
