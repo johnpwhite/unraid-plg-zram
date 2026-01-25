@@ -2,16 +2,20 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.51">
+<!ENTITY version   "2026.01.25.52">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.51" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
+<PLUGIN name="unraid-zram-card" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.1" support="&gitURL;/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.52
+- Fix: Unified all buttons to use the ghost-orange theme with guaranteed CSS overrides.
+- Design: Synchronized Command Console header with other cards, including a terminal icon.
+- Fix: Switched Save button to a 'button' element to bypass system input styling.
 ## 2026.01.25.51
 - Fix: Reverted uninstallation to the standard FILE Run Method="remove" pattern for guaranteed execution.
 - Fix: Unified button styling. All buttons now use the high-contrast orange-outline theme.

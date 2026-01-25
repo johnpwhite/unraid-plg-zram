@@ -64,14 +64,15 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
     .zram-layout { display: flex; gap: 20px; align-items: flex-start; width: 100%; margin-top: 10px; }
     .zram-cards { flex: 0 0 500px; }
     
-    .zram-card { 
+    .zram-card {
         background: #1e1e1e; 
         border-radius: 8px; 
         border: 1px solid #333; 
         margin-bottom: 15px; 
         box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        overflow: hidden;
     }
-    .zram-card-header { 
+    .zram-card-header {
         background: #2a2a2a; 
         padding: 10px 15px; 
         border-bottom: 1px solid #333;
@@ -84,45 +85,42 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
     }
     .zram-card-body { padding: 15px; color: #ccc; }
 
-    .zram-console-pane { 
+    .zram-console-pane {
         flex: 1; 
         background: #0d0d0d; 
         border-radius: 8px; 
         border: 1px solid #333; 
-        padding: 15px; 
-        color: #00ff00; 
-        font-family: 'Courier New', monospace; 
-        font-size: 0.9em; 
+        min-width: 300px; 
         height: 600px;
         display: <?php echo ($settings['console_visible'] == 'yes') ? 'flex' : 'none'; ?>; 
         flex-direction: column;
+        overflow: hidden;
     }
     
-    /* Base Button - The "Ghost" style from your screenshot */
-    .zram-btn { 
-        padding: 6px 12px; 
+    /* UNIFIED BUTTON STYLE - The "Ghost" Look */
+    .zram-btn {
+        padding: 6px 14px; 
         border-radius: 4px; 
         cursor: pointer; 
         font-weight: bold; 
         font-size: 0.85em; 
         transition: all 0.2s ease;
-        background: transparent;
-        border: 1px solid #ff8c00;
-        color: #ff8c00;
+        background: transparent !important; 
+        border: 1px solid #ff8c00 !important;
+        color: #ff8c00 !important;
         text-transform: uppercase;
+        display: inline-block;
+        line-height: normal;
     }
-    .zram-btn:hover { background: #ff8c00; color: #fff; }
-    .zram-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .zram-btn:hover { background: #ff8c00 !important; color: #fff !important; }
+    .zram-btn:disabled { opacity: 0.3 !important; cursor: not-allowed; }
     
-    /* Button Variations */
-    .btn-remove { border-color: #cc0000; color: #cc0000; }
-    .btn-remove:hover { background: #cc0000; color: #fff; }
+    /* Specific overrides for color variations */
+    .btn-remove { border-color: #cc0000 !important; color: #cc0000 !important; }
+    .btn-remove:hover { background: #cc0000 !important; color: #fff !important; }
     
-    /* Small Header/Table Buttons */
-    .btn-small { padding: 3px 8px; font-size: 0.75em; }
-    
-    /* Full Width Save Button */
-    .btn-save-full { width: 100%; margin-top: 10px; padding: 10px; border-width: 2px; }
+    .btn-small { padding: 3px 8px !important; font-size: 0.75em !important; }
+    .btn-full { width: 100%; margin-top: 10px; padding: 10px !important; border-width: 2px !important; }
 
     .dev-table { width: 100%; border-collapse: collapse; margin-top: 5px; background: transparent; }
     .dev-table th { text-align: left; border-bottom: 2px solid #333; padding: 8px 5px; color: #888; font-size: 0.75em; text-transform: uppercase; }
@@ -130,13 +128,13 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
     
     .algo-pill { background: #333; color: #4fc3f7; padding: 1px 6px; border-radius: 4px; font-family: monospace; font-size: 0.85em; }
     
-    #console-log { flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #333 #0d0d0d; }
-    .log-entry { margin-bottom: 4px; padding-bottom: 2px; line-height: 1.3; border-bottom: 1px solid #1a1a1a; }
+    #console-log { flex: 1; overflow-y: auto; padding: 15px; scrollbar-width: thin; scrollbar-color: #333 #0d0d0d; }
+    .log-entry { margin-bottom: 4px; padding-bottom: 2px; line-height: 1.3; border-bottom: 1px solid #1a1a1a; font-family: 'Courier New', monospace; }
     .log-err { color: #ff4444; }
     .log-cmd { color: #4444ff; font-weight: bold; }
     .log-debug { color: #666; padding-left: 15px; font-style: italic; font-size: 0.85em; }
 
-    .create-box { 
+    .create-box {
         display: flex; 
         align-items: center; 
         gap: 15px; 
@@ -146,10 +144,9 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
         margin-bottom: 15px;
         border: 1px solid #333;
     }
-    .create-item { display: flex; align-items: center; gap: 8px; font-size: 0.9em; color: #aaa; }
     
     /* Input Fixes */
-    .zram-card-body input, .zram-card-body select { 
+    .zram-card-body input, .zram-card-body select {
         background: #111 !important; 
         border: 1px solid #444 !important; 
         color: #eee !important; 
@@ -162,7 +159,6 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
         outline: none;
     }
 
-    /* Tighten Settings Rows */
     .zram-card-body dl dt { color: #aaa; font-weight: normal; font-size: 0.9em; width: 180px; line-height: 2.2; }
     .zram-card-body dl dd { margin-bottom: 4px; color: #eee; }
 </style>
@@ -177,11 +173,11 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
             </div>
             <div class="zram-card-body">
                 <div class="create-box">
-                    <div class="create-item">
+                    <div style="display:flex; align-items:center; gap:8px; font-size:0.9em; color:#aaa;">
                         <span>Size:</span>
                         <input type="text" id="swap_size_val" value="<?php echo htmlspecialchars($settings['swap_size']); ?>" style="width: 60px; text-align: center;">
                     </div>
-                    <div class="create-item">
+                    <div style="display:flex; align-items:center; gap:8px; font-size:0.9em; color:#aaa;">
                         <span>Algo:</span>
                         <select id="swap_algo_val" style="width: 100px;">
                             <?php foreach ($algos as $a): ?>
@@ -196,7 +192,8 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                     <thead><tr><th>Device</th><th>Size</th><th>Algo</th><th style="text-align: right;">Action</th></tr></thead>
                     <tbody>
                         <?php if (count($devices) > 0): ?>
-                            <?php foreach ($devices as $dev): ?>
+                            <?php foreach ($devices as $dev):
+                            ?>
                             <tr>
                                 <td><strong>/dev/<?php echo $dev['name']; ?></strong></td>
                                 <td><?php echo $dev['size']; ?></td>
@@ -206,7 +203,8 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                                 </td>
                             </tr>
                             <?php endforeach; ?>
-                        <?php else: ?>
+                        <?php else:
+                        ?>
                             <tr><td colspan="4" style="text-align: center; opacity: 0.4; font-style: italic; padding: 20px;">No active ZRAM devices</td></tr>
                         <?php endif; ?>
                     </tbody>
@@ -237,13 +235,15 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                         <dt>Default Algorithm:</dt>
                         <dd>
                             <select name="compression_algo" style="width: 100px;">
-                                <?php foreach ($algos as $a): ?>
+                                <?php foreach ($algos as $a):
+                                ?>
                                     <option value="<?php echo $a; ?>" <?php echo ($settings['compression_algo'] == $a) ? 'selected' : ''; ?>><?php echo $a; ?></option>
-                                <?php endforeach; ?>
+                                <?php endforeach;
+                                ?>
                             </select>
                         </dd>
                     </dl>
-                    <input type="submit" name="save_settings" value="APPLY & SAVE SETTINGS" class="zram-btn btn-save-full">
+                    <button type="submit" name="save_settings" class="zram-btn btn-full">APPLY & SAVE SETTINGS</button>
                 </div>
             </div>
         </form>
@@ -251,8 +251,8 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
 
     <!-- CONSOLE -->
     <div class="zram-console-pane" id="zram-console-pane">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 15px;">
-            <span style="font-weight: bold; color: #fff; text-transform: uppercase; font-size: 0.85em; letter-spacing: 1px;">Command Console</span>
+        <div class="zram-card-header">
+            <span><i class="fa fa-terminal"></i> Command Console</span>
             <button type="button" class="zram-btn btn-small" onclick="clearPersistentLogs()"><i class="fa fa-trash"></i> CLEAR LOGS</button>
         </div>
         <div id="console-log"></div>
