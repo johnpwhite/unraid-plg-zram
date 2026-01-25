@@ -2,64 +2,24 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.41">
+<!ENTITY version   "2026.01.25.42">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="&gitURL;/src/unraid-zram-card/HELP.md">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.42" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.0" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.42
+- Fix: Repaired XML parse error in .plg file caused by entity resolution order.
+- Fix: Robust uninstallation. Improved removal script to ensure all directories and packages are purged.
+- Fix: Hardcoded critical attributes in PLUGIN tag for maximum installation compatibility.
 ## 2026.01.25.41
-- Fix: Repaired corrupted regex patterns that caused compression algorithms to merge into a single line.
-- Design: Ultra-compact Management Card header with integrated "Create" and "Remove All" buttons.
-- Design: Slashed vertical padding in Settings rows for a much tighter layout.
-- Design: Updated "Apply & Save" button to high-contrast Unraid orange theme.
-- Fix: Corrected device table name parsing.
-## 2026.01.25.40
-- Fix: Resolved double '/dev/' path display in device table.
-- Fix: Significantly improved color contrast for labels and text in dark theme.
-- Fix: Corrected CSS layout to ensure Command Console fills available width.
-- Design: Cleaned up table headers and buttons for a more integrated Unraid feel.
-## 2026.01.25.39
-- Design: Modern card-based layout for Settings page.
-- Design: Separated ZRAM Management and Plugin Configuration into distinct visual sections.
-- Design: Refined device table with improved UX and integrated action buttons.
-- Design: Command console now fills height and matches modern aesthetic.
-## 2026.01.25.38
-- Fix: Resolved path joining bug (/dev//dev/zram) that prevented ZRAM device removal.
-- Fix: Improved device detection logic for more robust swapoff/reset actions.
-## 2026.01.25.37
-- Fix: Corrected malformed PHP tags and regex patterns that broke the Settings UI.
-- Feature: Added setting to toggle Command Console visibility (persists in settings.ini).
-- Design: Improved robust rendering of algorithm and device lists.
-## 2026.01.25.36
-- Feature: Command console now persists across page refreshes using sessionStorage.
-- Design: Renamed "Clear All" to "Remove All" for clarity.
-- Design: Increased delay before auto-refresh to allow reading command output.
-## 2026.01.25.35
-- Fix: Combined size and algorithm into a single zramctl call to satisfy kernel requirements.
-- Fix: Resolved "No such device" errors by optimizing device finding logic.
-- Design: Command console now scales to fill available width.
-## 2026.01.25.34
-- Feature: Added "Command Console" to Settings page. Real-time feedback showing the exact shell commands executed and their output.
-- Fix: Improved ZRAM setup reliability by resetting devices before applying algorithms.
-## 2026.01.25.33
-- Fix: Corrected order of operations (Size then Algorithm) to ensure selected compression algorithms are correctly applied.
-- Debug: Added logging to zram_swap.php for troubleshooting device creation.
-## 2026.01.25.32
-- Feature: Added compression algorithm selection (zstd, lz4, etc.) to swap management.
-- Design: Refined Settings UI with constrained widths and improved action layout.
-- Fix: Persistent ZRAM devices now store and restore their specific compression algorithms.
-## 2026.01.25.31
-- Feature: Individual ZRAM device management.
-- Feature: Reboot persistence. ZRAM swap devices are now re-applied automatically on boot using a startup script.
-- Fix: Improved settings preservation.
-## 2026.01.25.30
-- Feature: Added ZRAM Swap Management (Create/Remove Swap) to Settings page.
-- Feature: Hybrid Installation logic. Supports local-only deployments.
+- Fix: Repaired corrupted regex patterns.
+- Design: Ultra-compact Management Card.
+- Design: Tightened Settings UI.
 </CHANGES>
 
 <!-- 1. HYBRID INSTALLER SCRIPT -->
@@ -121,28 +81,43 @@ rm /tmp/unraid-zram-card-installer
 <INSTALL Script="post-install.sh">
 #!/bin/bash
 # Re-apply ZRAM settings on boot/install
-if [ -x "/usr/local/emhttp/plugins/&name;/zram_init.sh" ]; then
-    /usr/local/emhttp/plugins/&name;/zram_init.sh
+if [ -x "/usr/local/emhttp/plugins/unraid-zram-card/zram_init.sh" ]; then
+    /usr/local/emhttp/plugins/unraid-zram-card/zram_init.sh
 fi
-echo "&name; installed and ZRAM re-applied if configured."
+echo "unraid-zram-card installed and ZRAM re-applied if configured."
 </INSTALL>
 
 <!-- 3. REMOVE -->
 <REMOVE Script="remove.sh">
 #!/bin/bash
-PLUGIN_DIR="/usr/local/emhttp/plugins/unraid-zram-card"
-# Turn off ZRAM before removal
-if [ -x "$PLUGIN_DIR/zram_swap.php" ]; then
-    php "$PLUGIN_DIR/zram_swap.php" action=remove
+# Robust removal for unraid-zram-card
+NAME="unraid-zram-card"
+PLUGIN_DIR="/usr/local/emhttp/plugins/$NAME"
+BOOT_DIR="/boot/config/plugins/$NAME"
+
+echo "Starting removal of $NAME..."
+
+# 1. Stop ZRAM swap if script exists
+if [ -f "$PLUGIN_DIR/zram_swap.php" ]; then
+    php "$PLUGIN_DIR/zram_swap.php" action=remove > /dev/null 2>&amp;1
 fi
-rm -rf "$PLUGIN_DIR"
-removepkg unraid-zram-card-&version;
-removepkg unraid-zram-card
+
+# 2. Remove the active plugin files
+if [ -d "$PLUGIN_DIR" ]; then
+    rm -rf "$PLUGIN_DIR"
+fi
+
+# 3. Clean up package manifests
+removepkg "$NAME-2026.01.25.42" > /dev/null 2>&amp;1
+removepkg "$NAME" > /dev/null 2>&amp;1
+
+# 4. Refresh Unraid state
 if [ -f /usr/local/sbin/update_plugin_cache ]; then
     /usr/local/sbin/update_plugin_cache
 fi
 /etc/rc.d/rc.nginx reload
-echo "&name; removed."
+
+echo "$NAME has been completely removed."
 </REMOVE>
 
 </PLUGIN>
