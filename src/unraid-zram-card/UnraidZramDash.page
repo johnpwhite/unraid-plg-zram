@@ -4,7 +4,9 @@ Icon="server"
 <?php
 // Debugging Logger
 function zram_log($msg) {
-    file_put_contents('/tmp/zram_debug.log', date('Y-m-d H:i:s') . " - " . $msg . "\n", FILE_APPEND);
+    $dir = '/tmp/unraid-zram-card';
+    if (!is_dir($dir)) @mkdir($dir, 0777, true);
+    @file_put_contents($dir . '/debug.log', date('Y-m-d H:i:s') . " - " . $msg . "\n", FILE_APPEND);
 }
 
 zram_log("Dashboard Page Loaded");
