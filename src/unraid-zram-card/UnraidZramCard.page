@@ -3,85 +3,98 @@ Title="Unraid ZRAM Card"
 Icon="database"
 ---
 <?php
-// Configuration File Path
 $configFile = "/boot/config/plugins/unraid-zram-card/settings.ini";
+$defaults = ['enabled' => 'yes', 'refresh_interval' => '3000', 'swap_size' => '1G', 'zram_devices' => ''];
 
-// Defaults
-$defaults = [
-    'enabled' => 'yes',
-    'refresh_interval' => '3000',
-    'swap_size' => '1G'
-];
-
-// Helper: Save INI file
-if (!function_exists('write_ini_file')) {
-    function write_ini_file($file, $array = []) {
-        $res = [];
-        foreach($array as $key => $val) {
-            $res[] = "$key=\"$val\"";
-        }
-        file_put_contents($file, implode("\n", $res));
-    }
-}
-
-// Handle Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
     $settings = $defaults;
     $settings['enabled'] = ($_POST['enabled'] === 'yes') ? 'yes' : 'no';
     $settings['refresh_interval'] = intval($_POST['refresh_interval']);
     $settings['swap_size'] = $_POST['swap_size'] ?: '1G';
     
-    if ($settings['refresh_interval'] < 1000) $settings['refresh_interval'] = 1000;
+    // Preserve zram_devices during normal settings save
+    if (file_exists($configFile)) {
+        $loaded = @parse_ini_file($configFile);
+        $settings['zram_devices'] = $loaded['zram_devices'] ?? '';
+    }
 
     if (!is_dir(dirname($configFile))) mkdir(dirname($configFile), 0777, true);
-    write_ini_file($configFile, $settings);
+    $res = [];
+    foreach($settings as $key => $val) $res[] = "$key=\"$val\"";
+    file_put_contents($configFile, implode("\n", $res));
     echo "<div class='updated'>Settings Saved</div>";
 }
 
-// Read Settings
 $settings = $defaults;
 if (file_exists($configFile)) {
     $loaded = @parse_ini_file($configFile);
     if ($loaded) $settings = array_merge($defaults, $loaded);
 }
 
-// Current ZRAM Status
-$zram_output = [];
-exec('zramctl --noheadings --raw', $zram_output);
-$active_devices = count($zram_output);
-
+// Get detailed device list
+$zram_raw = [];
+exec('zramctl --noheadings --raw --output NAME,DISKSIZE,DATA,COMPR,ALGORITHM', $zram_raw);
+$devices = [];
+foreach ($zram_raw as $line) {
+    $parts = preg_split('/\s+/', trim($line));
+    if (count($parts) >= 2) {
+        $devices[] = ['name' => $parts[0], 'size' => $parts[1], 'algo' => $parts[4] ?? ''];
+    }
+}
 ?>
 
 <style>
-    .zram-btn { padding: 8px 16px; border-radius: 4px; cursor: pointer; border: none; font-weight: bold; margin-right: 5px; }
+    .zram-btn { padding: 5px 12px; border-radius: 4px; cursor: pointer; border: none; font-weight: bold; margin-right: 5px; font-size: 0.9em; }
     .btn-create { background-color: #7fba59; color: white; }
     .btn-remove { background-color: #d9534f; color: white; }
+    .btn-small { padding: 2px 8px; font-size: 0.8em; }
     .status-badge { padding: 3px 8px; border-radius: 10px; font-size: 0.85em; }
     .status-active { background: #7fba59; color: white; }
     .status-none { background: #888; color: white; }
+    .dev-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    .dev-table th { text-align: left; border-bottom: 1px solid #444; padding: 5px; opacity: 0.7; }
+    .dev-table td { padding: 8px 5px; border-bottom: 1px solid #333; }
 </style>
 
 <div class="section">
     <h3>ZRAM Swap Management</h3>
-    <p>Deploy or remove ZRAM-based swap devices on the fly.</p>
+    <p>Manage individual ZRAM swap devices. Changes are persisted and re-applied on boot.</p>
     
-    <dl>
-        <dt>Current Status:</dt>
-        <dd>
-            <?php if ($active_devices > 0): ?>
-                <span class="status-badge status-active">Active (<?php echo $active_devices; ?> devices)</span>
-            <?php else: ?>
-                <span class="status-badge status-none">No ZRAM devices found</span>
-            <?php endif; ?>
-        </dd>
+    <div style="margin-bottom: 20px;">
+        <input type="text" id="swap_size_val" value="<?php echo htmlspecialchars($settings['swap_size']); ?>" style="width: 60px; text-align: center;">
+        <button type="button" class="zram-btn btn-create" onclick="manageZram('create')">Add New ZRAM Swap</button>
+        <button type="button" class="zram-btn btn-remove" onclick="manageZram('remove', '')" title="Removes all devices and clears persistence">Clear All</button>
+    </div>
 
-        <dt>Quick Actions:</dt>
-        <dd>
-            <input type="text" id="swap_size_val" value="<?php echo htmlspecialchars($settings['swap_size']); ?>" style="width: 60px; text-align: center;">
-            <button type="button" class="zram-btn btn-create" onclick="manageZram('create')">Deploy ZRAM Swap</button>
-            <button type="button" class="zram-btn btn-remove" onclick="manageZram('remove')">Remove All ZRAM</button>
-        </dd>
-    </dl>
+    <h4>Active Devices</h4>
+    <?php if (count($devices) > 0): ?>
+        <table class="dev-table">
+            <thead>
+                <tr>
+                    <th>Device</th>
+                    <th>Size</th>
+                    <th>Algorithm</th>
+                    <th style="text-align: right;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($devices as $dev):
+                ?>
+                <tr>
+                    <td><strong>/dev/<?php echo $dev['name']; ?></strong></td>
+                    <td><?php echo $dev['size']; ?></td>
+                    <td><?php echo $dev['algo']; ?></td>
+                    <td style="text-align: right;">
+                        <button type="button" class="zram-btn btn-remove btn-small" onclick="manageZram('remove', '<?php echo $dev['name']; ?>')">Remove</button>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php else:
+    ?>
+        <p style="opacity: 0.6; font-style: italic;">No active ZRAM devices.</p>
+    <?php endif; ?>
 </div>
 
 <form method="post" action="/Settings/UnraidZramCard">
@@ -114,20 +127,20 @@ $active_devices = count($zram_output);
 </form>
 
 <script>
-function manageZram(action) {
+function manageZram(action, device) {
     const size = document.getElementById('swap_size_val').value;
     const btn = event.target;
     const oldText = btn.innerText;
     
-    btn.innerText = 'Processing...';
+    btn.innerText = '...';
     btn.disabled = true;
 
     $.post('/plugins/unraid-zram-card/zram_swap.php', {
         action: action,
-        size: size
+        size: size,
+        device: device
     }, function(data) {
         if (data.success) {
-            alert(data.message);
             location.reload();
         } else {
             alert('Error: ' + data.message);

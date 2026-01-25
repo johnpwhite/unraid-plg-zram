@@ -2,44 +2,42 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.30">
+<!ENTITY version   "2026.01.25.31">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.30" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.0" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
+<PLUGIN name="unraid-zram-card" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="&gitURL;/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.31
+- Feature: Individual ZRAM device management.
+- Feature: Reboot persistence. ZRAM swap devices are now re-applied automatically on boot using a startup script.
+- Fix: Improved settings preservation.
 ## 2026.01.25.30
 - Feature: Added ZRAM Swap Management (Create/Remove Swap) to Settings page.
-- Feature: Hybrid Installation logic. Supports local-only deployments by checking /boot/config/plugins/unraid-zram-card/ for files before trying GitLab.
-## 2026.01.25.29
-- Design: Further reduced padding in the device list for an ultra-compact layout.
+- Feature: Hybrid Installation logic. Supports local-only deployments.
 </CHANGES>
 
 <!-- 1. HYBRID INSTALLER SCRIPT -->
 <FILE Run="/bin/bash" Name="/tmp/unraid-zram-card-installer">
 <INLINE>
 #!/bin/bash
-# Unraid ZRAM Card Hybrid Installer
-# Checks for local files first, falls back to GitLab
-
 NAME="unraid-zram-card"
 GIT_URL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master"
 LOCAL_SRC="/boot/config/plugins/$NAME"
 EMHTTP_DEST="/usr/local/emhttp/plugins/$NAME"
 
-# Clean start
 rm -rf "$EMHTTP_DEST"
 mkdir -p "$EMHTTP_DEST/js"
 
-# File List mapping (Destination relative to EMHTTP_DEST : Source relative to repo root)
 FILES=(
     "ZramCard.php:src/unraid-zram-card/ZramCard.php"
     "zram_status.php:src/unraid-zram-card/zram_status.php"
     "zram_swap.php:src/unraid-zram-card/zram_swap.php"
+    "zram_init.sh:src/unraid-zram-card/zram_init.sh"
     "UnraidZramCard.page:src/unraid-zram-card/UnraidZramCard.page"
     "UnraidZramDash.page:src/unraid-zram-card/UnraidZramDash.page"
     "icon.png:src/unraid-zram-card/icon.png"
@@ -53,10 +51,6 @@ echo "Starting Hybrid Install..."
 for mapping in "${FILES[@]}"; do
     DEST="${mapping%%:*}"
     SRC="${mapping##*:}"
-    
-    # 1. Try Local First (Flash Drive)
-    # Check if file exists in the flat local directory or structured
-    # We look in /boot/config/plugins/unraid-zram-card/ for the filename
     FILE_NAME=$(basename "$SRC")
     
     if [ -f "$LOCAL_SRC/$FILE_NAME" ]; then
@@ -66,32 +60,40 @@ for mapping in "${FILES[@]}"; do
         echo "Found local (structured): $SRC"
         cp "$LOCAL_SRC/$SRC" "$EMHTTP_DEST/$DEST"
     else
-        # 2. Fallback to GitLab
         echo "Downloading: $SRC ..."
         if ! wget -q -O "$EMHTTP_DEST/$DEST" "$GIT_URL/$SRC"; then
-            echo "FAILED to download $SRC and no local copy found."
+            echo "FAILED to download $SRC"
         fi
     fi
 done
 
 chmod +x "$EMHTTP_DEST/zram_status.php"
 chmod +x "$EMHTTP_DEST/zram_swap.php"
+chmod +x "$EMHTTP_DEST/zram_init.sh"
 
 echo "Installation complete."
 rm /tmp/unraid-zram-card-installer
 </INLINE>
 </FILE>
 
-<!-- 2. POST-INSTALL -->
+<!-- 2. POST-INSTALL (Persistence Re-application) -->
 <INSTALL Script="post-install.sh">
 #!/bin/bash
-echo "&name; installed successfully."
+# Re-apply ZRAM settings on boot/install
+if [ -x "/usr/local/emhttp/plugins/&name;/zram_init.sh" ]; then
+    /usr/local/emhttp/plugins/&name;/zram_init.sh
+fi
+echo "&name; installed and ZRAM re-applied if configured."
 </INSTALL>
 
 <!-- 3. REMOVE -->
 <REMOVE Script="remove.sh">
 #!/bin/bash
 PLUGIN_DIR="/usr/local/emhttp/plugins/unraid-zram-card"
+# Turn off ZRAM before removal
+if [ -x "$PLUGIN_DIR/zram_swap.php" ]; then
+    php "$PLUGIN_DIR/zram_swap.php" action=remove
+fi
 rm -rf "$PLUGIN_DIR"
 removepkg unraid-zram-card-&version;
 removepkg unraid-zram-card
