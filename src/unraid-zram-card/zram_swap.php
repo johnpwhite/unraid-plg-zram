@@ -43,23 +43,20 @@ function save_zram_settings($file, $settings) {
 if ($action === 'create') {
     run_cmd('modprobe zram', $logs);
     
-    // 1. Find device
-    exec('zramctl --find', $find_out, $ret);
+    // Combined command: find, set size, and set algorithm in one go
+    $cmd = "zramctl --find --size " . escapeshellarg($size) . " --algorithm " . escapeshellarg($algo);
+    exec($cmd . " 2>&1", $find_out, $ret);
+    
+    $logs[] = [
+        'cmd' => $cmd,
+        'output' => implode(" ", $find_out),
+        'status' => $ret
+    ];
+
     if ($ret === 0) {
         $dev = trim(end($find_out));
-        $logs[] = "Targeting device: $dev";
         
-        // 2. Reset (Ensures clean state)
-        run_cmd("zramctl --reset $dev", $logs);
-        usleep(500000); // 0.5s pause
-        
-        // 3. Set Algorithm
-        run_cmd("zramctl --algorithm " . escapeshellarg($algo) . " $dev", $logs);
-        
-        // 4. Set Size
-        run_cmd("zramctl --size " . escapeshellarg($size) . " $dev", $logs);
-        
-        // 5. Swap
+        // 2. Swap
         run_cmd("mkswap $dev", $logs);
         $s_ret = run_cmd("swapon $dev -p 100", $logs);
         

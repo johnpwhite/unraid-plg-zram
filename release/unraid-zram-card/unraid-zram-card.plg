@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.34">
+<!ENTITY version   "2026.01.25.35">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
@@ -12,6 +12,10 @@
 <PLUGIN name="unraid-zram-card" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="&gitURL;/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.35
+- Fix: Combined size and algorithm into a single zramctl call to satisfy kernel requirements.
+- Fix: Resolved "No such device" errors by optimizing device finding logic.
+- Design: Command console now scales to fill available width.
 ## 2026.01.25.34
 - Feature: Added "Command Console" to Settings page. Real-time feedback showing the exact shell commands executed and their output.
 - Fix: Improved ZRAM setup reliability by resetting devices before applying algorithms.

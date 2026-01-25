@@ -58,9 +58,9 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
 ?>
 
 <style>
-    .zram-main-grid { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
-    .zram-config-left { flex: 1; min-width: 450px; }
-    .zram-console-right { width: 350px; background: #1a1a1a; border-radius: 4px; border: 1px solid #333; padding: 15px; color: #aaa; font-family: monospace; font-size: 0.85em; }
+    .zram-main-grid { display: flex; gap: 20px; flex-wrap: nowrap; align-items: flex-start; width: 100%; }
+    .zram-config-left { flex: 0 0 450px; }
+    .zram-console-right { flex: 1; background: #1a1a1a; border-radius: 4px; border: 1px solid #333; padding: 15px; color: #aaa; font-family: monospace; font-size: 0.85em; min-width: 300px; }
     
     .zram-btn { padding: 5px 12px; border-radius: 4px; cursor: pointer; border: none; font-weight: bold; margin-right: 5px; font-size: 0.9em; display: inline-block; vertical-align: middle; }
     .btn-create { background-color: #7fba59; color: white; }
