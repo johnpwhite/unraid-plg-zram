@@ -1,8 +1,9 @@
 <CHANGES>
-## 2026.01.25.62
+## 2026.01.25.63
 - Initial Public Release.
 - Modern dashboard card with real-time RAM Saved chart.
 - Dynamic ZRAM swap management (Create/Remove) with persistence.
 - Support for all kernel-supported compression algorithms (zstd, lz4, etc.).
 - Safe Evacuation guards to prevent system crashes during ZRAM removal.
+- High-contrast dark theme UI optimized for Unraid 7.2+.
 </CHANGES>
