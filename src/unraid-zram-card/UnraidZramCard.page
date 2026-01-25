@@ -9,7 +9,8 @@ $configFile = "/boot/config/plugins/unraid-zram-card/settings.ini";
 // Defaults
 $defaults = [
     'enabled' => 'yes',
-    'refresh_interval' => '3000'
+    'refresh_interval' => '3000',
+    'swap_size' => '1G'
 ];
 
 // Helper: Save INI file
@@ -24,39 +25,68 @@ if (!function_exists('write_ini_file')) {
 }
 
 // Handle Submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
     $settings = $defaults;
     $settings['enabled'] = ($_POST['enabled'] === 'yes') ? 'yes' : 'no';
     $settings['refresh_interval'] = intval($_POST['refresh_interval']);
+    $settings['swap_size'] = $_POST['swap_size'] ?: '1G';
     
-    // Validation
-    if ($settings['refresh_interval'] < 1000) $settings['refresh_interval'] = 1000; // Minimum 1s
+    if ($settings['refresh_interval'] < 1000) $settings['refresh_interval'] = 1000;
 
-    // Save
-    // Ensure directory exists
-    if (!is_dir(dirname($configFile))) {
-        mkdir(dirname($configFile), 0777, true);
-    }
+    if (!is_dir(dirname($configFile))) mkdir(dirname($configFile), 0777, true);
     write_ini_file($configFile, $settings);
-    
     echo "<div class='updated'>Settings Saved</div>";
 }
 
 // Read Settings
 $settings = $defaults;
 if (file_exists($configFile)) {
-    $loaded = parse_ini_file($configFile);
-    if ($loaded) {
-        $settings = array_merge($defaults, $loaded);
-    }
+    $loaded = @parse_ini_file($configFile);
+    if ($loaded) $settings = array_merge($defaults, $loaded);
 }
 
+// Current ZRAM Status
+$zram_output = [];
+exec('zramctl --noheadings --raw', $zram_output);
+$active_devices = count($zram_output);
+
 ?>
+
+<style>
+    .zram-btn { padding: 8px 16px; border-radius: 4px; cursor: pointer; border: none; font-weight: bold; margin-right: 5px; }
+    .btn-create { background-color: #7fba59; color: white; }
+    .btn-remove { background-color: #d9534f; color: white; }
+    .status-badge { padding: 3px 8px; border-radius: 10px; font-size: 0.85em; }
+    .status-active { background: #7fba59; color: white; }
+    .status-none { background: #888; color: white; }
+</style>
+
+<div class="section">
+    <h3>ZRAM Swap Management</h3>
+    <p>Deploy or remove ZRAM-based swap devices on the fly.</p>
+    
+    <dl>
+        <dt>Current Status:</dt>
+        <dd>
+            <?php if ($active_devices > 0): ?>
+                <span class="status-badge status-active">Active (<?php echo $active_devices; ?> devices)</span>
+            <?php else: ?>
+                <span class="status-badge status-none">No ZRAM devices found</span>
+            <?php endif; ?>
+        </dd>
+
+        <dt>Quick Actions:</dt>
+        <dd>
+            <input type="text" id="swap_size_val" value="<?php echo htmlspecialchars($settings['swap_size']); ?>" style="width: 60px; text-align: center;">
+            <button type="button" class="zram-btn btn-create" onclick="manageZram('create')">Deploy ZRAM Swap</button>
+            <button type="button" class="zram-btn btn-remove" onclick="manageZram('remove')">Remove All ZRAM</button>
+        </dd>
+    </dl>
+</div>
 
 <form method="post" action="/Settings/UnraidZramCard">
     <div class="section">
         <h3>Dashboard Card Configuration</h3>
-        
         <dl>
             <dt>Enable Dashboard Card:</dt>
             <dd>
@@ -64,18 +94,46 @@ if (file_exists($configFile)) {
                     <option value="yes" <?php echo ($settings['enabled'] == 'yes') ? 'selected' : ''; ?>>Yes</option>
                     <option value="no" <?php echo ($settings['enabled'] == 'no') ? 'selected' : ''; ?>>No</option>
                 </select>
-                <span class="help">Show or hide the ZRAM status card on the main Dashboard.</span>
             </dd>
             
             <dt>Refresh Interval (ms):</dt>
             <dd>
-                <input type="number" name="refresh_interval" value="<?php echo htmlspecialchars($settings['refresh_interval']); ?>" min="1000" step="500">
-                <span class="help">How often to update the stats (in milliseconds). Minimum 1000ms.</span>
+                <input type="number" name="refresh_interval" value="<?php echo htmlspecialchars($settings['refresh_interval']); ?>" min="1000">
+            </dd>
+
+            <dt>Default Swap Size:</dt>
+            <dd>
+                <input type="text" name="swap_size" value="<?php echo htmlspecialchars($settings['swap_size']); ?>" placeholder="1G, 512M">
             </dd>
         </dl>
     </div>
     
     <div class="section">
-        <input type="submit" value="Save Settings">
+        <input type="submit" name="save_settings" value="Save Settings">
     </div>
 </form>
+
+<script>
+function manageZram(action) {
+    const size = document.getElementById('swap_size_val').value;
+    const btn = event.target;
+    const oldText = btn.innerText;
+    
+    btn.innerText = 'Processing...';
+    btn.disabled = true;
+
+    $.post('/plugins/unraid-zram-card/zram_swap.php', {
+        action: action,
+        size: size
+    }, function(data) {
+        if (data.success) {
+            alert(data.message);
+            location.reload();
+        } else {
+            alert('Error: ' + data.message);
+            btn.innerText = oldText;
+            btn.disabled = false;
+        }
+    });
+}
+</script>

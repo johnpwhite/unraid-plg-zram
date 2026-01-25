@@ -2,181 +2,104 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.29">
+<!ENTITY version   "2026.01.25.30">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
-<!ENTITY pluginURL "&gitURL;/unraid-zram-card.plg">
-<!ENTITY boot      "/boot/config/plugins/&name;">
-<!ENTITY emhttp    "/usr/local/emhttp/plugins/&name;">
+<!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
+<!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
+<!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="&gitURL;/src/unraid-zram-card/HELP.md">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.30" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.0" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.30
+- Feature: Added ZRAM Swap Management (Create/Remove Swap) to Settings page.
+- Feature: Hybrid Installation logic. Supports local-only deployments by checking /boot/config/plugins/unraid-zram-card/ for files before trying GitLab.
 ## 2026.01.25.29
 - Design: Further reduced padding in the device list for an ultra-compact layout.
-## 2026.01.25.28
-- UX: Chart Y-axis now self-adjusts based on data with a graceful minimum range.
-## 2026.01.25.27
-- Fix: Resolved 'undefined' labels on chart Y-axis when ZRAM usage is low.
-- Design: Reduced padding and heights for a more compact dashboard card layout.
-## 2026.01.25.26
-- Feature: Re-enabled Chart.js integration for real-time RAM Saved history.
-- Fix: Ensured JS updates targeting the safe div-based grid structure.
-## 2026.01.25.25
-- Fix: Critical Dashboard Crash. Replaced nested HTML table with CSS Grid for device list.
-- Explanation: Unraid's 'addProperties' JS loop mistakenly identified the nested tbody as a dashboard tile, causing a 'reading md5 of undefined' error.
-## 2026.01.25.24
-- Feature: Added user-friendly error card with specific instructions to check /tmp/zram_debug.log on failure.
-## 2026.01.25.23
-- Fix: Implemented "Safe Mode" wrapping entire card logic in Try/Catch to prevent full dashboard crashes.
-- Debug: Added detailed logging to /tmp/zram_debug.log to diagnose zramctl parsing issues.
-## 2026.01.25.22
-- Feature: Replaced hardcoded placeholders with live ZRAM statistics using 'zramctl'.
-- Feature: Added native PHP output rendering for ZRAM usage, ratio, and device list.
-## 2026.01.25.21
-- Feature: Added PHP settings loading and version detection capability to dashboard card.
-## 2026.01.25.10
-- Debug: Replaced dashboard card with minimal "Hello World" version to isolate rendering issues.
-- Debug: Added logging to /tmp/zram_debug.log to trace execution flow.
-## 2026.01.25.9
-- Fix: Corrected malformed PHP file ZramCard.php.
-## 2026.01.25.8
-- Fix: Refactored dashboard card to use a Function Pattern for safer execution and variable isolation.
-- Fix: Removed manual output buffering in dash page in favor of function return.
-## 2026.01.25.7
-- Fix: Removed closure in ZramCard.php to avoid potential PHP version/context parsing issues.
-- Fix: Renamed internal variables in ZramCard.php to avoid global collision.
-## 2026.01.25.6
-- Fix: Ensured output buffer is cleared on error to prevent dashboard hangs.
-## 2026.01.25.5
-- Fix: Aggressive uninstall script with logging to diagnose removal issues.
-- Fix: Hardcoded paths in removal script to prevent variable expansion failures.
-## 2026.01.25.4
-- Fix: Prevented potential fatal PHP errors in dashboard card by safely checking version files and isolating scope with a closure.
-## 2026.01.25.3
-- Fix: Corrected 'Menu' attributes in .page files to ensure visibility in Settings and Dashboard.
-## 2026.01.25.2
-- Fix: Dashboard card now correctly uses the $mytiles variable for proper rendering.
-- Fix: Updated Settings icon to a standard FontAwesome icon.
-## 2026.01.25.1
-- Fix: Ensure pre-install cleanup runs by assigning a Name attribute.
-## 2026.01.24.7
-- Fix: Added robust pre-install cleanup to prevent 'file already exists' errors during update.
-## 2026.01.24.6
-- Fix: Uninstall script now uses explicit paths and updates plugin cache to ensure removal of UI elements.
-- Fix: Formatting of description using double newlines.
-## 2026.01.24.5
-- Fix: Improved uninstall script to refresh WebGUI and remove artifacts.
-## 2026.01.24.4
-- Fix: Formatting of plugin description in plugin manager.
-- Update: Changed author and support link.
-## 2026.01.24.3
-- Fix: Settings 'enabled' toggle not saving correctly.
-- Fix: Reduced dashboard card size to fit better.
-## 2026.01.24.2
-- Fix: Dashboard card registration and settings menu placement.
-## 2026.01.24.1
-- Fix: Switched to direct URL downloads for network installation.
 </CHANGES>
 
-<!-- 1. PRE-INSTALL CLEANUP (Must use FILE Run to execute before other downloads) -->
-<FILE Run="/bin/bash" Name="/tmp/unraid-zram-card-cleanup">
+<!-- 1. HYBRID INSTALLER SCRIPT -->
+<FILE Run="/bin/bash" Name="/tmp/unraid-zram-card-installer">
 <INLINE>
 #!/bin/bash
-# Clean up existing files to force a fresh download
-PLUGIN_DIR="/usr/local/emhttp/plugins/unraid-zram-card"
-if [ -d "$PLUGIN_DIR" ]; then
-    rm -rf "$PLUGIN_DIR"
-fi
-mkdir -p "$PLUGIN_DIR/js"
-echo "Pre-install cleanup complete."
+# Unraid ZRAM Card Hybrid Installer
+# Checks for local files first, falls back to GitLab
+
+NAME="unraid-zram-card"
+GIT_URL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master"
+LOCAL_SRC="/boot/config/plugins/$NAME"
+EMHTTP_DEST="/usr/local/emhttp/plugins/$NAME"
+
+# Clean start
+rm -rf "$EMHTTP_DEST"
+mkdir -p "$EMHTTP_DEST/js"
+
+# File List mapping (Destination relative to EMHTTP_DEST : Source relative to repo root)
+FILES=(
+    "ZramCard.php:src/unraid-zram-card/ZramCard.php"
+    "zram_status.php:src/unraid-zram-card/zram_status.php"
+    "zram_swap.php:src/unraid-zram-card/zram_swap.php"
+    "UnraidZramCard.page:src/unraid-zram-card/UnraidZramCard.page"
+    "UnraidZramDash.page:src/unraid-zram-card/UnraidZramDash.page"
+    "icon.png:src/unraid-zram-card/icon.png"
+    "README.md:src/unraid-zram-card/README.md"
+    "js/zram-card.js:src/unraid-zram-card/js/zram-card.js"
+    "js/chart.min.js:src/unraid-zram-card/js/chart.min.js"
+)
+
+echo "Starting Hybrid Install..."
+
+for mapping in "${FILES[@]}"; do
+    DEST="${mapping%%:*}"
+    SRC="${mapping##*:}"
+    
+    # 1. Try Local First (Flash Drive)
+    # Check if file exists in the flat local directory or structured
+    # We look in /boot/config/plugins/unraid-zram-card/ for the filename
+    FILE_NAME=$(basename "$SRC")
+    
+    if [ -f "$LOCAL_SRC/$FILE_NAME" ]; then
+        echo "Found local: $FILE_NAME"
+        cp "$LOCAL_SRC/$FILE_NAME" "$EMHTTP_DEST/$DEST"
+    elif [ -f "$LOCAL_SRC/$SRC" ]; then
+        echo "Found local (structured): $SRC"
+        cp "$LOCAL_SRC/$SRC" "$EMHTTP_DEST/$DEST"
+    else
+        # 2. Fallback to GitLab
+        echo "Downloading: $SRC ..."
+        if ! wget -q -O "$EMHTTP_DEST/$DEST" "$GIT_URL/$SRC"; then
+            echo "FAILED to download $SRC and no local copy found."
+        fi
+    fi
+done
+
+chmod +x "$EMHTTP_DEST/zram_status.php"
+chmod +x "$EMHTTP_DEST/zram_swap.php"
+
+echo "Installation complete."
+rm /tmp/unraid-zram-card-installer
 </INLINE>
 </FILE>
 
-<!-- 2. DEFINE FILES (Download directly from GitLab) -->
-
-<!-- Dashboard Card PHP -->
-<FILE Name="&emhttp;/ZramCard.php">
-<URL>&gitURL;/src/unraid-zram-card/ZramCard.php</URL>
-</FILE>
-
-<!-- Backend Status Script -->
-<FILE Name="&emhttp;/zram_status.php" Mode="0755">
-<URL>&gitURL;/src/unraid-zram-card/zram_status.php</URL>
-</FILE>
-
-<!-- Settings/Page Registration -->
-<FILE Name="&emhttp;/UnraidZramCard.page">
-<URL>&gitURL;/src/unraid-zram-card/UnraidZramCard.page</URL>
-</FILE>
-
-<!-- Dashboard Registration -->
-<FILE Name="&emhttp;/UnraidZramDash.page">
-<URL>&gitURL;/src/unraid-zram-card/UnraidZramDash.page</URL>
-</FILE>
-
-<!-- JS Logic -->
-<FILE Name="&emhttp;/js/zram-card.js">
-<URL>&gitURL;/src/unraid-zram-card/js/zram-card.js</URL>
-</FILE>
-
-<!-- Icon -->
-<FILE Name="&emhttp;/icon.png">
-<URL>&gitURL;/src/unraid-zram-card/icon.png</URL>
-</FILE>
-
-<!-- Description (README.md) -->
-<FILE Name="&emhttp;/README.md">
-<URL>&gitURL;/src/unraid-zram-card/README.md</URL>
-</FILE>
-
-<!-- Chart.js Library -->
-<FILE Name="&emhttp;/js/chart.min.js">
-<URL>&gitURL;/src/unraid-zram-card/js/chart.min.js</URL>
-</FILE>
-
-<!-- 3. POST-INSTALL -->
+<!-- 2. POST-INSTALL -->
 <INSTALL Script="post-install.sh">
 #!/bin/bash
 echo "&name; installed successfully."
 </INSTALL>
 
-<!-- 4. REMOVE -->
+<!-- 3. REMOVE -->
 <REMOVE Script="remove.sh">
 #!/bin/bash
-# Aggressive Removal Script with Logging
-
-log_msg() {
-    logger -t "unraid-zram-card-uninstall" "$1"
-    echo "$1"
-}
-
-log_msg "Starting uninstallation..."
-
-# 1. Remove the RAM directory explicitly
-if [ -d "/usr/local/emhttp/plugins/unraid-zram-card" ]; then
-    log_msg "Removing plugin directory: /usr/local/emhttp/plugins/unraid-zram-card"
-    rm -rf "/usr/local/emhttp/plugins/unraid-zram-card"
-else
-    log_msg "Plugin directory not found."
-fi
-
-# 2. Remove the Package (if registered)
-log_msg "Removing package manifest..."
+PLUGIN_DIR="/usr/local/emhttp/plugins/unraid-zram-card"
+rm -rf "$PLUGIN_DIR"
 removepkg unraid-zram-card-&version;
 removepkg unraid-zram-card
-
-# 3. Update Plugin Cache (Crucial for UI refresh)
 if [ -f /usr/local/sbin/update_plugin_cache ]; then
-    log_msg "Updating plugin cache..."
     /usr/local/sbin/update_plugin_cache
 fi
-
-# 4. Reload Nginx
-log_msg "Reloading Nginx..."
 /etc/rc.d/rc.nginx reload
-
-log_msg "Uninstallation complete."
+echo "&name; removed."
 </REMOVE>
 
 </PLUGIN>
