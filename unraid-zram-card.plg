@@ -1,0 +1,116 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name      "unraid-zram-card">
+<!ENTITY author    "John White">
+<!ENTITY version   "2026.01.25.66">
+<!ENTITY launch    "Settings/UnraidZramCard">
+<!ENTITY gitURL    "https://github.com/johnpwhite/unraid-plugin-zram/raw/main">
+<!ENTITY pluginURL "https://github.com/johnpwhite/unraid-plugin-zram/raw/main/unraid-zram-card.plg">
+<!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
+<!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
+]>
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.1" support="&gitURL;/src/unraid-zram-card/HELP.md" icon="unraid-zram-card.png">
+
+<CHANGES>
+## 2026.01.25.66
+- Official Initial Release.
+- Modern, high-contrast Dashboard card with real-time RAM Saved chart.
+- Dynamic ZRAM swap management UI (Create/Remove) with boot persistence.
+- Support for all kernel-supported compression algorithms (zstd, lz4, etc.).
+- Built-in Safe Evacuation guards to prevent system crashes during ZRAM removal.
+- Robust Hybrid Installer supporting both Online and Air-Gapped/Manual deployments.
+- High-contrast UI optimized for Unraid 7.2+.
+</CHANGES>
+
+<ICON>&gitURL;/src/unraid-zram-card/unraid-zram-card.png</ICON>
+
+<!-- 1. HYBRID INSTALLER SCRIPT -->
+<FILE Run="/bin/bash" Name="/tmp/unraid-zram-card-installer">
+<INLINE>
+#!/bin/bash
+NAME="unraid-zram-card"
+GIT_URL="https://github.com/johnpwhite/unraid-plugin-zram/raw/main"
+LOCAL_SRC="/boot/config/plugins/$NAME"
+EMHTTP_DEST="/usr/local/emhttp/plugins/$NAME"
+
+echo "--- INSTALL START ---"
+rm -rf "$EMHTTP_DEST"
+mkdir -p "$EMHTTP_DEST/js"
+
+FILES=(
+    "ZramCard.php:src/unraid-zram-card/ZramCard.php"
+    "zram_status.php:src/unraid-zram-card/zram_status.php"
+    "zram_swap.php:src/unraid-zram-card/zram_swap.php"
+    "zram_init.sh:src/unraid-zram-card/zram_init.sh"
+    "UnraidZramCard.page:src/unraid-zram-card/UnraidZramCard.page"
+    "UnraidZramDash.page:src/unraid-zram-card/UnraidZramDash.page"
+    "unraid-zram-card.png:src/unraid-zram-card/unraid-zram-card.png"
+    "README.md:src/unraid-zram-card/README.md"
+    "js/zram-card.js:src/unraid-zram-card/js/zram-card.js"
+    "js/chart.min.js:src/unraid-zram-card/js/chart.min.js"
+)
+
+for mapping in "${FILES[@]}"; do
+    DEST="${mapping%%:*}"
+    SRC="${mapping##*:}"
+    FILE_NAME=$(basename "$SRC")
+    echo "Installing $DEST ..."
+    FOUND=""
+    if [ -f "$LOCAL_SRC/$FILE_NAME" ]; then FOUND="$LOCAL_SRC/$FILE_NAME"
+    elif [ -f "$LOCAL_SRC/js/$FILE_NAME" ]; then FOUND="$LOCAL_SRC/js/$FILE_NAME"
+    elif [ -f "$LOCAL_SRC/$SRC" ]; then FOUND="$LOCAL_SRC/$SRC"
+    fi
+    if [ ! -z "$FOUND" ]; then
+        cp "$FOUND" "$EMHTTP_DEST/$DEST"
+    else
+        if ! wget -q -O "$EMHTTP_DEST/$DEST" "$GIT_URL/$SRC"; then
+            echo "ERROR: Download failed for $DEST"
+        fi
+    fi
+done
+
+chmod +x "$EMHTTP_DEST/zram_status.php"
+chmod +x "$EMHTTP_DEST/zram_swap.php"
+chmod +x "$EMHTTP_DEST/zram_init.sh"
+
+echo "--- INSTALL COMPLETE ---"
+rm /tmp/unraid-zram-card-installer
+</INLINE>
+</FILE>
+
+<!-- 2. POST-INSTALL EXECUTION -->
+<FILE Run="/bin/bash">
+<INLINE>
+NAME="unraid-zram-card"
+INIT_SCRIPT="/usr/local/emhttp/plugins/$NAME/zram_init.sh"
+LOG="/tmp/$NAME/boot_init.log"
+mkdir -p "/tmp/$NAME"
+if [ -x "$INIT_SCRIPT" ]; then
+    "$INIT_SCRIPT" >> "$LOG" 2>&amp;1
+fi
+</INLINE>
+</FILE>
+
+<!-- 3. REMOVE -->
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+#!/bin/bash
+NAME="unraid-zram-card"
+PLUGIN_DIR="/usr/local/emhttp/plugins/$NAME"
+CONFIG_DIR="/boot/config/plugins/$NAME"
+echo "Removing $NAME..."
+if [ -f "$PLUGIN_DIR/zram_swap.php" ]; then
+    php "$PLUGIN_DIR/zram_swap.php" action=remove > /dev/null 2>&amp;1
+fi
+rm -rf "$PLUGIN_DIR"
+rm -rf "$CONFIG_DIR"
+removepkg "$NAME" &gt; /dev/null 2&gt;&amp;1
+if [ -f /usr/local/sbin/update_plugin_cache ]; then
+    /usr/local/sbin/update_plugin_cache
+fi
+echo "Uninstall of $NAME complete."
+exit 0
+</INLINE>
+</FILE>
+
+</PLUGIN>

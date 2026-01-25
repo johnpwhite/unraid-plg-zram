@@ -1,0 +1,328 @@
+Menu="Utilities"
+Title="Unraid ZRAM"
+Icon="unraid-zram-card.png"
+---
+<?php
+$configFile = "/boot/config/plugins/unraid-zram-card/settings.ini";
+$defaults = [
+    'enabled' => 'yes', 
+    'refresh_interval' => '1000', 
+    'swap_size' => '4G',
+    'zram_devices' => '',
+    'compression_algo' => 'zstd',
+    'console_visible' => 'yes'
+];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
+    $settings = $defaults;
+    $settings['enabled'] = ($_POST['enabled'] === 'yes') ? 'yes' : 'no';
+    $settings['refresh_interval'] = intval($_POST['refresh_interval']);
+    $settings['swap_size'] = $_POST['swap_size'] ?: '1G';
+    $settings['compression_algo'] = $_POST['compression_algo'] ?: 'zstd';
+    $settings['console_visible'] = ($_POST['console_visible'] === 'yes') ? 'yes' : 'no';
+    
+    if (file_exists($configFile)) {
+        $loaded = @parse_ini_file($configFile);
+        $settings['zram_devices'] = $loaded['zram_devices'] ?? '';
+    }
+
+    if (!is_dir(dirname($configFile))) mkdir(dirname($configFile), 0777, true);
+    $res = [];
+    foreach($settings as $key => $val) $res[] = "$key=\"$val\"";
+    file_put_contents($configFile, implode("\n", $res));
+    echo "<div class='updated'>Settings Saved</div>";
+}
+
+$settings = $defaults;
+if (file_exists($configFile)) {
+    $loaded = @parse_ini_file($configFile);
+    if ($loaded) $settings = array_merge($defaults, $loaded);
+}
+
+// Get detailed device list
+$zram_raw = [];
+exec('zramctl --noheadings --raw --output NAME,DISKSIZE,DATA,COMPR,ALGORITHM', $zram_raw);
+$devices = [];
+foreach ($zram_raw as $line) {
+    $parts = preg_split('/\s+/', trim($line));
+    if (count($parts) >= 2) {
+        $devName = str_replace('/dev/', '', $parts[0]);
+        $devices[] = ['name' => $devName, 'size' => $parts[1], 'algo' => $parts[4] ?? '?'];
+    }
+}
+
+// Get Supported Algorithms
+$algos = ['zstd', 'lz4', 'lzo', 'deflate', '842'];
+if (file_exists('/sys/block/zram0/comp_algorithm')) {
+    $raw_algos = file_get_contents('/sys/block/zram0/comp_algorithm');
+    $raw_algos = str_replace(['[', ']'], '', $raw_algos);
+    $algos = preg_split('/\s+/', trim($raw_algos));
+}
+?>
+
+<style>
+    .zram-layout { display: flex; gap: 20px; align-items: flex-start; width: 100%; margin-top: 10px; }
+    .zram-cards { flex: 0 0 500px; }
+    
+    .zram-card {
+        background: #1e1e1e; 
+        border-radius: 8px; 
+        border: 1px solid #333; 
+        margin-bottom: 15px; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        overflow: hidden;
+    }
+    .zram-card-header {
+        background: #2a2a2a; 
+        padding: 10px 15px; 
+        border-bottom: 1px solid #333;
+        font-weight: bold;
+        font-size: 1.05em;
+        color: #eee;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .zram-card-body { padding: 15px; color: #ccc; }
+
+    .zram-console-pane { 
+        flex: 1; 
+        background: #1a1a1a; 
+        border-radius: 8px; 
+        border: 1px solid #333; 
+        min-width: 300px; 
+        height: 600px;
+        display: <?php echo ($settings['console_visible'] == 'yes') ? 'flex' : 'none'; ?>; 
+        flex-direction: column;
+        overflow: hidden;
+    }
+    
+    /* UNIFIED BUTTON STYLE - The "Ghost" Look */
+    .zram-btn { 
+        padding: 6px 14px; 
+        border-radius: 4px; 
+        cursor: pointer; 
+        font-weight: bold; 
+        font-size: 0.85em; 
+        transition: all 0.2s ease;
+        background: transparent !important;
+        border: 1px solid #ff8c00 !important;
+        color: #ff8c00 !important;
+        text-transform: uppercase;
+        display: inline-block;
+        line-height: normal;
+    }
+    .zram-btn:hover { background: #ff8c00 !important; color: #fff !important; }
+    .zram-btn:disabled { opacity: 0.3 !important; cursor: not-allowed; }
+    
+    /* Button Variations */
+    .btn-remove { border-color: #cc0000 !important; color: #cc0000 !important; }
+    .btn-remove:hover { background: #cc0000 !important; color: #fff !important; }
+    
+    .btn-small { padding: 3px 8px !important; font-size: 0.75em !important; }
+    .btn-full { width: 100%; margin-top: 10px; padding: 10px !important; border-width: 2px !important; }
+
+    .dev-table { width: 100%; border-collapse: collapse; margin-top: 5px; background: transparent; }
+    .dev-table th { text-align: left; border-bottom: 2px solid #333; padding: 8px 5px; color: #888; font-size: 0.75em; text-transform: uppercase; }
+    .dev-table td { padding: 8px 5px; border-bottom: 1px solid #2a2a2a; color: #eee; font-size: 0.9em; }
+    
+    .algo-pill { background: #333; color: #4fc3f7; padding: 1px 6px; border-radius: 4px; font-family: monospace; font-size: 0.85em; }
+    
+    #console-log { flex: 1; overflow-y: auto; padding: 15px; scrollbar-width: thin; scrollbar-color: #333 #1a1a1a; color: #00ff00; }
+    .log-entry { margin-bottom: 4px; padding-bottom: 2px; line-height: 1.3; border-bottom: 1px solid #222; font-family: 'Courier New', monospace; }
+    .log-err { color: #ff5555; }
+    .log-cmd { color: #5555ff; font-weight: bold; }
+    .log-debug { color: #666; padding-left: 15px; font-style: italic; font-size: 0.85em; }
+
+    .create-box {
+        display: flex; 
+        align-items: center; 
+        gap: 15px; 
+        background: rgba(255,255,255,0.05); 
+        padding: 12px; 
+        border-radius: 6px; 
+        margin-bottom: 15px;
+        border: 1px solid #333;
+    }
+    
+    /* Input Fixes */
+    .zram-card-body input, .zram-card-body select {
+        background: #111 !important; 
+        border: 1px solid #444 !important; 
+        color: #eee !important; 
+        padding: 4px 8px !important; 
+        border-radius: 3px; 
+        font-size: 0.95em;
+    }
+    .zram-card-body input:focus, .zram-card-body select:focus {
+        border-color: #ff8c00 !important;
+        outline: none;
+    }
+
+    .zram-card-body dl dt { color: #aaa; font-weight: normal; font-size: 0.9em; width: 180px; line-height: 2.2; }
+    .zram-card-body dl dd { margin-bottom: 4px; color: #eee; }
+</style>
+
+<div class="zram-layout">
+    <div class="zram-cards">
+        <!-- CARD 1: MANAGEMENT -->
+        <div class="zram-card">
+            <div class="zram-card-header">
+                <span><i class="fa fa-server"></i> ZRAM Management</span>
+                <button type="button" class="zram-btn btn-remove btn-small" onclick="manageZram('remove', '')">REMOVE ALL</button>
+            </div>
+            <div class="zram-card-body">
+                <div class="create-box">
+                    <div style="display:flex; align-items:center; gap:8px; font-size:0.9em; color:#aaa;">
+                        <span>Size:</span>
+                        <input type="text" id="swap_size_val" value="<?php echo htmlspecialchars($settings['swap_size']); ?>" style="width: 60px; text-align: center;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px; font-size:0.9em; color:#aaa;">
+                        <span>Algo:</span>
+                        <select id="swap_algo_val" style="width: 100px;">
+                            <?php foreach ($algos as $a): ?>
+                                <option value="<?php echo $a; ?>" <?php echo ($settings['compression_algo'] == $a) ? 'selected' : ''; ?>><?php echo $a; ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <button type="button" class="zram-btn" onclick="manageZram('create')">CREATE</button>
+                </div>
+
+                <table class="dev-table">
+                    <thead><tr><th>Device</th><th>Size</th><th>Algo</th><th style="text-align: right;">Action</th></tr></thead>
+                    <tbody>
+                        <?php if (count($devices) > 0): ?>
+                            <?php foreach ($devices as $dev): ?>
+                            <tr>
+                                <td><strong>/dev/<?php echo $dev['name']; ?></strong></td>
+                                <td><?php echo $dev['size']; ?></td>
+                                <td><span class="algo-pill"><?php echo $dev['algo']; ?></span></td>
+                                <td style="text-align: right;">
+                                    <button type="button" class="zram-btn btn-remove btn-small" onclick="manageZram('remove', '<?php echo $dev['name']; ?>')"><i class="fa fa-times"></i></button>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <tr><td colspan="4" style="text-align: center; opacity: 0.4; font-style: italic; padding: 20px;">No active ZRAM devices</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- CARD 2: SETTINGS -->
+        <form method="post" action="/Settings/UnraidZramCard">
+            <div class="zram-card">
+                <div class="zram-card-header">
+                    <span><i class="fa fa-cog"></i> Plugin Settings</span>
+                </div>
+                <div class="zram-card-body" style="padding-top: 10px;">
+                    <dl>
+                        <dt>Enable Dashboard:</dt>
+                        <dd><select name="enabled"><option value="yes" <?php echo ($settings['enabled'] == 'yes') ? 'selected' : ''; ?>>Yes</option><option value="no" <?php echo ($settings['enabled'] == 'no') ? 'selected' : ''; ?>>No</option></select></dd>
+                        
+                        <dt>Refresh Interval (ms):</dt>
+                        <dd><input type="number" name="refresh_interval" value="<?php echo htmlspecialchars($settings['refresh_interval']); ?>" min="1000" step="500"></dd>
+                        
+                        <dt>Show Command Console:</dt>
+                        <dd><select name="console_visible"><option value="yes" <?php echo ($settings['console_visible'] == 'yes') ? 'selected' : ''; ?>>Yes</option><option value="no" <?php echo ($settings['console_visible'] == 'no') ? 'selected' : ''; ?>>No</option></select></dd>
+
+                        <dt>Default Size:</dt>
+                        <dd><input type="text" name="swap_size" value="<?php echo htmlspecialchars($settings['swap_size']); ?>" style="width: 80px;"></dd>
+
+                        <dt>Default Algorithm:</dt>
+                        <dd>
+                            <select name="compression_algo" style="width: 100px;">
+                                <?php foreach ($algos as $a): ?>
+                                    <option value="<?php echo $a; ?>" <?php echo ($settings['compression_algo'] == $a) ? 'selected' : ''; ?>><?php echo $a; ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </dd>
+                    </dl>
+                    <button type="submit" name="save_settings" class="zram-btn btn-full">APPLY & SAVE SETTINGS</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- CONSOLE -->
+    <div class="zram-console-pane" id="zram-console-pane">
+        <div class="zram-card-header">
+            <span><i class="fa fa-terminal"></i> Command Console</span>
+            <button type="button" class="zram-btn btn-small" onclick="clearPersistentLogs()"><i class="fa fa-trash"></i> CLEAR LOGS</button>
+        </div>
+        <div id="console-log"></div>
+    </div>
+</div>
+
+<script>
+function renderLog(entry) {
+    const log = document.getElementById('console-log');
+    if (!log) return;
+    const div = document.createElement('div');
+    div.className = 'log-entry ' + (entry.type ? 'log-' + entry.type : '');
+    div.innerText = `[${entry.time}] ${entry.msg}`;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+}
+
+function addLog(msg, type = '') {
+    const entry = { time: new Date().toLocaleTimeString(), msg: msg, type: type };
+    let logs = JSON.parse(sessionStorage.getItem('zram_console_logs') || '[]');
+    logs.push(entry);
+    sessionStorage.setItem('zram_console_logs', JSON.stringify(logs));
+    renderLog(entry);
+}
+
+function clearPersistentLogs() {
+    sessionStorage.removeItem('zram_console_logs');
+    const log = document.getElementById('console-log');
+    if (log) log.innerHTML = '';
+    addLog('Console cleared.');
+}
+
+function manageZram(action, device) {
+    const size = document.getElementById('swap_size_val').value;
+    const algo = document.getElementById('swap_algo_val').value;
+    const btn = event.target;
+    
+    addLog(`Initiating ${action}...`, 'cmd');
+    btn.disabled = true;
+
+    $.post('/plugins/unraid-zram-card/zram_swap.php', {
+        action: action, size: size, algo: algo, device: device
+    }, function(data) {
+        if (data.logs && Array.isArray(data.logs)) {
+            data.logs.forEach(log => {
+                if (typeof log === 'string') {
+                    addLog(log);
+                } else {
+                    const status = log.status === 0 ? 'Success' : 'Fail';
+                    addLog(`${log.cmd} -> ${status}`, log.status === 0 ? '' : 'err');
+                    if (log.output) addLog(`  > ${log.output}`, 'debug');
+                }
+            });
+        }
+
+        if (data.success) {
+            addLog(`Completed: ${data.message}`);
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            addLog(`CRITICAL ERROR: ${data.message}`, 'err');
+            btn.disabled = false;
+        }
+    }).fail(function() {
+        addLog('Request failed (Server Error)', 'err');
+        btn.disabled = false;
+    });
+}
+
+$(function() {
+    const logs = JSON.parse(sessionStorage.getItem('zram_console_logs') || '[]');
+    if (logs.length === 0) {
+        addLog('Console initialized. Ready for commands...');
+    } else {
+        logs.forEach(renderLog);
+    }
+});
+</script>
