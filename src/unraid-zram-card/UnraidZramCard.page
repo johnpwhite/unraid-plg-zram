@@ -1,5 +1,5 @@
 Menu="Utilities"
-Title="Unraid ZRAM Card"
+Title="Unraid ZRAM"
 Icon="database"
 ---
 <?php
@@ -85,54 +85,55 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
     }
     .zram-card-body { padding: 15px; color: #ccc; }
 
-        .zram-console-pane { 
-            flex: 1; 
-            background: #1a1a1a; 
-            border-radius: 8px; 
-            border: 1px solid #333; 
-            min-width: 300px; 
-            height: 600px;
-            display: <?php echo ($settings['console_visible'] == 'yes') ? 'flex' : 'none'; ?>; 
-            flex-direction: column;
-            overflow: hidden;
-        }
-        
-        /* UNIFIED BUTTON STYLE - The "Ghost" Look */
-        .zram-btn { 
-            padding: 6px 14px; 
-            border-radius: 4px; 
-            cursor: pointer; 
-            font-weight: bold; 
-            font-size: 0.85em; 
-            transition: all 0.2s ease;
-            background: transparent !important;
-            border: 1px solid #ff8c00 !important;
-            color: #ff8c00 !important;
-            text-transform: uppercase;
-            display: inline-block;
-            line-height: normal;
-        }
-        .zram-btn:hover { background: #ff8c00 !important; color: #fff !important; }
-        .zram-btn:disabled { opacity: 0.3 !important; cursor: not-allowed; }
-        
-        /* Button Variations */
-        .btn-remove { border-color: #cc0000 !important; color: #cc0000 !important; }
-        .btn-remove:hover { background: #cc0000 !important; color: #fff !important; }
-        
-        .btn-small { padding: 3px 8px !important; font-size: 0.75em !important; }
-        .btn-full { width: 100%; margin-top: 10px; padding: 10px !important; border-width: 2px !important; }
+    .zram-console-pane { 
+        flex: 1; 
+        background: #1a1a1a; 
+        border-radius: 8px; 
+        border: 1px solid #333; 
+        min-width: 300px; 
+        height: 600px;
+        display: <?php echo ($settings['console_visible'] == 'yes') ? 'flex' : 'none'; ?>; 
+        flex-direction: column;
+        overflow: hidden;
+    }
     
-        .dev-table { width: 100%; border-collapse: collapse; margin-top: 5px; background: transparent; }
-        .dev-table th { text-align: left; border-bottom: 2px solid #333; padding: 8px 5px; color: #888; font-size: 0.75em; text-transform: uppercase; }
-        .dev-table td { padding: 8px 5px; border-bottom: 1px solid #2a2a2a; color: #eee; font-size: 0.9em; }
-        
-        .algo-pill { background: #333; color: #4fc3f7; padding: 1px 6px; border-radius: 4px; font-family: monospace; font-size: 0.85em; }
-        
-        #console-log { flex: 1; overflow-y: auto; padding: 15px; scrollbar-width: thin; scrollbar-color: #333 #1a1a1a; color: #00ff00; }
-        .log-entry { margin-bottom: 4px; padding-bottom: 2px; line-height: 1.3; border-bottom: 1px solid #222; font-family: 'Courier New', monospace; }
-        .log-err { color: #ff5555; }
-        .log-cmd { color: #5555ff; font-weight: bold; }
-        .log-debug { color: #888; padding-left: 15px; font-style: italic; font-size: 0.85em; }
+    /* UNIFIED BUTTON STYLE - The "Ghost" Look */
+    .zram-btn { 
+        padding: 6px 14px; 
+        border-radius: 4px; 
+        cursor: pointer; 
+        font-weight: bold; 
+        font-size: 0.85em; 
+        transition: all 0.2s ease;
+        background: transparent !important;
+        border: 1px solid #ff8c00 !important;
+        color: #ff8c00 !important;
+        text-transform: uppercase;
+        display: inline-block;
+        line-height: normal;
+    }
+    .zram-btn:hover { background: #ff8c00 !important; color: #fff !important; }
+    .zram-btn:disabled { opacity: 0.3 !important; cursor: not-allowed; }
+    
+    /* Button Variations */
+    .btn-remove { border-color: #cc0000 !important; color: #cc0000 !important; }
+    .btn-remove:hover { background: #cc0000 !important; color: #fff !important; }
+    
+    .btn-small { padding: 3px 8px !important; font-size: 0.75em !important; }
+    .btn-full { width: 100%; margin-top: 10px; padding: 10px !important; border-width: 2px !important; }
+
+    .dev-table { width: 100%; border-collapse: collapse; margin-top: 5px; background: transparent; }
+    .dev-table th { text-align: left; border-bottom: 2px solid #333; padding: 8px 5px; color: #888; font-size: 0.75em; text-transform: uppercase; }
+    .dev-table td { padding: 8px 5px; border-bottom: 1px solid #2a2a2a; color: #eee; font-size: 0.9em; }
+    
+    .algo-pill { background: #333; color: #4fc3f7; padding: 1px 6px; border-radius: 4px; font-family: monospace; font-size: 0.85em; }
+    
+    #console-log { flex: 1; overflow-y: auto; padding: 15px; scrollbar-width: thin; scrollbar-color: #333 #1a1a1a; color: #00ff00; }
+    .log-entry { margin-bottom: 4px; padding-bottom: 2px; line-height: 1.3; border-bottom: 1px solid #222; font-family: 'Courier New', monospace; }
+    .log-err { color: #ff5555; }
+    .log-cmd { color: #5555ff; font-weight: bold; }
+    .log-debug { color: #666; padding-left: 15px; font-style: italic; font-size: 0.85em; }
+
     .create-box {
         display: flex; 
         align-items: center; 
@@ -191,8 +192,7 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                     <thead><tr><th>Device</th><th>Size</th><th>Algo</th><th style="text-align: right;">Action</th></tr></thead>
                     <tbody>
                         <?php if (count($devices) > 0): ?>
-                            <?php foreach ($devices as $dev):
-                            ?>
+                            <?php foreach ($devices as $dev): ?>
                             <tr>
                                 <td><strong>/dev/<?php echo $dev['name']; ?></strong></td>
                                 <td><?php echo $dev['size']; ?></td>
@@ -202,8 +202,7 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                                 </td>
                             </tr>
                             <?php endforeach; ?>
-                        <?php else:
-                        ?>
+                        <?php else: ?>
                             <tr><td colspan="4" style="text-align: center; opacity: 0.4; font-style: italic; padding: 20px;">No active ZRAM devices</td></tr>
                         <?php endif; ?>
                     </tbody>
@@ -219,7 +218,7 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                 </div>
                 <div class="zram-card-body" style="padding-top: 10px;">
                     <dl>
-                        <dt>Enable Dashboard Card:</dt>
+                        <dt>Enable Dashboard:</dt>
                         <dd><select name="enabled"><option value="yes" <?php echo ($settings['enabled'] == 'yes') ? 'selected' : ''; ?>>Yes</option><option value="no" <?php echo ($settings['enabled'] == 'no') ? 'selected' : ''; ?>>No</option></select></dd>
                         
                         <dt>Refresh Interval (ms):</dt>
@@ -234,11 +233,9 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                         <dt>Default Algorithm:</dt>
                         <dd>
                             <select name="compression_algo" style="width: 100px;">
-                                <?php foreach ($algos as $a):
-                                ?>
+                                <?php foreach ($algos as $a): ?>
                                     <option value="<?php echo $a; ?>" <?php echo ($settings['compression_algo'] == $a) ? 'selected' : ''; ?>><?php echo $a; ?></option>
-                                <?php endforeach;
-                                ?>
+                                <?php endforeach; ?>
                             </select>
                         </dd>
                     </dl>

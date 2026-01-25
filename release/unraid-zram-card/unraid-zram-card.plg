@@ -2,22 +2,22 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.58">
+<!ENTITY version   "2026.01.25.59">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.58" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.59" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
+## 2026.01.25.59
+- Fix: Redesigned boot persistence logic to ensure zram_init.sh executes correctly on every reboot.
+- Fix: Renamed settings labels and titles to remove "Card" for a cleaner look.
+- Fix: Improved installation logging to track post-install execution.
 ## 2026.01.25.58
-- Fix: Improved Boot Persistence. Updated zram_init.sh with absolute paths and dedicated logging to /tmp/unraid-zram-card/boot_init.log to ensure ZRAM devices are re-applied correctly on every reboot.
-## 2026.01.25.57
-- Fix: Robust Uninstallation. The removal script now explicitly deletes the configuration folder on the flash drive (/boot/config/plugins/unraid-zram-card/) for a truly complete purge.
-## 2026.01.25.56
-- Feature: Safe Evacuation Check.
+- Fix: Improved Boot Persistence with absolute paths and logging.
 </CHANGES>
 
 <!-- 1. HYBRID INSTALLER SCRIPT -->
@@ -33,7 +33,6 @@ echo "--- INSTALL START ---"
 rm -rf "$EMHTTP_DEST"
 mkdir -p "$EMHTTP_DEST/js"
 
-# File List mapping (Dest : RepoSource)
 FILES=(
     "ZramCard.php:src/unraid-zram-card/ZramCard.php"
     "zram_status.php:src/unraid-zram-card/zram_status.php"
@@ -51,23 +50,17 @@ for mapping in "${FILES[@]}"; do
     DEST="${mapping%%:*}"
     SRC="${mapping##*:}"
     FILE_NAME=$(basename "$SRC")
-    
     echo "Installing $DEST ..."
-    
-    # Attempt to find the file locally in multiple possible locations
     FOUND=""
     if [ -f "$LOCAL_SRC/$FILE_NAME" ]; then FOUND="$LOCAL_SRC/$FILE_NAME"
     elif [ -f "$LOCAL_SRC/js/$FILE_NAME" ]; then FOUND="$LOCAL_SRC/js/$FILE_NAME"
     elif [ -f "$LOCAL_SRC/$SRC" ]; then FOUND="$LOCAL_SRC/$SRC"
     fi
-
     if [ ! -z "$FOUND" ]; then
-        echo "  > Using local: $FOUND"
         cp "$FOUND" "$EMHTTP_DEST/$DEST"
     else
-        echo "  > Downloading from GitLab..."
         if ! wget -q -O "$EMHTTP_DEST/$DEST" "$GIT_URL/$SRC"; then
-            echo "  > ERROR: Download failed and no local copy found for $DEST"
+            echo "ERROR: Download failed for $DEST"
         fi
     fi
 done
@@ -76,18 +69,30 @@ chmod +x "$EMHTTP_DEST/zram_status.php"
 chmod +x "$EMHTTP_DEST/zram_swap.php"
 chmod +x "$EMHTTP_DEST/zram_init.sh"
 
-echo "--- INSTALL COMPLETE ---"
+echo "Installation complete."
 rm /tmp/unraid-zram-card-installer
 </INLINE>
 </FILE>
 
-<!-- 2. POST-INSTALL -->
-<INSTALL Script="post-install.sh">
-#!/bin/bash
-if [ -x "/usr/local/emhttp/plugins/unraid-zram-card/zram_init.sh" ]; then
-    /usr/local/emhttp/plugins/unraid-zram-card/zram_init.sh
+<!-- 2. POST-INSTALL EXECUTION -->
+<FILE Run="/bin/bash">
+<INLINE>
+# This block runs after the files are copied
+NAME="unraid-zram-card"
+INIT_SCRIPT="/usr/local/emhttp/plugins/$NAME/zram_init.sh"
+LOG="/tmp/$NAME/boot_init.log"
+
+mkdir -p "/tmp/$NAME"
+echo "[$(date)] PLG installation triggering zram_init.sh..." >> "$LOG"
+
+if [ -x "$INIT_SCRIPT" ]; then
+    echo "Executing $INIT_SCRIPT" >> "$LOG"
+    "$INIT_SCRIPT" >> "$LOG" 2>&amp;1
+else
+    echo "ERROR: $INIT_SCRIPT not found or not executable" >> "$LOG"
 fi
-</INSTALL>
+</INLINE>
+</FILE>
 
 <!-- 3. REMOVE -->
 <FILE Run="/bin/bash" Method="remove">
@@ -96,32 +101,16 @@ fi
 NAME="unraid-zram-card"
 PLUGIN_DIR="/usr/local/emhttp/plugins/$NAME"
 CONFIG_DIR="/boot/config/plugins/$NAME"
-
 echo "Removing $NAME..."
-
-# 1. Stop ZRAM
 if [ -f "$PLUGIN_DIR/zram_swap.php" ]; then
-    echo "Stopping swap..."
     php "$PLUGIN_DIR/zram_swap.php" action=remove &gt; /dev/null 2&gt;&amp;1
 fi
-
-# 2. Delete files
-echo "Deleting emhttp files..."
 rm -rf "$PLUGIN_DIR"
-
-# 3. Delete config files (Flash)
-echo "Deleting config files on flash..."
 rm -rf "$CONFIG_DIR"
-
-# 4. Purge package
-echo "Cleaning package manifests..."
 removepkg "$NAME" &gt; /dev/null 2&gt;&amp;1
-
-# 5. Refresh UI
 if [ -f /usr/local/sbin/update_plugin_cache ]; then
     /usr/local/sbin/update_plugin_cache
 fi
-
 echo "Uninstall of $NAME complete."
 exit 0
 </INLINE>
