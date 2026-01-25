@@ -2,28 +2,21 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.53">
+<!ENTITY version   "2026.01.25.54">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.1" support="&gitURL;/src/unraid-zram-card/HELP.md">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.54" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
 
 <CHANGES>
-## 2026.01.25.53
-- Fix: Reverted Command Console colors to previous high-contrast versions for better readability.
-## 2026.01.25.52
-- Fix: Unified all buttons to use the ghost-orange theme with guaranteed CSS overrides.
-- Design: Synchronized Command Console header with other cards, including a terminal icon.
-- Fix: Switched Save button to a 'button' element to bypass system input styling.
-## 2026.01.25.51
-- Fix: Reverted uninstallation to the standard FILE Run Method="remove" pattern for guaranteed execution.
-- Fix: Unified button styling. All buttons now use the high-contrast orange-outline theme.
-- Fix: Styled the "Clear Logs" button to match the orange-outline theme.
-## 2026.01.25.50
-- Fix: Resolved uninstallation hang.
+## 2026.01.25.54
+- Fix: Confirmed 'installplg' is removed in Unraid 7; usage of WebUI for manual install is now standard.
+- Fix: Improved Hybrid Installer logic to more reliably find local JS files on air-gapped servers.
+- Fix: Simplified uninstallation script to prevent UI hangs in Unraid 7.
+- Fix: Ensured 'js' directory is created before any file operations.
 </CHANGES>
 
 <!-- 1. HYBRID INSTALLER SCRIPT -->
@@ -35,9 +28,11 @@ GIT_URL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master"
 LOCAL_SRC="/boot/config/plugins/$NAME"
 EMHTTP_DEST="/usr/local/emhttp/plugins/$NAME"
 
+echo "--- INSTALL START ---"
 rm -rf "$EMHTTP_DEST"
 mkdir -p "$EMHTTP_DEST/js"
 
+# File List mapping (Dest : RepoSource)
 FILES=(
     "ZramCard.php:src/unraid-zram-card/ZramCard.php"
     "zram_status.php:src/unraid-zram-card/zram_status.php"
@@ -51,23 +46,27 @@ FILES=(
     "js/chart.min.js:src/unraid-zram-card/js/chart.min.js"
 )
 
-echo "Starting Hybrid Install..."
-
 for mapping in "${FILES[@]}"; do
     DEST="${mapping%%:*}"
     SRC="${mapping##*:}"
     FILE_NAME=$(basename "$SRC")
     
-    if [ -f "$LOCAL_SRC/$FILE_NAME" ]; then
-        echo "Found local: $FILE_NAME"
-        cp "$LOCAL_SRC/$FILE_NAME" "$EMHTTP_DEST/$DEST"
-    elif [ -f "$LOCAL_SRC/$SRC" ]; then
-        echo "Found local (structured): $SRC"
-        cp "$LOCAL_SRC/$SRC" "$EMHTTP_DEST/$DEST"
+    echo "Installing $DEST ..."
+    
+    # Attempt to find the file locally in multiple possible locations
+    FOUND=""
+    if [ -f "$LOCAL_SRC/$FILE_NAME" ]; then FOUND="$LOCAL_SRC/$FILE_NAME"
+    elif [ -f "$LOCAL_SRC/js/$FILE_NAME" ]; then FOUND="$LOCAL_SRC/js/$FILE_NAME"
+    elif [ -f "$LOCAL_SRC/$SRC" ]; then FOUND="$LOCAL_SRC/$SRC"
+    fi
+
+    if [ ! -z "$FOUND" ]; then
+        echo "  > Using local: $FOUND"
+        cp "$FOUND" "$EMHTTP_DEST/$DEST"
     else
-        echo "Downloading: $SRC ..."
+        echo "  > Downloading from GitLab..."
         if ! wget -q -O "$EMHTTP_DEST/$DEST" "$GIT_URL/$SRC"; then
-            echo "FAILED to download $SRC"
+            echo "  > ERROR: Download failed and no local copy found for $DEST"
         fi
     fi
 done
@@ -76,7 +75,7 @@ chmod +x "$EMHTTP_DEST/zram_status.php"
 chmod +x "$EMHTTP_DEST/zram_swap.php"
 chmod +x "$EMHTTP_DEST/zram_init.sh"
 
-echo "Installation complete."
+echo "--- INSTALL COMPLETE ---"
 rm /tmp/unraid-zram-card-installer
 </INLINE>
 </FILE>
@@ -84,46 +83,40 @@ rm /tmp/unraid-zram-card-installer
 <!-- 2. POST-INSTALL -->
 <INSTALL Script="post-install.sh">
 #!/bin/bash
-# Re-apply ZRAM settings on boot/install
 if [ -x "/usr/local/emhttp/plugins/unraid-zram-card/zram_init.sh" ]; then
     /usr/local/emhttp/plugins/unraid-zram-card/zram_init.sh
 fi
-echo "unraid-zram-card installed and ZRAM re-applied if configured."
 </INSTALL>
 
 <!-- 3. REMOVE -->
 <FILE Run="/bin/bash" Method="remove">
 <INLINE>
-# Robust removal script for unraid-zram-card
-LOG_DIR="/tmp/unraid-zram-card"
-mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/uninstall.log"
-
-echo "--- UNINSTALL START: $(date) ---" | tee "$LOG_FILE"
+#!/bin/bash
 NAME="unraid-zram-card"
 PLUGIN_DIR="/usr/local/emhttp/plugins/$NAME"
 
-# 1. Stop ZRAM swap
+echo "Removing $NAME..."
+
+# 1. Stop ZRAM
 if [ -f "$PLUGIN_DIR/zram_swap.php" ]; then
-    echo "Stopping ZRAM swap..." | tee -a "$LOG_FILE"
-    php "$PLUGIN_DIR/zram_swap.php" action=remove 2&gt;&amp;1 | tee -a "$LOG_FILE"
+    echo "Stopping swap..."
+    php "$PLUGIN_DIR/zram_swap.php" action=remove &gt; /dev/null 2&gt;&amp;1
 fi
 
-# 2. Remove emhttp files
-echo "Deleting plugin directory..." | tee -a "$LOG_FILE"
+# 2. Delete files
+echo "Deleting files..."
 rm -rf "$PLUGIN_DIR"
 
-# 3. Purge package manifest
-echo "Removing package manifest..." | tee -a "$LOG_FILE"
-removepkg "$NAME" 2&gt;&amp;1 | tee -a "$LOG_FILE"
+# 3. Purge package
+echo "Cleaning package manifests..."
+removepkg "$NAME" &gt; /dev/null 2&gt;&amp;1
 
-# 4. Refresh UI Cache
-echo "Refreshing UI cache..." | tee -a "$LOG_FILE"
+# 4. Refresh UI
 if [ -f /usr/local/sbin/update_plugin_cache ]; then
     /usr/local/sbin/update_plugin_cache
 fi
 
-echo "--- UNINSTALL COMPLETE ---" | tee -a "$LOG_FILE"
+echo "Uninstall of $NAME complete."
 exit 0
 </INLINE>
 </FILE>
