@@ -2,31 +2,24 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.25.60">
+<!ENTITY version   "2026.01.25.62">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.25.61" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md">
-
-<ICON>&gitURL;/src/unraid-zram-card/icon.png</ICON>
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.1" support="&gitURL;/src/unraid-zram-card/HELP.md" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.01.25.62
+- Fix: Renamed icon file to unraid-zram-card.png and added icon attribute to PLUGIN tag for better system integration.
 ## 2026.01.25.61
 - Fix: Added explicit ICON tag to ensure visibility in Unraid Plugin Manager.
 - Feature: Updated plugin icon with new PNG artwork.
-## 2026.01.25.60
-- Fix: Dynamic binary path detection in zram_init.sh. Resolved boot failure caused by hardcoded /usr/bin/zramctl path.
-- Fix: Ensured boot script correctly handles the combined size/algorithm command.
-## 2026.01.25.59
-- Fix: Redesigned boot persistence logic to ensure zram_init.sh executes correctly on every reboot.
-- Fix: Renamed settings labels and titles to remove "Card" for a cleaner look.
-- Fix: Improved installation logging to track post-install execution.
-## 2026.01.25.58
-- Fix: Improved Boot Persistence with absolute paths and logging.
 </CHANGES>
+
+<ICON>&gitURL;/src/unraid-zram-card/unraid-zram-card.png</ICON>
 
 <!-- 1. HYBRID INSTALLER SCRIPT -->
 <FILE Run="/bin/bash" Name="/tmp/unraid-zram-card-installer">
@@ -48,7 +41,7 @@ FILES=(
     "zram_init.sh:src/unraid-zram-card/zram_init.sh"
     "UnraidZramCard.page:src/unraid-zram-card/UnraidZramCard.page"
     "UnraidZramDash.page:src/unraid-zram-card/UnraidZramDash.page"
-    "icon.png:src/unraid-zram-card/icon.png"
+    "unraid-zram-card.png:src/unraid-zram-card/unraid-zram-card.png"
     "README.md:src/unraid-zram-card/README.md"
     "js/zram-card.js:src/unraid-zram-card/js/zram-card.js"
     "js/chart.min.js:src/unraid-zram-card/js/chart.min.js"
@@ -77,7 +70,7 @@ chmod +x "$EMHTTP_DEST/zram_status.php"
 chmod +x "$EMHTTP_DEST/zram_swap.php"
 chmod +x "$EMHTTP_DEST/zram_init.sh"
 
-echo "Installation complete."
+echo "--- INSTALL COMPLETE ---"
 rm /tmp/unraid-zram-card-installer
 </INLINE>
 </FILE>
@@ -85,19 +78,12 @@ rm /tmp/unraid-zram-card-installer
 <!-- 2. POST-INSTALL EXECUTION -->
 <FILE Run="/bin/bash">
 <INLINE>
-# This block runs after the files are copied
 NAME="unraid-zram-card"
 INIT_SCRIPT="/usr/local/emhttp/plugins/$NAME/zram_init.sh"
 LOG="/tmp/$NAME/boot_init.log"
-
 mkdir -p "/tmp/$NAME"
-echo "[$(date)] PLG installation triggering zram_init.sh..." >> "$LOG"
-
 if [ -x "$INIT_SCRIPT" ]; then
-    echo "Executing $INIT_SCRIPT" >> "$LOG"
     "$INIT_SCRIPT" >> "$LOG" 2>&amp;1
-else
-    echo "ERROR: $INIT_SCRIPT not found or not executable" >> "$LOG"
 fi
 </INLINE>
 </FILE>
@@ -111,7 +97,7 @@ PLUGIN_DIR="/usr/local/emhttp/plugins/$NAME"
 CONFIG_DIR="/boot/config/plugins/$NAME"
 echo "Removing $NAME..."
 if [ -f "$PLUGIN_DIR/zram_swap.php" ]; then
-    php "$PLUGIN_DIR/zram_swap.php" action=remove &gt; /dev/null 2&gt;&amp;1
+    php "$PLUGIN_DIR/zram_swap.php" action=remove > /dev/null 2>&amp;1
 fi
 rm -rf "$PLUGIN_DIR"
 rm -rf "$CONFIG_DIR"
