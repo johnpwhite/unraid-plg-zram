@@ -54,6 +54,31 @@ if ($return_var === 0 && !empty($output)) {
     $data['devices'] = $devices;
 }
 
+// Enrich with CPU Ticks from /sys/block/zramX/stat
+foreach ($data['devices'] as &$device) {
+    $devName = $device['name'];
+    // zramctl output might be full path "/dev/zram0" or just "zram0"
+    $devName = basename($devName); 
+    
+    $statFile = "/sys/block/$devName/stat";
+    $device['total_ticks'] = 0;
+    
+    if (file_exists($statFile)) {
+        $content = @file_get_contents($statFile);
+        if ($content) {
+            // Content format: read_ios read_merges read_sectors read_ticks write_ios ...
+            // We want indices 3 (read ticks) and 7 (write ticks) - 0-indexed split
+            $stats = preg_split('/\s+/', trim($content));
+            if (count($stats) >= 8) {
+                $readTicks = intval($stats[3]);
+                $writeTicks = intval($stats[7]);
+                $device['total_ticks'] = $readTicks + $writeTicks;
+            }
+        }
+    }
+}
+unset($device); // Break reference
+
 // Calculate Aggregates
 $totalOriginal = 0;
 $totalCompressed = 0;

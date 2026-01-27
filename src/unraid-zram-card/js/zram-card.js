@@ -7,6 +7,10 @@
         labels: [],
         saved: []
     };
+    
+    // CPU Load Tracking
+    let lastTotalTicks = null;
+    let lastTime = null;
 
     // Helper: Format Bytes
     function formatBytes(bytes, decimals = 2) {
@@ -107,6 +111,32 @@
             if (elSaved) elSaved.textContent = formatBytes(aggs.memory_saved);
             if (elRatio) elRatio.textContent = aggs.compression_ratio + 'x';
             if (elUsed) elUsed.textContent = formatBytes(aggs.total_used);
+            
+            // Calculate Load
+            let currentTotalTicks = 0;
+            if (data.devices) {
+                data.devices.forEach(d => {
+                    currentTotalTicks += (parseInt(d.total_ticks) || 0);
+                });
+            }
+            
+            const now = Date.now();
+            let loadPct = 0;
+            
+            if (lastTotalTicks !== null && lastTime !== null) {
+                const deltaTicks = currentTotalTicks - lastTotalTicks;
+                const deltaTime = now - lastTime;
+                if (deltaTime > 0) {
+                    // Ticks are in ms. (ticks / ms) * 100 = %
+                    loadPct = (deltaTicks / deltaTime) * 100;
+                }
+            }
+            
+            lastTotalTicks = currentTotalTicks;
+            lastTime = now;
+            
+            const elLoad = document.getElementById('zram-load');
+            if (elLoad) elLoad.textContent = loadPct.toFixed(1) + '%';
             
             // Subtitle status
             const statusText = aggs.disk_size_total > 0 ? `Active (${data.devices.length} devs)` : 'Inactive';
