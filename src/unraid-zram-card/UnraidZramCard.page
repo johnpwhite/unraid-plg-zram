@@ -178,6 +178,15 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                 <button type="button" class="zram-btn btn-remove btn-small" onclick="manageZram('remove', '')">REMOVE ALL</button>
             </div>
             <div class="zram-card-body">
+                <!-- Global Swappiness -->
+                <div class="create-box" style="justify-content: space-between; padding: 8px 12px; margin-bottom: 10px; background: rgba(0,0,0,0.2);">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="color:#aaa; font-size:0.9em;"><i class="fa fa-sliders"></i> Global Swappiness:</span>
+                        <input type="number" id="live_swappiness" value="<?php echo htmlspecialchars($settings['swappiness']); ?>" min="0" max="100" style="width: 60px; text-align: center;">
+                    </div>
+                    <button type="button" class="zram-btn" onclick="updateSwappiness()">SET</button>
+                </div>
+
                 <div class="create-box">
                     <div style="display:flex; align-items:center; gap:8px; font-size:0.9em; color:#aaa;">
                         <span>Size:</span>
@@ -204,6 +213,7 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                                 <td><?php echo $dev['size']; ?></td>
                                 <td><span class="algo-pill"><?php echo $dev['algo']; ?></span></td>
                                 <td style="text-align: right;">
+                                    <button type="button" class="zram-btn btn-small" style="margin-right:5px;" onclick="editDevice('<?php echo $dev['name']; ?>', '<?php echo $dev['size']; ?>', '<?php echo $dev['algo']; ?>')" title="Copy Settings"><i class="fa fa-pencil"></i></button>
                                     <button type="button" class="zram-btn btn-remove btn-small" onclick="manageZram('remove', '<?php echo $dev['name']; ?>')"><i class="fa fa-times"></i></button>
                                 </td>
                             </tr>
@@ -324,6 +334,32 @@ function manageZram(action, device) {
         addLog('Request failed (Server Error)', 'err');
         btn.disabled = false;
     });
+}
+
+function updateSwappiness() {
+    const val = document.getElementById('live_swappiness').value;
+    const btn = event.target;
+    btn.disabled = true;
+    addLog(`Setting Global Swappiness to ${val}...`, 'cmd');
+    
+    $.post('/plugins/unraid-zram-card/zram_swap.php', {
+        action: 'update_swappiness', val: val
+    }, function(data) {
+        if (data.success) addLog(data.message);
+        else addLog('Error setting swappiness', 'err');
+        btn.disabled = false;
+    });
+}
+
+function editDevice(name, size, algo) {
+    // Scroll to top
+    document.querySelector('.zram-card-body').scrollIntoView({behavior: 'smooth'});
+    // Parse size to clean string
+    // Populate
+    document.getElementById('swap_size_val').value = size.replace(/[^0-9GKM]/g, ''); // Simple cleanup
+    document.getElementById('swap_algo_val').value = algo;
+    
+    addLog(`Loaded settings for ${name} into editor. Adjust and click Create to add a NEW device (or Remove old first).`);
 }
 
 $(function() {

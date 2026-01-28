@@ -70,7 +70,22 @@ function is_evacuation_safe($target_device, &$logs) {
     return ['safe' => true];
 }
 
-if ($action === 'create') {
+if ($action === 'update_swappiness') {
+    $val = intval($_POST['val'] ?? 100);
+    $val = max(0, min(100, $val)); // Clamp 0-100
+    
+    run_cmd("sysctl vm.swappiness=$val", $logs, $debugLog);
+    
+    // Persist
+    $loaded = @parse_ini_file($configFile);
+    $loaded['swappiness'] = $val;
+    $res = []; foreach($loaded as $k => $v) $res[] = "$k=\"$v\"";
+    file_put_contents($configFile, implode("\n", $res));
+    
+    echo json_encode(['success' => true, 'message' => "Swappiness set to $val", 'logs' => $logs]);
+}
+
+elseif ($action === 'create') {
     run_cmd('modprobe zram', $logs, $debugLog);
     $cmd = "zramctl --find --size " . escapeshellarg($size) . " --algorithm " . escapeshellarg($algo);
     exec($cmd . " 2>&1", $find_out, $ret);

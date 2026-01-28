@@ -208,19 +208,19 @@
                 }
             }
 
-            // 3. Update Chart
+            // 3. Update Chart Data (Always update history first)
+            const now = new Date().toLocaleTimeString();
+            historyData.labels.push(now);
+            historyData.saved.push(aggs.memory_saved);
+            historyData.load.push(loadPct);
+
+            if (historyData.labels.length > historyLimit) {
+                historyData.labels.shift();
+                historyData.saved.shift();
+                historyData.load.shift();
+            }
+
             if (chartInstance) {
-                const now = new Date().toLocaleTimeString();
-                historyData.labels.push(now);
-                historyData.saved.push(aggs.memory_saved);
-                historyData.load.push(loadPct);
-
-                if (historyData.labels.length > historyLimit) {
-                    historyData.labels.shift();
-                    historyData.saved.shift();
-                    historyData.load.shift();
-                }
-
                 chartInstance.update();
             } else {
                 initChart();
