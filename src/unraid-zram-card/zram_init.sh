@@ -41,18 +41,18 @@ LOG="$LOG_DIR/boot_init.log"
     # Split by comma
     IFS=',' read -ra ADDR <<< "$ZRAM_DEVICES"
     for entry in "${ADDR[@]}"; do
-        # Split entry by colon (size:algo)
-        SIZE="${entry%%:*}"
-        ALGO="${entry##*:}"
+        # Split entry by colon (size:algo:prio)
+        IFS=':' read -r SIZE ALGO PRIO <<< "$entry"
+        if [ -z "$PRIO" ]; then PRIO=100; fi
         
-        echo "Creating ZRAM device (Size: $SIZE, Algo: $ALGO)..."
+        echo "Creating ZRAM device (Size: $SIZE, Algo: $ALGO, Prio: $PRIO)..."
         # Combine find, size, and algo into one call as required by kernel
         DEV=$($ZRAMCTL --find --size "$SIZE" --algorithm "$ALGO")
         
         if [ ! -z "$DEV" ]; then
             echo "  > Created $DEV. Formatting as swap..."
             $MKSWAP "$DEV"
-            $SWAPON "$DEV" -p 100
+            $SWAPON "$DEV" -p "$PRIO"
             echo "  > $DEV is now active."
         else
             echo "  > ERROR: Failed to create ZRAM device for size $SIZE"

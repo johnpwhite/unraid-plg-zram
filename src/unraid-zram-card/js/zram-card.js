@@ -67,7 +67,7 @@
                         borderWidth: 1.5,
                         fill: false, // Don't fill load to avoid visual noise
                         tension: 0.4,
-                        pointRadius: 0,
+                        pointRadius: 2,
                         yAxisID: 'y1'
                     }
                 ]
@@ -169,6 +169,7 @@
                     loadPct = (deltaTicks / deltaTime) * 100;
                 }
             }
+            if (isNaN(loadPct)) loadPct = 0;
             
             lastTotalTicks = currentTotalTicks;
             lastTime = now;

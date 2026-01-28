@@ -45,6 +45,16 @@ if (file_exists($configFile)) {
     if ($loaded) $settings = array_merge($defaults, $loaded);
 }
 
+// Get Priority Map from swapon
+$prioMap = [];
+exec('swapon --noheadings --show --output NAME,PRIO', $swap_out);
+foreach ($swap_out as $line) {
+    $parts = preg_split('/\s+/', trim($line));
+    if (count($parts) >= 2) {
+        $prioMap[$parts[0]] = $parts[1];
+    }
+}
+
 // Get detailed device list
 $zram_raw = [];
 exec('zramctl --noheadings --raw --output NAME,DISKSIZE,DATA,COMPR,ALGORITHM', $zram_raw);
@@ -52,8 +62,14 @@ $devices = [];
 foreach ($zram_raw as $line) {
     $parts = preg_split('/\s+/', trim($line));
     if (count($parts) >= 2) {
-        $devName = str_replace('/dev/', '', $parts[0]);
-        $devices[] = ['name' => $devName, 'size' => $parts[1], 'algo' => $parts[4] ?? '?'];
+        $devName = str_replace('/dev/', '', $parts[0]); // e.g., zram0
+        $fullPath = "/dev/$devName";
+        $devices[] = [
+            'name' => $devName, 
+            'size' => $parts[1], 
+            'algo' => $parts[4] ?? '?',
+            'prio' => $prioMap[$fullPath] ?? '?'
+        ];
     }
 }
 
@@ -167,6 +183,22 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
 
     .zram-card-body dl dt { color: #aaa; font-weight: normal; font-size: 0.9em; width: 180px; line-height: 2.2; }
     .zram-card-body dl dd { margin-bottom: 4px; color: #eee; }
+
+    /* Modal Styles */
+    .zram-modal-overlay {
+        display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;
+    }
+    .zram-modal {
+        background: #2a2a2a; padding: 20px; border-radius: 8px; width: 400px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.8); border: 1px solid #444;
+    }
+    .zram-modal h3 { margin-top: 0; color: #ff8c00; border-bottom: 1px solid #444; padding-bottom: 10px; }
+    .zram-modal-field { margin-bottom: 15px; }
+    .zram-modal-field label { display: block; color: #aaa; font-size: 0.85em; margin-bottom: 5px; }
+    .zram-modal-field input { width: 100%; padding: 8px; box-sizing: border-box; background: #111; border: 1px solid #444; color: #fff; }
+    .zram-modal-field .note { font-size: 0.75em; color: #666; margin-top: 3px; font-style: italic; }
+    .zram-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 </style>
 
 <div class="zram-layout">
@@ -204,22 +236,23 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                 </div>
 
                 <table class="dev-table">
-                    <thead><tr><th>Device</th><th>Size</th><th>Algo</th><th style="text-align: right;">Action</th></tr></thead>
+                    <thead><tr><th>Device</th><th>Size</th><th>Priority</th><th>Algo</th><th style="text-align: right;">Action</th></tr></thead>
                     <tbody>
                         <?php if (count($devices) > 0): ?>
                             <?php foreach ($devices as $dev): ?>
                             <tr>
                                 <td><strong>/dev/<?php echo $dev['name']; ?></strong></td>
                                 <td><?php echo $dev['size']; ?></td>
+                                <td><?php echo $dev['prio']; ?></td>
                                 <td><span class="algo-pill"><?php echo $dev['algo']; ?></span></td>
                                 <td style="text-align: right;">
-                                    <button type="button" class="zram-btn btn-small" style="margin-right:5px;" onclick="editDevice('<?php echo $dev['name']; ?>', '<?php echo $dev['size']; ?>', '<?php echo $dev['algo']; ?>')" title="Copy Settings"><i class="fa fa-pencil"></i></button>
+                                    <button type="button" class="zram-btn btn-small" style="margin-right:5px;" onclick="editDevice('<?php echo $dev['name']; ?>', '<?php echo $dev['size']; ?>', '<?php echo $dev['algo']; ?>', '<?php echo $dev['prio']; ?>')" title="Edit Settings"><i class="fa fa-pencil"></i></button>
                                     <button type="button" class="zram-btn btn-remove btn-small" onclick="manageZram('remove', '<?php echo $dev['name']; ?>')"><i class="fa fa-times"></i></button>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
                         <?php else: ?>
-                            <tr><td colspan="4" style="text-align: center; opacity: 0.4; font-style: italic; padding: 20px;">No active ZRAM devices</td></tr>
+                            <tr><td colspan="5" style="text-align: center; opacity: 0.4; font-style: italic; padding: 20px;">No active ZRAM devices</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -271,6 +304,37 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
             <button type="button" class="zram-btn btn-small" onclick="clearPersistentLogs()"><i class="fa fa-trash"></i> CLEAR LOGS</button>
         </div>
         <div id="console-log"></div>
+    </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div id="editModal" class="zram-modal-overlay">
+    <div class="zram-modal">
+        <h3 id="modalTitle">Edit Device</h3>
+        <input type="hidden" id="edit_dev_name">
+        
+        <div class="zram-modal-field">
+            <label>Device Priority (Higher = Used First):</label>
+            <input type="number" id="edit_prio" min="-1" max="32767">
+            <div class="note">Requires Swap Re-activation (Data will be moved temporarily).</div>
+        </div>
+
+        <div class="zram-modal-field">
+            <label>System Swappiness (Global):</label>
+            <input type="number" id="edit_swappiness" min="0" max="100">
+            <div class="note">Changes apply to ALL swap devices immediately.</div>
+        </div>
+
+        <div class="zram-modal-field">
+            <label>Size & Algo (Read Only):</label>
+            <input type="text" id="edit_info" disabled style="opacity: 0.5;">
+            <div class="note">To change Size or Algo, you must Remove and Recreate.</div>
+        </div>
+
+        <div class="zram-modal-actions">
+            <button type="button" class="zram-btn btn-small" style="border-color:#555!important; color:#aaa!important;" onclick="closeModal()">CANCEL</button>
+            <button type="button" class="zram-btn btn-small" onclick="saveDeviceChanges()">APPLY CHANGES</button>
+        </div>
     </div>
 </div>
 
@@ -351,15 +415,48 @@ function updateSwappiness() {
     });
 }
 
-function editDevice(name, size, algo) {
-    // Scroll to top
-    document.querySelector('.zram-card-body').scrollIntoView({behavior: 'smooth'});
-    // Parse size to clean string
-    // Populate
-    document.getElementById('swap_size_val').value = size.replace(/[^0-9GKM]/g, ''); // Simple cleanup
-    document.getElementById('swap_algo_val').value = algo;
+function closeModal() {
+    document.getElementById('editModal').style.display = 'none';
+}
+
+function editDevice(name, size, algo, prio) {
+    document.getElementById('edit_dev_name').value = name;
+    document.getElementById('modalTitle').innerText = 'Edit ' + name;
+    document.getElementById('edit_prio').value = prio !== '?' ? prio : 100;
     
-    addLog(`Loaded settings for ${name} into editor. Adjust and click Create to add a NEW device (or Remove old first).`);
+    // Sync swappiness from global input
+    document.getElementById('edit_swappiness').value = document.getElementById('live_swappiness').value;
+    
+    document.getElementById('edit_info').value = `${size} / ${algo}`;
+    
+    document.getElementById('editModal').style.display = 'flex';
+}
+
+function saveDeviceChanges() {
+    const name = document.getElementById('edit_dev_name').value;
+    const prio = document.getElementById('edit_prio').value;
+    const swappiness = document.getElementById('edit_swappiness').value;
+    
+    // 1. Update Global Swappiness if changed
+    const currentSwap = document.getElementById('live_swappiness').value;
+    if (swappiness != currentSwap) {
+        document.getElementById('live_swappiness').value = swappiness;
+        updateSwappiness(); // Reuse existing function
+    }
+    
+    // 2. Update Priority
+    addLog(`Updating priority for ${name} to ${prio}...`, 'cmd');
+    $.post('/plugins/unraid-zram-card/zram_swap.php', {
+        action: 'update_priority', device: name, prio: prio
+    }, function(data) {
+        if (data.success) {
+            addLog(data.message);
+            closeModal();
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            addLog(`Error: ${data.message}`, 'err');
+        }
+    });
 }
 
 $(function() {

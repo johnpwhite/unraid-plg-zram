@@ -85,6 +85,49 @@ if ($action === 'update_swappiness') {
     echo json_encode(['success' => true, 'message' => "Swappiness set to $val", 'logs' => $logs]);
 }
 
+elseif ($action === 'update_priority') {
+    $dev = $_POST['device'] ?? '';
+    $prio = intval($_POST['prio'] ?? 100);
+    $devPath = (strpos($dev, '/dev/') === 0) ? $dev : "/dev/$dev";
+    
+    // Safety Check
+    $safety = is_evacuation_safe($devPath, $logs);
+    if (!$safety['safe']) {
+        echo json_encode(['success' => false, 'message' => $safety['error'], 'logs' => $logs]);
+        exit;
+    }
+
+    // Apply Live
+    if (run_cmd("swapoff $devPath", $logs, $debugLog) === 0) {
+        if (run_cmd("swapon $devPath -p $prio", $logs, $debugLog) === 0) {
+            
+            // Persist (Update INI)
+            $devName = str_replace('/dev/', '', $devPath); // zram0
+            $index = intval(str_replace('zram', '', $devName)); // 0
+            
+            $loaded = @parse_ini_file($configFile);
+            $devs = array_filter(explode(',', $loaded['zram_devices'] ?? ''));
+            
+            if (isset($devs[$index])) {
+                // Entry format: size:algo or size:algo:prio
+                $parts = explode(':', $devs[$index]);
+                $parts[2] = $prio; // Set/Update prio
+                $devs[$index] = implode(':', $parts);
+                
+                $loaded['zram_devices'] = implode(',', $devs);
+                $res = []; foreach($loaded as $k => $v) $res[] = "$k=\"$v\"";
+                file_put_contents($configFile, implode("\n", $res));
+            }
+            
+            echo json_encode(['success' => true, 'message' => "Priority updated to $prio", 'logs' => $logs]);
+        } else {
+            echo json_encode(['success' => false, 'message' => "Failed to reactivate swap", 'logs' => $logs]);
+        }
+    } else {
+        echo json_encode(['success' => false, 'message' => "Failed to deactivate swap (Busy?)", 'logs' => $logs]);
+    }
+}
+
 elseif ($action === 'create') {
     run_cmd('modprobe zram', $logs, $debugLog);
     $cmd = "zramctl --find --size " . escapeshellarg($size) . " --algorithm " . escapeshellarg($algo);
