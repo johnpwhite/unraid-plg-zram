@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.29.01">
+<!ENTITY version   "2026.01.29.02">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
@@ -12,6 +12,8 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.1" support="&gitURL;/src/unraid-zram-card/HELP.md" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.01.29.02
+- Critical Fix: Resolved variable naming conflict preventing dashboard chart from loading.
 ## 2026.01.29.01
 - Fix: Added cache-busting to dashboard script to ensure Chart updates apply immediately.
 ## 2026.01.27.04

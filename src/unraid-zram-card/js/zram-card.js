@@ -210,8 +210,8 @@
             }
 
             // 3. Update Chart Data (Always update history first)
-            const now = new Date().toLocaleTimeString();
-            historyData.labels.push(now);
+            const timeLabel = new Date().toLocaleTimeString();
+            historyData.labels.push(timeLabel);
             historyData.saved.push(aggs.memory_saved);
             historyData.load.push(loadPct);
 
