@@ -2,17 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.30.01">
+<!ENTITY version   "2026.01.30.02">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.30.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.30.02" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md" icon="unraid-zram-card.png">
 
 <CHANGES>
-## 2026.01.30.01
+## 2026.01.30.02
+- Fix: Escaped raw ampersand in changelog that was causing XML parse errors.
 - Fix: Resolved XML parsing error by hardcoding PLUGIN tag attributes.
 - Fix: Corrected malformed entity escaping in removal script.
 ## 2026.01.29.15
@@ -38,7 +39,7 @@
 - UX: Added 'Swappiness' column to device list (Read-Only/Global) for clarity.
 - Fix: Fixed broken 'Cancel' button in Edit Modal.
 ## 2026.01.29.05
-- UX: Added visual Refresh Indicator (Time & Pulse Icon) to the dashboard card.
+- UX: Added visual Refresh Indicator (Time &amp; Pulse Icon) to the dashboard card.
 ## 2026.01.29.04
 - Security: Added backend validation for Priority (-1 to 32767) and Swappiness (0-100).
 - Fix: Restored 'Edit Device' functionality missing in previous build.
@@ -159,7 +160,7 @@ if [ -f "$PLUGIN_DIR/zram_swap.php" ]; then
 fi
 rm -rf "$PLUGIN_DIR"
 rm -rf "$CONFIG_DIR"
-removepkg "$NAME" &amp;gt; /dev/null 2&amp;gt;&amp;amp;1
+removepkg "$NAME" > /dev/null 2>&amp;1
 if [ -f /usr/local/sbin/update_plugin_cache ]; then
     /usr/local/sbin/update_plugin_cache
 fi
