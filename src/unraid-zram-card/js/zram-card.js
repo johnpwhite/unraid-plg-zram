@@ -194,21 +194,19 @@
                     listContainer.innerHTML = '<div style="text-align: center; opacity: 0.5; padding: 3px; font-size: 0.8em;">No ZRAM devices active.</div>';
                 } else {
                     let html = `
-                        <div style="display: grid; grid-template-columns: 1.2fr 1fr 0.8fr 0.8fr 1fr; gap: 4px; opacity: 0.5; font-size: 0.75em; margin-bottom: 1px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <div style="display: grid; grid-template-columns: 1.5fr 1fr 0.8fr 1fr; gap: 4px; opacity: 0.5; font-size: 0.75em; margin-bottom: 1px; border-bottom: 1px solid rgba(255,255,255,0.05);">
                             <div style="text-align: left;">Dev</div>
                             <div style="text-align: right;">Size</div>
                             <div style="text-align: right;">Prio</div>
-                            <div style="text-align: right;">Swap</div>
-                            <div style="text-align: right;">Comp</div>
+                            <div style="text-align: right;">Algo</div>
                         </div>`;
                     
                     data.devices.forEach(dev => {
                         html += `
-                            <div style="display: grid; grid-template-columns: 1.2fr 1fr 0.8fr 0.8fr 1fr; gap: 4px; font-size: 0.8em; padding: 1px 0;">
+                            <div style="display: grid; grid-template-columns: 1.5fr 1fr 0.8fr 1fr; gap: 4px; font-size: 0.8em; padding: 1px 0;">
                                 <div style="text-align: left; font-weight: bold;">${dev.name.replace('/dev/', '')}</div>
                                 <div style="text-align: right; opacity: 0.7;">${formatBytes(dev.disksize, 0)}</div>
                                 <div style="text-align: right; opacity: 0.7;">${dev.prio}</div>
-                                <div style="text-align: right; opacity: 0.7;">${aggs.swappiness}</div>
                                 <div style="text-align: right; opacity: 0.7;">${dev.algorithm}</div>
                             </div>`;
                     });
