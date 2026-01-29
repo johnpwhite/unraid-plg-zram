@@ -140,7 +140,7 @@ if (!function_exists('getZramDashboardCard')) {
                                     <span style="font-size: 0.75em; opacity: 0.7;">Actual Used</span>
                                 </div>
                                 <div style="background-color: rgba(0,0,0,0.1); padding: 6px; border-radius: 4px; text-align: center;">
-                                    <span id="zram-load" style="font-size: 1.1em; font-weight: bold; display: block; color: #e57373;">
+                                    <span id="zram-load" title="Waiting for data..." style="font-size: 1.1em; font-weight: bold; display: block; color: #e57373;">
                                         0%
                                     </span>
                                     <span style="font-size: 0.75em; opacity: 0.7;">Load</span>

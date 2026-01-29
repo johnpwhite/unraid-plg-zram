@@ -160,10 +160,12 @@
             
             const now = Date.now();
             let loadPct = 0;
+            let deltaTicks = 0;
+            let deltaTime = 0;
             
             if (lastTotalTicks !== null && lastTime !== null) {
-                const deltaTicks = currentTotalTicks - lastTotalTicks;
-                const deltaTime = now - lastTime;
+                deltaTicks = currentTotalTicks - lastTotalTicks;
+                deltaTime = now - lastTime;
                 if (deltaTime > 0) {
                     // Ticks are in ms. (ticks / ms) * 100 = %
                     loadPct = (deltaTicks / deltaTime) * 100;
@@ -175,7 +177,10 @@
             lastTime = now;
             
             const elLoad = document.getElementById('zram-load');
-            if (elLoad) elLoad.textContent = loadPct.toFixed(1) + '%';
+            if (elLoad) {
+                elLoad.textContent = loadPct.toFixed(1) + '%';
+                elLoad.title = `Debug: ${deltaTicks} ticks / ${deltaTime} ms`;
+            }
             
             // Subtitle status
             const statusText = aggs.disk_size_total > 0 ? `Active (${data.devices.length} devs)` : 'Inactive';
