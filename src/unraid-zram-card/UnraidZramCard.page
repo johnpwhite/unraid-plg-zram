@@ -144,12 +144,15 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
     .zram-btn:hover { background: #ff8c00 !important; color: #fff !important; }
     .zram-btn:disabled { opacity: 0.3 !important; cursor: not-allowed; }
     
-    /* Button Variations */
-    .btn-remove { border-color: #cc0000 !important; color: #cc0000 !important; }
-    .btn-remove:hover { background: #cc0000 !important; color: #fff !important; }
-    
-    .btn-small { padding: 3px 8px !important; font-size: 0.75em !important; }
-    .btn-full { width: 100%; margin-top: 10px; padding: 10px !important; border-width: 2px !important; }
+    /* TABS */
+    .zram-tabs { display: flex; background: #222; border-bottom: 1px solid #333; }
+    .zram-tab { 
+        padding: 8px 15px; cursor: pointer; color: #888; font-size: 0.8em; 
+        text-transform: uppercase; font-weight: bold; border-right: 1px solid #333;
+        transition: all 0.2s;
+    }
+    .zram-tab:hover { background: #2a2a2a; color: #ccc; }
+    .zram-tab.active { background: #1a1a1a; color: #ff8c00; border-bottom: 1px solid #ff8c00; }
 
     .dev-table { width: 100%; border-collapse: collapse; margin-top: 5px; background: transparent; }
     .dev-table th { text-align: left; border-bottom: 2px solid #333; padding: 8px 5px; color: #888; font-size: 0.75em; text-transform: uppercase; }
@@ -157,7 +160,11 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
     
     .algo-pill { background: #333; color: #4fc3f7; padding: 1px 6px; border-radius: 4px; font-family: monospace; font-size: 0.85em; }
     
-    #console-log { flex: 1; overflow-y: auto; padding: 15px; scrollbar-width: thin; scrollbar-color: #333 #1a1a1a; color: #00ff00; }
+    #console-log, #debug-log-view { 
+        flex: 1; overflow-y: auto; padding: 15px; scrollbar-width: thin; scrollbar-color: #333 #1a1a1a; 
+        color: #00ff00; font-family: 'Courier New', monospace; font-size: 0.9em; line-height: 1.4;
+    }
+    #debug-log-view { color: #aaa; background: #0d0d0d; display: none; white-space: pre-wrap; }
     .log-entry { margin-bottom: 4px; padding-bottom: 2px; line-height: 1.3; border-bottom: 1px solid #222; font-family: 'Courier New', monospace; }
     .log-err { color: #ff5555; }
     .log-cmd { color: #5555ff; font-weight: bold; }
@@ -280,7 +287,7 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                         <dd>
                             <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
                                 <input type="checkbox" name="debug" value="yes" <?php echo ($settings['debug'] == 'yes') ? 'checked' : ''; ?>>
-                                <a href="/plugins/unraid-zram-card/zram_swap.php?action=view_log" target="_blank" style="font-size: 0.9em; color: #ff8c00; text-decoration: none;">[View Debug Log]</a>
+                                <span style="font-size: 0.9em; opacity: 0.7;">Enable detailed logging to debug log tab below</span>
                             </label>
                         </dd>
                         
@@ -307,11 +314,18 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
 
     <!-- CONSOLE -->
     <div class="zram-console-pane" id="zram-console-pane">
-        <div class="zram-card-header">
-            <span><i class="fa fa-terminal"></i> Command Console</span>
-            <button type="button" class="zram-btn btn-small" onclick="clearPersistentLogs()"><i class="fa fa-trash"></i> CLEAR LOGS</button>
+        <div class="zram-tabs">
+            <div class="zram-tab active" id="tab-cmd" onclick="switchTab('cmd')"><i class="fa fa-terminal"></i> Command History</div>
+            <div class="zram-tab" id="tab-debug" onclick="switchTab('debug')"><i class="fa fa-file-text-o"></i> System Debug Log</div>
         </div>
         <div id="console-log"></div>
+        <div id="debug-log-view">Initializing debug log viewer...</div>
+        
+        <!-- FOOTER ACTIONS -->
+        <div style="background: #222; padding: 5px 15px; border-top: 1px solid #333; display: flex; justify-content: flex-end; gap: 10px;">
+            <button type="button" class="zram-btn btn-small" onclick="clearPersistentLogs()" id="btn-clear-cons"><i class="fa fa-trash"></i> CLEAR HISTORY</button>
+            <button type="button" class="zram-btn btn-small" onclick="fetchDebugLog()" id="btn-refresh-debug" style="display:none;"><i class="fa fa-refresh"></i> REFRESH LOG</button>
+        </div>
     </div>
 </div>
 
@@ -356,6 +370,35 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
 
 
 <script>
+function switchTab(tab) {
+    $('.zram-tab').removeClass('active');
+    $(`#tab-${tab}`).addClass('active');
+    
+    if (tab === 'cmd') {
+        $('#console-log').show();
+        $('#debug-log-view').hide();
+        $('#btn-clear-cons').show();
+        $('#btn-refresh-debug').hide();
+    } else {
+        $('#console-log').hide();
+        $('#debug-log-view').show();
+        $('#btn-clear-cons').hide();
+        $('#btn-refresh-debug').show();
+        fetchDebugLog();
+    }
+}
+
+function fetchDebugLog() {
+    const view = document.getElementById('debug-log-view');
+    view.innerText = 'Loading latest logs...';
+    $.get('/plugins/unraid-zram-card/zram_swap.php', { action: 'view_log' }, function(data) {
+        view.innerText = data;
+        view.scrollTop = view.scrollHeight;
+    }).fail(function() {
+        view.innerText = 'Failed to fetch debug log. Check if the backend is accessible.';
+    });
+}
+
 function renderLog(entry) {
     const log = document.getElementById('console-log');
     if (!log) return;
