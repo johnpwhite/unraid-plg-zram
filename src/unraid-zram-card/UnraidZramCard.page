@@ -393,19 +393,28 @@ function switchTab(tab) {
 
 function clearDebugLog() {
     if (!confirm('Are you sure you want to completely clear the system debug log file?')) return;
+    addLog('Requesting log clear...', 'cmd');
     $.post('/plugins/unraid-zram-card/zram_swap.php', { action: 'clear_log' }, function(data) {
-        fetchDebugLog();
+        if (data && data.success) {
+            addLog('Debug log cleared successfully.');
+            fetchDebugLog();
+        } else {
+            addLog('Error clearing log: ' + (data ? data.message : 'Unknown error'), 'err');
+        }
+    }).fail(function(xhr) {
+        addLog('Server error clearing log (Status: ' + xhr.status + ')', 'err');
     });
 }
 
 function fetchDebugLog() {
     const view = document.getElementById('debug-log-view');
-    view.innerText = 'Loading latest logs...';
+    view.innerText = 'Loading absolute latest logs...';
     $.get('/plugins/unraid-zram-card/zram_swap.php', { action: 'view_log' }, function(data) {
         view.innerText = data;
         view.scrollTop = view.scrollHeight;
-    }).fail(function() {
-        view.innerText = 'Failed to fetch debug log. Check if the backend is accessible.';
+    }).fail(function(xhr) {
+        view.innerText = 'Failed to fetch debug log (Status: ' + xhr.status + ').\nCheck the Command History tab for more details.';
+        addLog('Error fetching debug log (Status: ' + xhr.status + ')', 'err');
     });
 }
 

@@ -239,10 +239,15 @@ elseif ($action === 'remove') {
 }
 if ($action === 'clear_log') {
     if (file_exists($debugLog)) {
-        file_put_contents($debugLog, date('[Y-m-d H:i:s] ') . "DEBUG: Log cleared by user.\n");
-        @chmod($debugLog, 0666);
+        if (@file_put_contents($debugLog, date('[Y-m-d H:i:s] ') . "DEBUG: Log cleared by user.\n") !== false) {
+            @chmod($debugLog, 0666);
+            echo json_encode(['success' => true, 'message' => "Debug log cleared"]);
+        } else {
+            echo json_encode(['success' => false, 'message' => "Failed to write to log file. Check permissions."]);
+        }
+    } else {
+        echo json_encode(['success' => false, 'message' => "Log file not found"]);
     }
-    echo json_encode(['success' => true, 'message' => "Debug log cleared"]);
     exit;
 }
 ?>
