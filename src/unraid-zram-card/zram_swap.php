@@ -4,10 +4,10 @@
 
 // header('Content-Type: application/json'); // Moved below view_log to prevent conflicts
 
-$action = $_POST['action'] ?? '';
-$size = $_POST['size'] ?? '1G';
-$algo = $_POST['algo'] ?? 'zstd';
-$device = $_POST['device'] ?? '';
+$action = $_REQUEST['action'] ?? '';
+$size = $_REQUEST['size'] ?? '1G';
+$algo = $_REQUEST['algo'] ?? 'zstd';
+$device = $_REQUEST['device'] ?? '';
 
 $configFile = "/boot/config/plugins/unraid-zram-card/settings.ini";
 $logDir = "/tmp/unraid-zram-card";
