@@ -16,19 +16,29 @@ $debugLog = $logDir . "/debug.log";
 
 $logs = [];
 
+function zram_log($msg, $level = 'DEBUG') {
+    global $debugLog, $configFile;
+    $levels = ['INFO', 'DEBUG', 'WARN', 'ERROR'];
+    $level = strtoupper($level);
+    if (!in_array($level, $levels)) $level = 'DEBUG';
+
+    // Only log DEBUG if explicitly enabled
+    if ($level === 'DEBUG') {
+        $loaded = @parse_ini_file($configFile);
+        if (($loaded['debug'] ?? 'no') !== 'yes') return;
+    }
+
+    $logMsg = date('[Y-m-d H:i:s] ') . "[$level] $msg\n";
+    @file_put_contents($debugLog, $logMsg, FILE_APPEND);
+    @chmod($debugLog, 0666);
+}
+
 function run_cmd($cmd, &$logs, $debugLog) {
     exec($cmd . " 2>&1", $out, $ret);
     $entry = ['cmd' => $cmd, 'output' => implode(" ", $out), 'status' => $ret];
     $logs[] = $entry;
-    $logMsg = date('[Y-m-d H:i:s] ') . "CMD: $cmd | Status: $ret | Output: " . $entry['output'] . "\n";
-    @file_put_contents($debugLog, $logMsg, FILE_APPEND);
-    @chmod($debugLog, 0666);
+    zram_log("CMD: $cmd | Status: $ret | Output: " . $entry['output'], 'INFO');
     return $ret;
-}
-
-function debug_log($msg, $debugLog) {
-    @file_put_contents($debugLog, date('[Y-m-d H:i:s] ') . "DEBUG: $msg\n", FILE_APPEND);
-    @chmod($debugLog, 0666);
 }
 
 // Check if it's safe to remove ZRAM (prevents OOM crashes)
@@ -130,7 +140,7 @@ elseif ($action === 'update_debug') {
     $res = []; foreach($loaded as $k => $v) $res[] = "$k=\"$v\"";
     file_put_contents($configFile, implode("\n", $res));
     
-    debug_log("Debug mode set to $val", $debugLog);
+    zram_log("Debug mode set to $val", 'INFO');
     echo json_encode(['success' => true, 'message' => "Debug logging set to $val", 'logs' => $logs]);
 }
 

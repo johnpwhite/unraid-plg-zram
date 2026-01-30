@@ -15,20 +15,30 @@ $debugLog = "$logDir/debug.log";
 
 // Load Settings for Debug Flag
 $settings = @parse_ini_file($configFile);
-$debugEnabled = ($settings['debug'] ?? 'no') === 'yes';
 
-if ($debugEnabled) {
-    @file_put_contents($debugLog, date('[Y-m-d H:i:s] ') . "DEBUG: Collector service starting...\n", FILE_APPEND);
+function zram_log($msg, $level = 'DEBUG') {
+    global $debugLog, $configFile;
+    static $debugFlag = null;
+    if ($debugFlag === null) {
+        $loaded = @parse_ini_file($configFile);
+        $debugFlag = ($loaded['debug'] ?? 'no') === 'yes';
+    }
+
+    $level = strtoupper($level);
+    if ($level === 'DEBUG' && !$debugFlag) return;
+
+    $logMsg = date('[Y-m-d H:i:s] ') . "[$level] $msg\n";
+    @file_put_contents($debugLog, $logMsg, FILE_APPEND);
     @chmod($debugLog, 0666);
 }
+
+zram_log("Collector service starting...", 'INFO');
 
 // PID Management - Check for running instance
 if (file_exists($pidFile)) {
     $oldPid = trim(file_get_contents($pidFile));
     if (!empty($oldPid) && posix_kill($oldPid, 0)) {
-        if ($debugEnabled) {
-            @file_put_contents($debugLog, date('[Y-m-d H:i:s] ') . "DEBUG: Collector already running with PID $oldPid. Exiting.\n", FILE_APPEND);
-        }
+        zram_log("Collector already running with PID $oldPid. Exiting.", 'INFO');
         exit;
     }
 }
@@ -98,21 +108,20 @@ while (true) {
             array_shift($history);
         }
 
-        if ($debugEnabled) {
-            @file_put_contents($debugLog, date('[Y-m-d H:i:s] ') . "DEBUG: Polling complete. Saved=" . round($memorySaved/1024/1024) . "MB, Load=" . round($loadPct, 1) . "%\n", FILE_APPEND);
-            @chmod($debugLog, 0666);
-            
-            // Simple Rotation: If log > 1MB, trim it
-            if (filesize($debugLog) > 1048576) {
-                file_put_contents($debugLog, "[LOG ROTATED]\n");
-            }
+        zram_log("Polling complete. Saved=" . round($memorySaved/1024/1024) . "MB, Load=" . round($loadPct, 1) . "%", 'DEBUG');
+
+        // Simple Rotation: If log > 1MB, trim it
+        if (filesize($debugLog) > 1048576) {
+            zram_log("LOG ROTATED", 'INFO');
+            file_put_contents($debugLog, "[LOG ROTATED]\n");
         }
 
         file_put_contents($historyFile, json_encode($history));
 
     } catch (Exception $e) {
         // Log error and continue
-        @file_put_contents("$logDir/collector_error.log", date('[Y-m-d H:i:s] ') . $e->getMessage() . "\n", FILE_APPEND);
+        zram_log("Collector Error: " . $e->getMessage(), 'ERROR');
+        @file_put_contents("$logDir/collector_error.log", date('[Y-m-d H:i:s] ') . "[ERROR] " . $e->getMessage() . "\n", FILE_APPEND);
     }
 
     sleep($interval);
