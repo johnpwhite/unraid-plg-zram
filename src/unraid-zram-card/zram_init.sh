@@ -20,6 +20,7 @@ LOG="$LOG_DIR/boot_init.log"
     log_debug() {
         if [ "$DEBUG_MODE" == "yes" ]; then
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] DEBUG: $1" >> "$DEBUG_LOG"
+            chmod 666 "$DEBUG_LOG" 2>/dev/null
         fi
     }
 

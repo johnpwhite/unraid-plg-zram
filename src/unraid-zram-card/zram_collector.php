@@ -19,6 +19,7 @@ $debugEnabled = ($settings['debug'] ?? 'no') === 'yes';
 
 if ($debugEnabled) {
     @file_put_contents($debugLog, date('[Y-m-d H:i:s] ') . "DEBUG: Collector service starting...\n", FILE_APPEND);
+    @chmod($debugLog, 0666);
 }
 
 // PID Management - Check for running instance
@@ -99,6 +100,12 @@ while (true) {
 
         if ($debugEnabled) {
             @file_put_contents($debugLog, date('[Y-m-d H:i:s] ') . "DEBUG: Polling complete. Saved=" . round($memorySaved/1024/1024) . "MB, Load=" . round($loadPct, 1) . "%\n", FILE_APPEND);
+            @chmod($debugLog, 0666);
+            
+            // Simple Rotation: If log > 1MB, trim it
+            if (filesize($debugLog) > 1048576) {
+                file_put_contents($debugLog, "[LOG ROTATED]\n");
+            }
         }
 
         file_put_contents($historyFile, json_encode($history));

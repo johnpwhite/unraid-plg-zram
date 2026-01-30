@@ -2,7 +2,7 @@
 // zram_swap.php
 // Backend logic with Safe Evacuation Check
 
-header('Content-Type: application/json');
+// header('Content-Type: application/json'); // Moved below view_log to prevent conflicts
 
 $action = $_POST['action'] ?? '';
 $size = $_POST['size'] ?? '1G';
@@ -22,11 +22,13 @@ function run_cmd($cmd, &$logs, $debugLog) {
     $logs[] = $entry;
     $logMsg = date('[Y-m-d H:i:s] ') . "CMD: $cmd | Status: $ret | Output: " . $entry['output'] . "\n";
     @file_put_contents($debugLog, $logMsg, FILE_APPEND);
+    @chmod($debugLog, 0666);
     return $ret;
 }
 
 function debug_log($msg, $debugLog) {
     @file_put_contents($debugLog, date('[Y-m-d H:i:s] ') . "DEBUG: $msg\n", FILE_APPEND);
+    @chmod($debugLog, 0666);
 }
 
 // Check if it's safe to remove ZRAM (prevents OOM crashes)
@@ -78,14 +80,22 @@ function is_evacuation_safe($target_device, &$logs) {
 if ($action === 'view_log') {
     if (ob_get_level()) ob_end_clean();
     header('Content-Type: text/plain; charset=utf-8');
+    header('Cache-Control: no-cache, must-revalidate');
     if (file_exists($debugLog)) {
-        readfile($debugLog);
+        if (is_readable($debugLog)) {
+            readfile($debugLog);
+        } else {
+            echo "Error: Debug log exists but is not readable by the web server.\n";
+            echo "Permissions: " . substr(sprintf('%o', fileperms($debugLog)), -4) . "\n";
+        }
     } else {
         echo "Debug log not found at $debugLog\n";
-        echo "Check if background collector is running or if debug mode was just enabled.";
     }
     exit;
 }
+
+// For all other actions, we return JSON
+header('Content-Type: application/json');
 
 // New API: Check if it's safe to modify a device (for UI warnings)
 if ($action === 'check_safety') {
