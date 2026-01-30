@@ -76,11 +76,13 @@ function is_evacuation_safe($target_device, &$logs) {
 }
 
 if ($action === 'view_log') {
-    header('Content-Type: text/plain');
+    if (ob_get_level()) ob_end_clean();
+    header('Content-Type: text/plain; charset=utf-8');
     if (file_exists($debugLog)) {
         readfile($debugLog);
     } else {
         echo "Debug log not found at $debugLog\n";
+        echo "Check if background collector is running or if debug mode was just enabled.";
     }
     exit;
 }

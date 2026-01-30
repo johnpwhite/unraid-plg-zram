@@ -276,8 +276,10 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
 
                         <dt>Debug Mode:</dt>
                         <dd>
-                            <input type="checkbox" id="debug_enabled" <?php echo ($settings['debug'] == 'yes') ? 'checked' : ''; ?> onchange="updateDebug(this.checked)">
-                            <a href="/plugins/unraid-zram-card/zram_swap.php?action=view_log" target="_blank" style="font-size: 0.8em; color: #ff8c00; text-decoration: none; margin-left: 5px;">[View Log]</a>
+                            <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
+                                <input type="checkbox" id="debug_enabled" <?php echo ($settings['debug'] == 'yes') ? 'checked' : ''; ?> onchange="updateDebug(this.checked)">
+                                <a href="/plugins/unraid-zram-card/zram_swap.php?action=view_log" target="_blank" style="font-size: 0.9em; color: #ff8c00; text-decoration: none;">[View Debug Log]</a>
+                            </label>
                         </dd>
                         
                         <dt>Show Command Console:</dt>
@@ -398,6 +400,8 @@ function updateDebug(enabled) {
     }, function(data) {
         if (data.success) {
             addLog(data.message);
+            // Refresh to update PHP session settings variable
+            setTimeout(() => location.reload(), 1000);
         } else {
             addLog(`Error: ${data.message}`, 'err');
         }
