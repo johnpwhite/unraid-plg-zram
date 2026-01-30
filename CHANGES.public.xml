@@ -1,10 +1,10 @@
 <CHANGES>
-## 2026.01.30.05
-- UX: Improved Dashboard card with detailed stat grid (Swappiness, Load, Savings).
-- UX: Enhanced Swappiness visibility and clarified global system settings.
-- UX: Improved Swap management with OOM-aware safety guards and dynamic warnings.
-- UX: Better column labeling and priority tooltips for easier management.
-- Fix: Robust parsing of system swap priorities for reliable display.
+## 2026.01.30.08
+- feat: Persistent Dashboard History (1-hour rolling chart).
+- feat: Background Service maintains history even when the browser is closed.
+- UX: Live Graph seeds with historical data on load for immediate context.
+- UX: Improved CPU Load tracking precision.
+- Fix: Robust Swap Priority labeling (Auto-assigned values).
 
 ## 2026.01.25.66
 - Official Initial Release.
