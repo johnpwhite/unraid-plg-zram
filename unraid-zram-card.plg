@@ -2,16 +2,20 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.30.07">
+<!ENTITY version   "2026.01.30.08">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.30.07" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.30.08" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.01.30.08
+- Fix: Corrected installation error that prevented background collector from starting.
+- Fix: Improved CPU load calculation precision in history collector.
+
 ## 2026.01.30.07
 - UX: Clarified Priority column by showing "Auto (X)" for negative values.
 - UX: Improved background collector visibility for monitoring tools.
@@ -121,6 +125,7 @@ FILES=(
     "ZramCard.php:src/unraid-zram-card/ZramCard.php"
     "zram_status.php:src/unraid-zram-card/zram_status.php"
     "zram_swap.php:src/unraid-zram-card/zram_swap.php"
+    "zram_collector.php:src/unraid-zram-card/zram_collector.php"
     "zram_init.sh:src/unraid-zram-card/zram_init.sh"
     "UnraidZramCard.page:src/unraid-zram-card/UnraidZramCard.page"
     "UnraidZramDash.page:src/unraid-zram-card/UnraidZramDash.page"
@@ -151,6 +156,7 @@ done
 
 chmod +x "$EMHTTP_DEST/zram_status.php"
 chmod +x "$EMHTTP_DEST/zram_swap.php"
+chmod +x "$EMHTTP_DEST/zram_collector.php"
 chmod +x "$EMHTTP_DEST/zram_init.sh"
 
 echo "--- INSTALL COMPLETE ---"

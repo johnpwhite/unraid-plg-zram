@@ -52,7 +52,7 @@ while (true) {
             }
         }
 
-        $now = time() * 1000; // ms
+        $now = microtime(true) * 1000; // ms
         $loadPct = 0;
         if ($lastTotalTicks !== null && $lastTime !== null) {
             $deltaTicks = $currentTotalTicks - $lastTotalTicks;
