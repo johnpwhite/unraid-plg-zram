@@ -2,16 +2,20 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.30.12">
+<!ENTITY version   "2026.01.30.13">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.30.12" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.30.13" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/src/unraid-zram-card/HELP.md" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.01.30.13
+- Fix: Converted Debug and Swappiness settings to standard form submission to ensure persistence.
+- Fix: Resolved issue where Settings Save would overwrite Debug/Swappiness state.
+
 ## 2026.01.30.12
 - Fix: Restored missing collector constants that caused empty history files.
 

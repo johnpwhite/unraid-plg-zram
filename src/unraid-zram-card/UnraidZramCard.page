@@ -11,7 +11,8 @@ $defaults = [
     'swap_size' => '4G',
     'zram_devices' => '',
     'compression_algo' => 'zstd',
-    'console_visible' => 'yes'
+    'console_visible' => 'yes',
+    'debug' => 'no'
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
@@ -22,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
     $settings['swap_size'] = $_POST['swap_size'] ?: '1G';
     $settings['compression_algo'] = $_POST['compression_algo'] ?: 'zstd';
     $settings['console_visible'] = ($_POST['console_visible'] === 'yes') ? 'yes' : 'no';
+    $settings['debug'] = ($_POST['debug'] === 'yes') ? 'yes' : 'no';
     
     if (file_exists($configFile)) {
         $loaded = @parse_ini_file($configFile);
@@ -272,12 +274,12 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                         <dd><input type="number" name="refresh_interval" value="<?php echo htmlspecialchars($settings['refresh_interval']); ?>" min="1000" step="500"></dd>
                         
                         <dt>Swappiness (0-100):</dt>
-                        <dd><input type="number" id="global_swappiness" value="<?php echo htmlspecialchars($settings['swappiness']); ?>" min="0" max="100" onchange="updateSwappiness(this.value)"></dd>
+                        <dd><input type="number" name="swappiness" value="<?php echo htmlspecialchars($settings['swappiness']); ?>" min="0" max="100"></dd>
 
                         <dt>Debug Mode:</dt>
                         <dd>
                             <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
-                                <input type="checkbox" id="debug_enabled" <?php echo ($settings['debug'] == 'yes') ? 'checked' : ''; ?> onchange="updateDebug(this.checked)">
+                                <input type="checkbox" name="debug" value="yes" <?php echo ($settings['debug'] == 'yes') ? 'checked' : ''; ?>>
                                 <a href="/plugins/unraid-zram-card/zram_swap.php?action=view_log" target="_blank" style="font-size: 0.9em; color: #ff8c00; text-decoration: none;">[View Debug Log]</a>
                             </label>
                         </dd>
@@ -377,35 +379,6 @@ function clearPersistentLogs() {
     const log = document.getElementById('console-log');
     if (log) log.innerHTML = '';
     addLog('Console cleared.');
-}
-
-function updateSwappiness(val) {
-    addLog(`Syncing swappiness to ${val}...`, 'cmd');
-    $.post('/plugins/unraid-zram-card/zram_swap.php', {
-        action: 'update_swappiness', val: val
-    }, function(data) {
-        if (data.success) {
-            addLog(data.message);
-        } else {
-            addLog(`Error: ${data.message}`, 'err');
-        }
-    });
-}
-
-function updateDebug(enabled) {
-    const val = enabled ? 'yes' : 'no';
-    addLog(`Setting debug mode to ${val}...`, 'cmd');
-    $.post('/plugins/unraid-zram-card/zram_swap.php', {
-        action: 'update_debug', val: val
-    }, function(data) {
-        if (data.success) {
-            addLog(data.message);
-            // Refresh to update PHP session settings variable
-            setTimeout(() => location.reload(), 1000);
-        } else {
-            addLog(`Error: ${data.message}`, 'err');
-        }
-    });
 }
 
 function manageZram(action, device) {
