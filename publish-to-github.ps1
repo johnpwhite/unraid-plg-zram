@@ -62,6 +62,7 @@ try {
     Write-Host "Removing internal files and temporary debug logs..."
     $internalFiles = @(
         "AGENT_SKILL_UNRAID_PLUGIN.md",
+        "WORKFLOW_RESUME_GUIDE.md",
         "README.public.md",
         "CHANGES.public.xml",
         "publish-to-github.ps1",
