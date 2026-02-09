@@ -82,7 +82,20 @@ Use the `<FILE Run="/bin/bash" Method="remove">` pattern.
 
 ---
 
-## 7. Environment & Git Workflow
+## 7. Community Applications (CA) Release Requirements
+
+When preparing a plugin for the public index, ensure the following XML fields are correctly mapped in the template file (e.g., `unraid-zram-card.xml`):
+
+*   **Support URL**: Ideally links to an Unraid Forum thread. Fallback to GitHub Issues.
+*   **Project URL**: Links to the GitHub repository homepage.
+*   **Icon URL**: Must be a direct raw HTTPS link to a PNG (e.g., `https://raw.githubusercontent.com/...`).
+*   **Category**: Use specific colon-delimited categories (e.g., `Tools: System: Status:`).
+*   **Description vs Overview**: Description is short (plain text, ~1 sentence). Overview is long (BBCode allowed).
+*   **Branch/Tag**: Must point to `main` and the correct `.plg` filename.
+
+---
+
+## 8. Environment & Git Workflow
 **PowerShell Constraints**:
 *   **No Chaining**: The user's environment does NOT support command chaining with `&&` or `;`.
 *   **Sequential Execution**: You MUST execute git commands (`add`, `commit`, `push`) as **separate, sequential tool calls** to `run_shell_command`.
