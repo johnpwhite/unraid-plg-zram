@@ -87,7 +87,7 @@ try {
         
         # 9. Push to GitHub
         Write-Host "Pushing to GitHub..." -ForegroundColor Yellow
-        git push github deploy-github:main --force
+        git push public deploy-github:main --force
         Write-Host "SUCCESS: Version $version is now live on GitHub!" -ForegroundColor Green
     } else {
         Write-Host "NOTICE: No changes detected since last GitHub release. Nothing to push." -ForegroundColor Yellow
