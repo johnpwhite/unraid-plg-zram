@@ -72,6 +72,7 @@ while (true) {
 
         // --- 2. Calculate CPU Load ---
         $currentTotalTicks = 0;
+        $stats_out = [];
         exec("cat /sys/block/zram*/stat 2>/dev/null", $stats_out);
         foreach ($stats_out as $line) {
             $stats = preg_split('/\s+/', trim($line));
