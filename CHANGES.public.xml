@@ -1,29 +1,24 @@
 <CHANGES>
 ## 2026.02.13.13
-- **Docs**: Added comprehensive Settings &amp; Usage guide for non-technical users.
-- **Workflow**: Parameterized release scripts to eliminate hardcoded repository links.
-- **Standards**: Updated CA XML template to follow official &lt;Containers&gt; schema and Project URL standards.
-- **Assets**: Synchronized latest high-resolution dashboard and settings screenshots.
-
-## 2026.02.13.12
-- **UX**: Tightened README layout for better Plugin Manager visibility.
-- **Fix**: Resolved runaway CPU load calculation in background collector.
-- **Feature**: Added configurable background collection interval (Default 3s).
-- **Feature**: Implemented persistent server-side command history.
-- **Lifecycle**: Improved plugin removal (stops collector and purges all /tmp files).
-- **Architecture**: Flattened source structure and added idempotent initialization.
-- **Settings**: Diagnostics console now enabled by default on new installs.
-- **Bugfix**: Resolved background collector logging issues during upgrades.
+- UX: Tightened README layout for better Plugin Manager visibility.
+- Fix: Resolved runaway CPU load calculation in background collector.
+- Feature: Added configurable background collection interval (Default 3s).
+- Feature: Implemented persistent server-side command history.
+- Lifecycle: Improved plugin removal (stops collector and purges all tmp files).
+- Architecture: Flattened source structure and added idempotent initialization.
+- Settings: Diagnostics console now enabled by default on new installs.
+- Bugfix: Resolved background collector logging issues during upgrades.
+- Docs: Added comprehensive Settings and Usage guide for non-technical users.
 
 ## 2026.01.30.21
-- **New Feature: Persistent Dashboard History**. Maintains a 1-hour rolling chart of ZRAM performance even after closing the browser.
-- **New Feature: Unified Diagnostics Console**. Integrated tabbed console for real-time Command History and System Debug Logs.
-- **New Feature: In-Page Debug Viewer**. Live-refreshing log viewer with truncation capabilities, bypassing external window issues.
-- **Improvement: Standardized Logging**. Consistent [LEVEL] prefixes (INFO, DEBUG, WARN, ERROR) across all plugin components.
-- **Improvement: Robust Installer**. Automatic configuration healing on boot to ensure stability after fresh installs or updates.
-- **Improvement: Performance Optimizations**. Enhanced CPU Load tracking and precision for ZRAM metrics.
-- **Fix: Permission Stability**. Standardized world-readable diagnostics logs (0666) for reliable access across web/root users.
-- **Fix: UI Synchronization**. Resolved issues with swappiness and debug toggle states persisting across refreshes.
+- New Feature: Persistent Dashboard History. Maintains a 1-hour rolling chart of ZRAM performance even after closing the browser.
+- New Feature: Unified Diagnostics Console. Integrated tabbed console for real-time Command History and System Debug Logs.
+- New Feature: In-Page Debug Viewer. Live-refreshing log viewer with truncation capabilities, bypassing external window issues.
+- Improvement: Standardized Logging. Consistent [LEVEL] prefixes (INFO, DEBUG, WARN, ERROR) across all plugin components.
+- Improvement: Robust Installer. Automatic configuration healing on boot to ensure stability after fresh installs or updates.
+- Improvement: Performance Optimizations. Enhanced CPU Load tracking and precision for ZRAM metrics.
+- Fix: Permission Stability. Standardized world-readable diagnostics logs (0666) for reliable access across web/root users.
+- Fix: UI Synchronization. Resolved issues with swappiness and debug toggle states persisting across refreshes.
 
 ## 2026.01.25.66
 - Official Initial Release.
