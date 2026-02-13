@@ -13,17 +13,37 @@
 
 <CHANGES>
 ## 2026.02.13.11
+- docs: Finalized cumulative changelog and versioning script updates.
+
+## 2026.02.13.10
 - UX: Tightened README layout to prevent expansion in Plugin Manager.
+
+## 2026.02.13.09
 - Fix: Resolved runaway CPU load calculation in background collector.
-- Fix: Corrected repository and icon paths in CA template XML.
-- Fix: Ensure background collector is stopped on plugin removal.
-- Fix: Purge temporary files and PID directory on plugin removal.
-- feat: Added background collection interval setting (default 3s).
-- fix: Made zram_init.sh idempotent to support safe background restarts.
-- fix: Ensure collector restarts on upgrade to apply logging fix.
-- feat: Enabled diagnostics console by default on install.
+
+## 2026.02.13.08
 - feat: Moved command history to backend persistent log.
-- feat: Reorganized plugin source structure and automated versioning.
+
+## 2026.02.13.07
+- fix: Purge temporary files and PID directory on plugin removal.
+
+## 2026.02.13.06
+- fix: Ensure background collector is stopped on plugin removal.
+
+## 2026.02.13.05
+- fix: Made zram_init.sh idempotent to support safe background restarts.
+
+## 2026.02.13.04
+- feat: Added background collection interval setting (default 3s).
+
+## 2026.02.13.03
+- feat: Enabled diagnostics console by default on install.
+
+## 2026.02.13.02
+- fix: Ensure collector restarts on upgrade to apply logging fix.
+
+## 2026.02.13.01
+- feat: Updated ZramCard refresh timestamp and structure flattening.
 
 ## 2026.01.30.21
 - feat: Finalized logging standardization across the Dashboard page.
