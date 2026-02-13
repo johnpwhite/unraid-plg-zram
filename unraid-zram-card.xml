@@ -16,6 +16,6 @@
     - Persistent configuration across reboots.
   </Overview>
   <Support>https://forums.unraid.net/topic/196763-new-plugin-created-zram/</Support>
-  <Project>https://github.com/johnpwhite/unraid-plg-zram</Project>
+  <Project>https://docs.kernel.org/admin-guide/blockdev/zram.html</Project>
   <Icon>https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/src/unraid-zram-card.png</Icon>
 </Containers>

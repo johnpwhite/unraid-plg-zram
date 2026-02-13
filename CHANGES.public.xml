@@ -1,4 +1,10 @@
 <CHANGES>
+## 2026.02.13.13
+- **Docs**: Added comprehensive Settings & Usage guide for non-technical users.
+- **Workflow**: Parameterized release scripts to eliminate hardcoded repository links.
+- **Standards**: Updated CA XML template to follow official <Containers> schema and Project URL standards.
+- **Assets**: Synchronized latest high-resolution dashboard and settings screenshots.
+
 ## 2026.02.13.12
 - **UX**: Tightened README layout for better Plugin Manager visibility.
 - **Fix**: Resolved runaway CPU load calculation in background collector.
