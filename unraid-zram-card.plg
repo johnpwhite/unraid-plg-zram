@@ -2,17 +2,17 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.02.13.03">
+<!ENTITY version   "2026.02.13.04">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.02.13.03" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.02.13.04" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
-## 2026.02.13.03
+## 2026.02.13.04
 - Fix: Standardized bracket format for log clearing entry.
 
 ## 2026.01.30.21
@@ -217,6 +217,7 @@ if [ ! -f "/boot/config/plugins/$NAME/settings.ini" ]; then
     echo "Creating default configuration..."
     echo 'enabled="yes"' > "/boot/config/plugins/$NAME/settings.ini"
     echo 'refresh_interval="3000"' >> "/boot/config/plugins/$NAME/settings.ini"
+    echo 'collection_interval="3"' >> "/boot/config/plugins/$NAME/settings.ini"
     echo 'swappiness="100"' >> "/boot/config/plugins/$NAME/settings.ini"
     echo 'console_visible="yes"' >> "/boot/config/plugins/$NAME/settings.ini"
     echo 'swap_size="1G"' >> "/boot/config/plugins/$NAME/settings.ini"

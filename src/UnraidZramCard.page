@@ -7,6 +7,7 @@ $configFile = "/boot/config/plugins/unraid-zram-card/settings.ini";
 $defaults = [
     'enabled' => 'yes', 
     'refresh_interval' => '1000', 
+    'collection_interval' => '3',
     'swappiness' => '100',
     'swap_size' => '4G',
     'zram_devices' => '',
@@ -19,6 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
     $settings = $defaults;
     $settings['enabled'] = ($_POST['enabled'] === 'yes') ? 'yes' : 'no';
     $settings['refresh_interval'] = intval($_POST['refresh_interval']);
+    $settings['collection_interval'] = intval($_POST['collection_interval']);
     $settings['swappiness'] = intval($_POST['swappiness']);
     $settings['swap_size'] = $_POST['swap_size'] ?: '1G';
     $settings['compression_algo'] = $_POST['compression_algo'] ?: 'zstd';
@@ -38,6 +40,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
     // Apply Global Swappiness Immediately
     exec("sysctl vm.swappiness=" . escapeshellarg($settings['swappiness']));
     
+    // Restart Background Collector to apply new interval/debug settings
+    $initScript = "/usr/local/emhttp/plugins/unraid-zram-card/zram_init.sh";
+    if (file_exists($initScript)) {
+        exec("nohup $initScript > /dev/null 2>&1 &");
+    }
+
     echo "<div class='updated'>Settings Saved</div>";
 }
 
@@ -280,6 +288,9 @@ if (file_exists('/sys/block/zram0/comp_algorithm')) {
                         <dt>Refresh Interval (ms):</dt>
                         <dd><input type="number" name="refresh_interval" value="<?php echo htmlspecialchars($settings['refresh_interval']); ?>" min="1000" step="500"></dd>
                         
+                        <dt>Collection Interval (sec):</dt>
+                        <dd><input type="number" name="collection_interval" value="<?php echo htmlspecialchars($settings['collection_interval']); ?>" min="1" step="1"></dd>
+
                         <dt>Swappiness (0-100):</dt>
                         <dd><input type="number" name="swappiness" value="<?php echo htmlspecialchars($settings['swappiness']); ?>" min="0" max="100"></dd>
 

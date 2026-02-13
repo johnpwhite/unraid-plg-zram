@@ -9,12 +9,13 @@ if (!is_dir($logDir)) mkdir($logDir, 0777, true);
 $historyFile = "$logDir/history.json";
 $pidFile = "$logDir/collector.pid";
 $maxPoints = 300;
-$interval = 12; // seconds
 $configFile = "/boot/config/plugins/unraid-zram-card/settings.ini";
 $debugLog = "$logDir/debug.log";
 
-// Load Settings for Debug Flag
+// Load Settings
 $settings = @parse_ini_file($configFile);
+$interval = intval($settings['collection_interval'] ?? 3);
+if ($interval < 1) $interval = 3;
 
 function zram_log($msg, $level = 'DEBUG') {
     global $debugLog, $configFile;
