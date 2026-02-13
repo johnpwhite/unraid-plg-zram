@@ -1,4 +1,13 @@
 <CHANGES>
+## 2026.02.13.08
+- **New Feature: Configurable Collection Interval**. Users can now adjust the background polling frequency (Default updated to 3s).
+- **New Feature: Persistent Command History**. Terminal history is now stored on the server, ensuring consistency across tabs and sessions.
+- **Improvement: Real-time Debug Logic**. Background collector now respects Debug Mode toggles immediately without requiring a restart.
+- **Improvement: Robust Lifecycle Management**. Collector process now correctly restarts on upgrades and purges all temporary files upon uninstallation.
+- **Improvement: Simplified Architecture**. Flattened source structure for better maintainability and faster loading.
+- **Improvement: Out-of-the-box Visibility**. Diagnostics console is now enabled by default for easier troubleshooting on initial setup.
+- **Fix: Idempotent Initialization**. Startup scripts now safely handle restarts, preventing duplicate device creation.
+
 ## 2026.01.30.21
 - **New Feature: Persistent Dashboard History**. Maintains a 1-hour rolling chart of ZRAM performance even after closing the browser.
 - **New Feature: Unified Diagnostics Console**. Integrated tabbed console for real-time Command History and System Debug Logs.
