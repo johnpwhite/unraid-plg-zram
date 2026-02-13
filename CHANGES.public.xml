@@ -1,4 +1,7 @@
 <CHANGES>
+## 2026.02.13.09
+- **Fix: Runaway CPU Load Calculation**. Resolved a bug in the background collector where statistics would accumulate indefinitely, leading to incorrect load metrics.
+
 ## 2026.02.13.08
 - **New Feature: Configurable Collection Interval**. Users can now adjust the background polling frequency (Default updated to 3s).
 - **New Feature: Persistent Command History**. Terminal history is now stored on the server, ensuring consistency across tabs and sessions.
