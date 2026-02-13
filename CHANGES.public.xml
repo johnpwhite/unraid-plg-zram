@@ -1,5 +1,5 @@
 <CHANGES>
-## 2026.02.13.11
+## 2026.02.13.12
 - **UX**: Tightened README layout for better Plugin Manager visibility.
 - **Fix**: Resolved runaway CPU load calculation in background collector.
 - **Feature**: Added configurable background collection interval (Default 3s).
