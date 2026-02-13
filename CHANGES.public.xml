@@ -1,18 +1,36 @@
 <CHANGES>
+## 2026.02.13.11
+- docs: Finalized cumulative changelog and versioning script updates.
+
 ## 2026.02.13.10
-- **UX: Optimized Plugin Description**. Reduced line padding and tightened text in README to ensure it fits within the Unraid Plugin Manager without needing to expand.
+- UX: Tightened README layout to prevent expansion in Plugin Manager.
 
 ## 2026.02.13.09
-- **Fix: Runaway CPU Load Calculation**. Resolved a bug in the background collector where statistics would accumulate indefinitely, leading to incorrect load metrics.
+- Fix: Resolved runaway CPU load calculation in background collector.
 
 ## 2026.02.13.08
-- **New Feature: Configurable Collection Interval**. Users can now adjust the background polling frequency (Default updated to 3s).
-- **New Feature: Persistent Command History**. Terminal history is now stored on the server, ensuring consistency across tabs and sessions.
-- **Improvement: Real-time Debug Logic**. Background collector now respects Debug Mode toggles immediately without requiring a restart.
-- **Improvement: Robust Lifecycle Management**. Collector process now correctly restarts on upgrades and purges all temporary files upon uninstallation.
-- **Improvement: Simplified Architecture**. Flattened source structure for better maintainability and faster loading.
-- **Improvement: Out-of-the-box Visibility**. Diagnostics console is now enabled by default for easier troubleshooting on initial setup.
-- **Fix: Idempotent Initialization**. Startup scripts now safely handle restarts, preventing duplicate device creation.
+- feat: Moved command history to backend persistent log.
+
+## 2026.02.13.07
+- fix: Purge temporary files and PID directory on plugin removal.
+
+## 2026.02.13.06
+- fix: Ensure background collector is stopped on plugin removal.
+
+## 2026.02.13.05
+- fix: Made zram_init.sh idempotent to support safe background restarts.
+
+## 2026.02.13.04
+- feat: Added background collection interval setting (default 3s).
+
+## 2026.02.13.03
+- feat: Enabled diagnostics console by default on install.
+
+## 2026.02.13.02
+- fix: Ensure collector restarts on upgrade to apply logging fix.
+
+## 2026.02.13.01
+- feat: Updated ZramCard refresh timestamp and structure flattening.
 
 ## 2026.01.30.21
 - **New Feature: Persistent Dashboard History**. Maintains a 1-hour rolling chart of ZRAM performance even after closing the browser.
