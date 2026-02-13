@@ -2,17 +2,17 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.02.13.05">
+<!ENTITY version   "2026.02.13.06">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.02.13.05" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.02.13.06" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
-## 2026.02.13.05
+## 2026.02.13.06
 - Fix: Standardized bracket format for log clearing entry.
 
 ## 2026.01.30.21
@@ -250,6 +250,11 @@ NAME="unraid-zram-card"
 PLUGIN_DIR="/usr/local/emhttp/plugins/$NAME"
 CONFIG_DIR="/boot/config/plugins/$NAME"
 echo "Removing $NAME..."
+if [ -f "/tmp/$NAME/collector.pid" ]; then
+    PID=$(cat "/tmp/$NAME/collector.pid")
+    echo "Stopping background collector (PID $PID)..."
+    kill $PID 2>/dev/null
+fi
 if [ -f "$PLUGIN_DIR/zram_swap.php" ]; then
     php "$PLUGIN_DIR/zram_swap.php" action=remove > /dev/null 2>&amp;1
 fi
