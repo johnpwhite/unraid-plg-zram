@@ -440,18 +440,20 @@ function renderLog(entry) {
 }
 
 function addLog(msg, type = '') {
-    const entry = { time: new Date().toLocaleTimeString(), msg: msg, type: type };
-    let logs = JSON.parse(sessionStorage.getItem('zram_console_logs') || '[]');
-    logs.push(entry);
-    sessionStorage.setItem('zram_console_logs', JSON.stringify(logs));
-    renderLog(entry);
+    const time = new Date().toLocaleTimeString();
+    renderLog({ time: time, msg: msg, type: type });
+    
+    // Also persist to backend
+    $.post('/plugins/unraid-zram-card/zram_swap.php', { action: 'append_cmd_log', msg: msg, type: type });
 }
 
 function clearPersistentLogs() {
-    sessionStorage.removeItem('zram_console_logs');
-    const log = document.getElementById('console-log');
-    if (log) log.innerHTML = '';
-    addLog('Console cleared.');
+    $.post('/plugins/unraid-zram-card/zram_swap.php', { action: 'clear_cmd_log' }, function() {
+        const log = document.getElementById('console-log');
+        if (log) log.innerHTML = '';
+        const time = new Date().toLocaleTimeString();
+        renderLog({ time: time, msg: 'Console cleared.' });
+    });
 }
 
 function manageZram(action, device) {
@@ -555,11 +557,12 @@ function saveDeviceChanges() {
 }
 
 $(function() {
-    const logs = JSON.parse(sessionStorage.getItem('zram_console_logs') || '[]');
-    if (logs.length === 0) {
-        addLog('Console initialized. Ready for commands...');
-    } else {
-        logs.forEach(renderLog);
-    }
+    $.get('/plugins/unraid-zram-card/zram_swap.php', { action: 'view_cmd_log' }, function(logs) {
+        if (logs.length === 0) {
+            addLog('Console initialized. Ready for commands...');
+        } else {
+            logs.forEach(renderLog);
+        }
+    });
 });
 </script>

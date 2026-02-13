@@ -13,6 +13,7 @@ $configFile = "/boot/config/plugins/unraid-zram-card/settings.ini";
 $logDir = "/tmp/unraid-zram-card";
 if (!is_dir($logDir)) @mkdir($logDir, 0777, true);
 $debugLog = $logDir . "/debug.log";
+$cmdLog = $logDir . "/cmd.log";
 
 $logs = [];
 
@@ -33,11 +34,29 @@ function zram_log($msg, $level = 'DEBUG') {
     @chmod($debugLog, 0666);
 }
 
+function cmd_log($msg, $type = '') {
+    global $cmdLog;
+    $entry = [
+        'time' => date('H:i:s'),
+        'msg' => $msg,
+        'type' => $type
+    ];
+    @file_put_contents($cmdLog, json_encode($entry) . "\n", FILE_APPEND);
+    @chmod($cmdLog, 0666);
+}
+
 function run_cmd($cmd, &$logs, $debugLog) {
     exec($cmd . " 2>&1", $out, $ret);
-    $entry = ['cmd' => $cmd, 'output' => implode(" ", $out), 'status' => $ret];
+    $output = implode(" ", $out);
+    $entry = ['cmd' => $cmd, 'output' => $output, 'status' => $ret];
     $logs[] = $entry;
-    zram_log("CMD: $cmd | Status: $ret | Output: " . $entry['output'], 'INFO');
+    
+    zram_log("CMD: $cmd | Status: $ret | Output: " . $output, 'INFO');
+    
+    $status = $ret === 0 ? 'Success' : 'Fail';
+    cmd_log("$cmd -> $status", $ret === 0 ? '' : 'err');
+    if ($output) cmd_log("  > $output", 'debug');
+    
     return $ret;
 }
 
@@ -104,8 +123,37 @@ if ($action === 'view_log') {
     exit;
 }
 
+if ($action === 'view_cmd_log') {
+    header('Content-Type: application/json');
+    $entries = [];
+    if (file_exists($cmdLog)) {
+        $lines = file($cmdLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($lines as $line) {
+            $entry = json_decode($line, true);
+            if ($entry) $entries[] = $entry;
+        }
+    }
+    echo json_encode($entries);
+    exit;
+}
+
 // For all other actions, we return JSON
 header('Content-Type: application/json');
+
+if ($action === 'append_cmd_log') {
+    $msg = $_POST['msg'] ?? '';
+    $type = $_POST['type'] ?? '';
+    cmd_log($msg, $type);
+    echo json_encode(['success' => true]);
+    exit;
+}
+
+if ($action === 'clear_cmd_log') {
+    @file_put_contents($cmdLog, "");
+    cmd_log("Console cleared.");
+    echo json_encode(['success' => true]);
+    exit;
+}
 
 // New API: Check if it's safe to modify a device (for UI warnings)
 if ($action === 'check_safety') {
