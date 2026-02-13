@@ -2,17 +2,17 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.01.30.22">
+<!ENTITY version   "2026.02.13.01">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.01.30.22" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.02.13.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
-## 2026.01.30.22
+## 2026.02.13.01
 - Fix: Standardized bracket format for log clearing entry.
 
 ## 2026.01.30.21
@@ -158,7 +158,7 @@
 - Feature: Updated plugin icon with new PNG artwork.
 </CHANGES>
 
-<ICON>&gitURL;/src/unraid-zram-card/unraid-zram-card.png</ICON>
+<ICON>&gitURL;/src/unraid-zram-card.png</ICON>
 
 <!-- 1. HYBRID INSTALLER SCRIPT -->
 <FILE Run="/bin/bash" Name="/tmp/unraid-zram-card-installer">
@@ -174,17 +174,17 @@ rm -rf "$EMHTTP_DEST"
 mkdir -p "$EMHTTP_DEST/js"
 
 FILES=(
-    "ZramCard.php:src/unraid-zram-card/ZramCard.php"
-    "zram_status.php:src/unraid-zram-card/zram_status.php"
-    "zram_swap.php:src/unraid-zram-card/zram_swap.php"
-    "zram_collector.php:src/unraid-zram-card/zram_collector.php"
-    "zram_init.sh:src/unraid-zram-card/zram_init.sh"
-    "UnraidZramCard.page:src/unraid-zram-card/UnraidZramCard.page"
-    "UnraidZramDash.page:src/unraid-zram-card/UnraidZramDash.page"
-    "unraid-zram-card.png:src/unraid-zram-card/unraid-zram-card.png"
-    "README.md:src/unraid-zram-card/README.md"
-    "js/zram-card.js:src/unraid-zram-card/js/zram-card.js"
-    "js/chart.min.js:src/unraid-zram-card/js/chart.min.js"
+    "ZramCard.php:src/ZramCard.php"
+    "zram_status.php:src/zram_status.php"
+    "zram_swap.php:src/zram_swap.php"
+    "zram_collector.php:src/zram_collector.php"
+    "zram_init.sh:src/zram_init.sh"
+    "UnraidZramCard.page:src/UnraidZramCard.page"
+    "UnraidZramDash.page:src/UnraidZramDash.page"
+    "unraid-zram-card.png:src/unraid-zram-card.png"
+    "README.md:src/README.md"
+    "js/zram-card.js:src/js/zram-card.js"
+    "js/chart.min.js:src/js/chart.min.js"
 )
 
 for mapping in "${FILES[@]}"; do

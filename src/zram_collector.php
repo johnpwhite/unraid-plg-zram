@@ -18,14 +18,12 @@ $settings = @parse_ini_file($configFile);
 
 function zram_log($msg, $level = 'DEBUG') {
     global $debugLog, $configFile;
-    static $debugFlag = null;
-    if ($debugFlag === null) {
-        $loaded = @parse_ini_file($configFile);
-        $debugFlag = ($loaded['debug'] ?? 'no') === 'yes';
-    }
-
+    
     $level = strtoupper($level);
-    if ($level === 'DEBUG' && !$debugFlag) return;
+    if ($level === 'DEBUG') {
+        $loaded = @parse_ini_file($configFile);
+        if (($loaded['debug'] ?? 'no') !== 'yes') return;
+    }
 
     $logMsg = date('[Y-m-d H:i:s] ') . "[$level] $msg\n";
     @file_put_contents($debugLog, $logMsg, FILE_APPEND);
