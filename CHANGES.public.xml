@@ -1,4 +1,7 @@
 <CHANGES>
+## 2026.02.13.10
+- **UX: Optimized Plugin Description**. Reduced line padding and tightened text in README to ensure it fits within the Unraid Plugin Manager without needing to expand.
+
 ## 2026.02.13.09
 - **Fix: Runaway CPU Load Calculation**. Resolved a bug in the background collector where statistics would accumulate indefinitely, leading to incorrect load metrics.
 
