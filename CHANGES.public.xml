@@ -1,8 +1,8 @@
 <CHANGES>
 ## 2026.02.13.13
-- **Docs**: Added comprehensive Settings & Usage guide for non-technical users.
+- **Docs**: Added comprehensive Settings &amp; Usage guide for non-technical users.
 - **Workflow**: Parameterized release scripts to eliminate hardcoded repository links.
-- **Standards**: Updated CA XML template to follow official <Containers> schema and Project URL standards.
+- **Standards**: Updated CA XML template to follow official &lt;Containers&gt; schema and Project URL standards.
 - **Assets**: Synchronized latest high-resolution dashboard and settings screenshots.
 
 ## 2026.02.13.12
