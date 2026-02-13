@@ -3,7 +3,7 @@
   <PluginURL>https://github.com/johnpwhite/unraid-plg-zram/raw/main/unraid-zram-card.plg</PluginURL>
   <PluginAuthor>John White</PluginAuthor>
   <Beta>False</Beta>
-  <Category>Tools: System:</Category>
+  <Category>Tools:System</Category>
   <Name>Unraid ZRAM Card</Name>
   <Description>Monitor and manage ZRAM swap devices directly from your Unraid dashboard.</Description>
   <Overview>
