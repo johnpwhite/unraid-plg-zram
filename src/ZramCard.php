@@ -103,7 +103,7 @@ if (!function_exists('getZramDashboardCard')) {
                     <td>
                         <span class='tile-header'>
                             <span class='tile-header-left'>
-                                <img src='/plugins/unraid-zram-card/unraid-zram-card.png' class='f32' style='margin-right:10px;'>
+                                <img src='/plugins/unraid-zram-card/unraid-zram-card.png' class='f32' style='width:32px; height:32px; margin-right:10px;'>
                                 <div class='section'>
                                     <?php if ($zram_isResponsive): ?>
                                         <h3 class='tile-header-main'>ZRAM STATUS</h3>
@@ -117,10 +117,9 @@ if (!function_exists('getZramDashboardCard')) {
                             </span>
                             <span class='tile-header-right'>
                                 <span class='tile-header-right-controls'>
-                                    <i class='fa fa-fw fa-chevron-up control openclose' onclick='openClose($(this))' title='Show/Hide Content'></i>
-                                    <span class="zram-refresh-indicator" style="opacity: 0.6; display: inline-flex; align-items: center; gap: 4px;">
-                                        <i class="fa fa-refresh" id="zram-refresh-icon" style="font-size: 0.9em;"></i>
-                                        <span id="zram-refresh-text" style="font-family: monospace;"><?php echo round(($zram_settings['refresh_interval'] ?? 3000)/1000, 1); ?>s</span>
+                                    <span class="zram-refresh-indicator" style="opacity: 0.6; display: inline-flex; align-items: center; gap: 4px; margin-right: 8px;">
+                                        <i class="fa fa-fw fa-refresh" id="zram-refresh-icon"></i>
+                                        <span id="zram-refresh-text" style="font-family: monospace; font-size: 0.9em;"><?php echo round(($zram_settings['refresh_interval'] ?? 3000)/1000, 1); ?>s</span>
                                     </span>
                                     <a href="/Dashboard/Settings/UnraidZramCard" title="ZRAM Settings">
                                         <i class="fa fa-fw fa-cog control"></i>
