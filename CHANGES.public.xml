@@ -1,4 +1,8 @@
 <CHANGES>
+## 2026.02.18.04
+- Feature: Standardized release labels and improved changelog preservation.
+- Docs: Finalized cumulative changelog and versioning script updates.
+
 ## 2026.02.13.13
 - UX: Tightened README layout for better Plugin Manager visibility.
 - Fix: Resolved runaway CPU load calculation in background collector.
