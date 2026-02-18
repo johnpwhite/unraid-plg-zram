@@ -1,4 +1,9 @@
 <CHANGES>
+## 2026.02.18.07
+- Feature: Added ZRAM discovery to boot init log for existing devices.
+- Fix: Corrected dashboard logo sizing and removed duplicate expander icon.
+- Style: Finalized Unraid 7.2+ dashboard header compliance.
+
 ## 2026.02.18.04
 - Feature: Standardized release labels and improved changelog preservation.
 - Docs: Finalized cumulative changelog and versioning script updates.
