@@ -33,6 +33,19 @@ LOG="$LOG_DIR/boot_init.log"
 
     zram_log "Boot init script starting..." "INFO"
 
+    # --- Initial Discovery: Check for existing ZRAM devices ---
+    EXISTING_DEVS=$(grep "/dev/zram" /proc/swaps | awk '{print $1}')
+    if [ ! -z "$EXISTING_DEVS" ]; then
+        zram_log "Discovery: Found existing active ZRAM devices:" "INFO"
+        while read -r dev; do
+            size=$(cat "/sys/block/$(basename "$dev")/size" 2>/dev/null)
+            # Convert sectors to human readable if possible, or just log sectors
+            zram_log "  > $dev (Size: $((size * 512 / 1024 / 1024)) MB)" "INFO"
+        done <<< "$EXISTING_DEVS"
+    else
+        zram_log "Discovery: No existing ZRAM devices found in /proc/swaps." "INFO"
+    fi
+
     if [ ! -f "$CONFIG" ]; then
         echo "Config file not found: $CONFIG"
         zram_log "ABORT: settings.ini missing. Cannot continue with ZRAM setup." "ERROR"
@@ -64,7 +77,7 @@ LOG="$LOG_DIR/boot_init.log"
     
     if [ -z "$ZRAM_DEVICES" ]; then
         echo "No ZRAM devices configured in settings.ini"
-        zram_log "No ZRAM devices to initialize." "INFO"
+        zram_log "No ZRAM devices defined in settings.ini to initialize." "INFO"
     else
         # Idempotency Check: Skip device creation if any zram device is already active
         if grep -q "/dev/zram" /proc/swaps; then
