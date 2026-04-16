@@ -1,157 +1,158 @@
 <?php
-// zram_status.php
-// Returns ZRAM statistics in JSON format.
-// Security: Ensure this is only accessible to authenticated users (Unraid handles this if placed in plugins dir and accessed via authenticated session, but explicit check is good)
+/**
+ * <module_context>
+ *   <name>zram_status</name>
+ *   <description>JSON status API returning tiered ZRAM + SSD swap statistics, filtered to our devices</description>
+ *   <dependencies>zram_config</dependencies>
+ *   <consumers>zram-card.js (dashboard polling), UnraidZramCard.page</consumers>
+ * </module_context>
+ */
 
+require_once dirname(__FILE__) . '/zram_config.php';
 header('Content-Type: application/json');
 
-// Execute zramctl
-// We prefer JSON output if available
-$output = [];
-$return_var = 0;
+$ourDev = zram_get_our_device();
 
-// Try JSON format first
-exec('zramctl --output-all --bytes --json 2>/dev/null', $output, $return_var);
+// --- Tier 1: ZRAM device stats ---
+$zramDevice = null;
+$totalOriginal = 0;
+$totalCompressed = 0;
+$totalUsed = 0;
+$diskSize = 0;
 
-$data = [];
-
-if ($return_var === 0 && !empty($output)) {
-    // JSON supported
-    $jsonString = implode("\n", $output);
-    $parsed = json_decode($jsonString, true);
-    if (isset($parsed['zramctl'])) {
-        $data['devices'] = $parsed['zramctl'];
-    } else {
-        $data['devices'] = [];
-    }
-} else {
-    // Fallback: Parse raw text
-    // Format usually: NAME DISKSIZE DATA COMPR ALGORITHM STREAMS ZERO-PAGES TOTAL MEM-LIMIT MEM-USED MIGRATED MOUNTPOINT
-    // We use --raw --noheadings --bytes --output-all to get predictable columns
-    unset($output);
-    exec('zramctl --output-all --bytes --noheadings --raw 2>/dev/null', $output, $return_var);
-    
+if ($ourDev) {
+    // Get device details via zramctl
+    $out = [];
+    exec('zramctl --output-all --bytes --json 2>/dev/null', $out, $ret);
     $devices = [];
-    foreach ($output as $line) {
-        // Raw output is space separated, but might have empty fields? 
-        // Best to use specific columns if --output-all varies.
-        // Let's rely on standard columns: NAME, DISKSIZE, DATA, COMPR, ALGORITHM, STREAMS, ZERO-PAGES, TOTAL, MEM-LIMIT, MEM-USED, MIGRATED, MOUNTPOINT
-        $parts = preg_split('/\s+/', trim($line));
-        if (count($parts) >= 5) {
-            $devices[] = [
-                'name' => $parts[0] ?? '',
-                'disksize' => $parts[1] ?? 0,
-                'data' => $parts[2] ?? 0,
-                'compr' => $parts[3] ?? 0,
-                'algorithm' => $parts[4] ?? '',
-                'streams' => $parts[5] ?? 0,
-                'zero-pages' => $parts[6] ?? 0,
-                'total' => $parts[7] ?? 0, // Total memory used
-                // Add others as needed
-            ];
-        }
-    }
-    $data['devices'] = $devices;
-}
-
-// Get Priority Map from swapon
-// Note: swapon --show=NAME,PRIO outputs name and numeric priority
-$prioMap = [];
-exec('swapon --noheadings --show=NAME,PRIO 2>/dev/null', $swap_out);
-foreach ($swap_out as $line) {
-    $parts = preg_split('/\s+/', trim($line));
-    // Validate: NAME should start with /dev, PRIO should be numeric
-    if (count($parts) >= 2 && strpos($parts[0], '/dev') === 0) {
-        $prio = $parts[count($parts) - 1]; // Priority is last column
-        if (is_numeric($prio) || $prio === '-1') {
-            $prioMap[$parts[0]] = $prio;
-        }
-    }
-}
-
-// Get Global Swappiness
-$globalSwappiness = trim(@file_get_contents('/proc/sys/vm/swappiness') ?: '60');
-
-// Enrich with CPU Ticks and Priority
-foreach ($data['devices'] as &$device) {
-    $devName = $device['name'];
-    $basename = basename($devName); 
-    $fullPath = (strpos($devName, '/dev/') === 0) ? $devName : "/dev/$devName";
-    
-    $device['prio'] = $prioMap[$fullPath] ?? '100';
-    
-    $statFile = "/sys/block/$basename/stat";
-    $device['total_ticks'] = 0;
-    
-    if (file_exists($statFile)) {
-        $content = @file_get_contents($statFile);
-        if ($content) {
-            // Debug Log
-            // $debugLine = date('H:i:s') . " Dev: $devName | Raw: $content";
-            // file_put_contents('/tmp/unraid-zram-card/stat_debug.log', $debugLine, FILE_APPEND);
-            
-            // Content format: read_ios read_merges read_sectors read_ticks write_ios ...
-            // We want indices 3 (read ticks) and 7 (write ticks) - 0-indexed split
-            $stats = preg_split('/\s+/', trim($content));
-            if (count($stats) >= 8) {
-                $readTicks = intval($stats[3]);
-                $writeTicks = intval($stats[7]);
-                $device['total_ticks'] = $readTicks + $writeTicks;
+    if ($ret === 0 && !empty($out)) {
+        $parsed = json_decode(implode("\n", $out), true);
+        $devices = $parsed['zramctl'] ?? [];
+    } else {
+        unset($out);
+        $out = [];
+        exec('zramctl --output-all --bytes --noheadings --raw 2>/dev/null', $out);
+        foreach ($out as $line) {
+            $p = preg_split('/\s+/', trim($line));
+            if (count($p) >= 8) {
+                $devices[] = [
+                    'name' => $p[0], 'disksize' => $p[1], 'data' => $p[2],
+                    'compr' => $p[3], 'algorithm' => $p[4], 'total' => $p[7],
+                ];
             }
         }
     }
+
+    // Find our device
+    foreach ($devices as $d) {
+        $name = basename($d['name'] ?? '');
+        if ($name === $ourDev) {
+            $zramDevice = $d;
+            $totalOriginal = intval($d['data'] ?? 0);
+            $totalCompressed = intval($d['compr'] ?? 0);
+            $totalUsed = intval($d['total'] ?? 0);
+            $diskSize = intval($d['disksize'] ?? 0);
+
+            // Enrich with priority
+            $prio = '100';
+            exec('swapon --noheadings --show=NAME,PRIO 2>/dev/null', $sw_out);
+            foreach ($sw_out as $sl) {
+                $sp = preg_split('/\s+/', trim($sl));
+                if (count($sp) >= 2 && basename($sp[0]) === $ourDev) {
+                    $prio = $sp[count($sp) - 1];
+                    break;
+                }
+            }
+            $zramDevice['prio'] = $prio;
+
+            // Enrich with IO ticks
+            $statFile = "/sys/block/$ourDev/stat";
+            $zramDevice['total_ticks'] = 0;
+            if (file_exists($statFile)) {
+                $stats = preg_split('/\s+/', trim(@file_get_contents($statFile)));
+                if (count($stats) >= 8) {
+                    $zramDevice['total_ticks'] = intval($stats[3]) + intval($stats[7]);
+                }
+            }
+            break;
+        }
+    }
 }
-unset($device); // Break reference
 
-// Calculate Aggregates
-$totalOriginal = 0;
-$totalCompressed = 0;
-$totalUsed = 0; // Total physical memory used by zram
-$diskSizeTotal = 0;
-
-foreach ($data['devices'] as $dev) {
-    // Keys might vary between JSON and raw parsing. 
-    // JSON keys usually: "name", "disksize", "data", "compr", "algorithm", "streams", "zero-pages", "total", "mem-limit", "mem-used", "migrated", "mountpoint"
-    // Adjust values to integers
-    $original = intval($dev['data'] ?? 0);
-    $compressed = intval($dev['compr'] ?? 0);
-    $totalMem = intval($dev['total'] ?? 0); // specific zram metadata + compressed data
-    $diskSize = intval($dev['disksize'] ?? 0);
-
-    $totalOriginal += $original;
-    $totalCompressed += $compressed;
-    $totalUsed += $totalMem;
-    $diskSizeTotal += $diskSize;
-}
-
-// Calculate "Memory Saved" (Original Data Size - Compressed Size)
-// Or more accurately: (Original Data Size - Total ZRAM Usage)
 $memorySaved = max(0, $totalOriginal - $totalUsed);
-
-// Compression Ratio
 $ratio = ($totalCompressed > 0) ? round($totalOriginal / $totalCompressed, 2) : 0;
 
-// Include Rolling History from collector
-$history = [];
-$historyFile = "/tmp/unraid-zram-card/history.json";
-if (file_exists($historyFile)) {
-    $history = json_decode(file_get_contents($historyFile), true) ?: [];
+// --- Tier 2: SSD swap stats ---
+$ssdSwap = null;
+$cfg = zram_config_read();
+$ssdPath = $cfg['ssd_swap_path'] ?? '';
+if ($ssdPath) {
+    exec('swapon --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssd_out);
+    foreach ($ssd_out as $line) {
+        $p = preg_split('/\s+/', trim($line));
+        if (count($p) >= 4 && $p[0] === $ssdPath) {
+            $ssdSwap = [
+                'path' => $ssdPath,
+                'mount' => $cfg['ssd_swap_mount'],
+                'size' => intval($p[1]),
+                'used' => intval($p[2]),
+                'prio' => $p[3],
+                'active' => true,
+            ];
+            break;
+        }
+    }
+    if (!$ssdSwap && file_exists($ssdPath)) {
+        $ssdSwap = [
+            'path' => $ssdPath,
+            'mount' => $cfg['ssd_swap_mount'],
+            'size' => filesize($ssdPath),
+            'used' => 0,
+            'prio' => '10',
+            'active' => false,
+        ];
+    }
 }
 
-$response = [
-    'timestamp' => time(),
-    'devices' => $data['devices'],
-    'aggregates' => [
-        'total_original' => $totalOriginal,
-        'total_compressed' => $totalCompressed,
-        'total_used' => $totalUsed,
-        'disk_size_total' => $diskSizeTotal,
-        'memory_saved' => $memorySaved,
-        'compression_ratio' => $ratio,
-        'swappiness' => $globalSwappiness
-    ],
-    'history' => $history
-];
+// --- System memory context ---
+$meminfo = @file_get_contents('/proc/meminfo') ?: '';
+preg_match('/MemTotal:\s+(\d+)/', $meminfo, $mt);
+preg_match('/MemAvailable:\s+(\d+)/', $meminfo, $ma);
+$memTotal = intval($mt[1] ?? 0) * 1024;
+$memAvail = intval($ma[1] ?? 0) * 1024;
 
-echo json_encode($response);
-?>
+// Effective memory: physical RAM + ZRAM effective capacity + SSD swap
+$zramEffective = $diskSize > 0 ? $diskSize : 0; // Virtual size of ZRAM (what apps see)
+$ssdSize = $ssdSwap ? $ssdSwap['size'] : 0;
+
+// History from collector
+$history = [];
+if (file_exists(ZRAM_HISTORY_FILE)) {
+    $h = json_decode(@file_get_contents(ZRAM_HISTORY_FILE), true);
+    if (is_array($h)) $history = $h;
+}
+
+$swappiness = trim(@file_get_contents('/proc/sys/vm/swappiness') ?: '60');
+
+echo json_encode([
+    'timestamp' => time(),
+    'zram_device' => $zramDevice,
+    'ssd_swap' => $ssdSwap,
+    'aggregates' => [
+        'total_original'    => $totalOriginal,
+        'total_compressed'  => $totalCompressed,
+        'total_used'        => $totalUsed,
+        'disk_size'         => $diskSize,
+        'memory_saved'      => $memorySaved,
+        'compression_ratio' => $ratio,
+        'swappiness'        => $swappiness,
+    ],
+    'memory' => [
+        'physical'  => $memTotal,
+        'available' => $memAvail,
+        'effective' => $memTotal + $zramEffective + $ssdSize,
+        'zram_tier' => $zramEffective,
+        'ssd_tier'  => $ssdSize,
+    ],
+    'history' => $history,
+]);

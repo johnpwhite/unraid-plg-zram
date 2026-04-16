@@ -1,127 +1,122 @@
 <?php
-// zram_collector.php
-// Background collector for ZRAM statistics history.
-// Maintains a rolling history of ~300 points (1 hour at 12s interval).
+/**
+ * <module_context>
+ *   <name>zram_collector</name>
+ *   <description>Background daemon collecting rolling ZRAM stats history, filtered to our labeled device</description>
+ *   <dependencies>zram_config</dependencies>
+ *   <consumers>zram_status.php (reads history.json)</consumers>
+ * </module_context>
+ */
 
-$logDir = "/tmp/unraid-zram-card";
-if (!is_dir($logDir)) mkdir($logDir, 0777, true);
+require_once dirname(__FILE__) . '/zram_config.php';
 
-$historyFile = "$logDir/history.json";
-$pidFile = "$logDir/collector.pid";
 $maxPoints = 300;
-$configFile = "/boot/config/plugins/unraid-zram-card/settings.ini";
-$debugLog = "$logDir/debug.log";
 
-// Load Settings
-$settings = @parse_ini_file($configFile);
-$interval = intval($settings['collection_interval'] ?? 3);
-if ($interval < 1) $interval = 3;
+// Load settings (cached — only re-read periodically)
+$settings = zram_config_read();
+$interval = max(1, intval($settings['collection_interval'] ?? 3));
+$configRefreshCounter = 0;
+$configRefreshEvery = max(1, intval(60 / $interval)); // Re-read config ~once per minute
 
-function zram_log($msg, $level = 'DEBUG') {
-    global $debugLog, $configFile;
-    
-    $level = strtoupper($level);
-    if ($level === 'DEBUG') {
-        $loaded = @parse_ini_file($configFile);
-        if (($loaded['debug'] ?? 'no') !== 'yes') return;
-    }
+zram_log("Collector starting (interval={$interval}s)...", 'INFO');
 
-    $logMsg = date('[Y-m-d H:i:s] ') . "[$level] $msg\n";
-    @file_put_contents($debugLog, $logMsg, FILE_APPEND);
-    @chmod($debugLog, 0666);
-}
-
-zram_log("Collector service starting...", 'INFO');
-
-// PID Management - Check for running instance
-if (file_exists($pidFile)) {
-    $oldPid = trim(file_get_contents($pidFile));
-    if (!empty($oldPid) && posix_kill($oldPid, 0)) {
-        zram_log("Collector already running with PID $oldPid. Exiting.", 'INFO');
+// PID management
+if (file_exists(ZRAM_PID_FILE)) {
+    $oldPid = intval(trim(@file_get_contents(ZRAM_PID_FILE)));
+    if ($oldPid > 0 && posix_kill($oldPid, 0)) {
+        zram_log("Collector already running (PID $oldPid). Exiting.", 'INFO');
         exit;
     }
 }
-file_put_contents($pidFile, getmypid());
+file_put_contents(ZRAM_PID_FILE, getmypid());
 
 $lastTotalTicks = null;
 $lastTime = null;
 
-// Initialize history if exists
+// Load existing history
 $history = [];
-if (file_exists($historyFile)) {
-    $content = file_get_contents($historyFile);
-    $history = json_decode($content, true) ?: [];
+if (file_exists(ZRAM_HISTORY_FILE)) {
+    $h = json_decode(@file_get_contents(ZRAM_HISTORY_FILE), true);
+    if (is_array($h)) $history = $h;
 }
 
 while (true) {
     try {
-        // --- 1. Collect Data (Mirroring zram_status.php logic) ---
-        $zram_raw = [];
-        exec('zramctl --bytes --noheadings --raw --output DATA,TOTAL 2>/dev/null', $zram_raw);
-        
-        $totalOriginal = 0;
-        $totalUsed = 0;
-        foreach ($zram_raw as $line) {
-            $parts = preg_split('/\s+/', trim($line));
-            if (count($parts) >= 2) {
-                $totalOriginal += intval($parts[0]);
-                $totalUsed += intval($parts[1]);
-            }
+        // Periodically refresh config from disk (not every iteration)
+        $configRefreshCounter++;
+        if ($configRefreshCounter >= $configRefreshEvery) {
+            $configRefreshCounter = 0;
+            $settings = zram_config_read();
+            $interval = max(1, intval($settings['collection_interval'] ?? 3));
+            zram_debug_reset();
         }
-        $memorySaved = max(0, $totalOriginal - $totalUsed);
 
-        // --- 2. Calculate CPU Load ---
+        // Find our device
+        $ourDev = '';
+        if (file_exists(ZRAM_DEVICE_FILE)) {
+            $ourDev = trim(@file_get_contents(ZRAM_DEVICE_FILE));
+        }
+        if (empty($ourDev)) {
+            $ourDev = zram_get_our_device();
+        }
+
+        $memorySaved = 0;
         $currentTotalTicks = 0;
-        $stats_out = [];
-        exec("cat /sys/block/zram*/stat 2>/dev/null", $stats_out);
-        foreach ($stats_out as $line) {
-            $stats = preg_split('/\s+/', trim($line));
-            if (count($stats) >= 8) {
-                // Indices 3 (read) and 7 (write)
-                $currentTotalTicks += intval($stats[3]) + intval($stats[7]);
+
+        if ($ourDev && file_exists("/sys/block/$ourDev")) {
+            // Collect stats for our device only
+            $raw = [];
+            exec("zramctl --bytes --noheadings --raw --output NAME,DATA,TOTAL /dev/$ourDev 2>/dev/null", $raw);
+            foreach ($raw as $line) {
+                $p = preg_split('/\s+/', trim($line));
+                if (count($p) >= 3 && basename($p[0]) === $ourDev) {
+                    $memorySaved = max(0, intval($p[1]) - intval($p[2]));
+                    break;
+                }
+            }
+
+            // IO ticks for our device
+            $statFile = "/sys/block/$ourDev/stat";
+            if (file_exists($statFile)) {
+                $stats = preg_split('/\s+/', trim(@file_get_contents($statFile)));
+                if (count($stats) >= 8) {
+                    $currentTotalTicks = intval($stats[3]) + intval($stats[7]);
+                }
             }
         }
 
-        $now = microtime(true) * 1000; // ms
+        // Calculate load
+        $now = microtime(true) * 1000;
         $loadPct = 0;
         if ($lastTotalTicks !== null && $lastTime !== null) {
-            $deltaTicks = $currentTotalTicks - $lastTotalTicks;
-            $deltaTime = $now - $lastTime;
-            if ($deltaTime > 0) {
-                $loadPct = ($deltaTicks / $deltaTime) * 100;
+            $dt = $now - $lastTime;
+            if ($dt > 0) {
+                $loadPct = max(0, (($currentTotalTicks - $lastTotalTicks) / $dt) * 100);
             }
         }
-        if ($loadPct < 0) $loadPct = 0;
-
         $lastTotalTicks = $currentTotalTicks;
         $lastTime = $now;
 
-        // --- 3. Update History ---
-        $entry = [
-            't' => date('H:i:s'), // Timestamp label
-            's' => $memorySaved,
-            'l' => round($loadPct, 1)
-        ];
+        // Append to history
+        $history[] = ['t' => date('H:i:s'), 's' => $memorySaved, 'l' => round($loadPct, 1)];
+        if (count($history) > $maxPoints) array_shift($history);
 
-        $history[] = $entry;
-        if (count($history) > $maxPoints) {
-            array_shift($history);
+        // Atomic-ish write (write to tmp then rename)
+        $tmp = ZRAM_HISTORY_FILE . '.tmp';
+        if (file_put_contents($tmp, json_encode($history)) !== false) {
+            rename($tmp, ZRAM_HISTORY_FILE);
         }
 
-        zram_log("Polling complete. Saved=" . round($memorySaved/1024/1024) . "MB, Load=" . round($loadPct, 1) . "%", 'DEBUG');
+        zram_log("Poll: saved=" . round($memorySaved/1048576) . "MB, load=" . round($loadPct, 1) . "%");
 
-        // Simple Rotation: If log > 1MB, trim it
-        if (filesize($debugLog) > 1048576) {
+        // Log rotation: truncate if > 1MB
+        if (file_exists(ZRAM_DEBUG_LOG) && filesize(ZRAM_DEBUG_LOG) > 1048576) {
             zram_log("LOG ROTATED", 'INFO');
-            file_put_contents($debugLog, "[LOG ROTATED]\n");
+            file_put_contents(ZRAM_DEBUG_LOG, "[LOG ROTATED]\n");
         }
-
-        file_put_contents($historyFile, json_encode($history));
 
     } catch (Exception $e) {
-        // Log error and continue
-        zram_log("Collector Error: " . $e->getMessage(), 'ERROR');
-        @file_put_contents("$logDir/collector_error.log", date('[Y-m-d H:i:s] ') . "[ERROR] " . $e->getMessage() . "\n", FILE_APPEND);
+        @file_put_contents(ZRAM_DEBUG_LOG, date('[Y-m-d H:i:s] ') . "[ERROR] Collector: " . $e->getMessage() . "\n", FILE_APPEND);
     }
 
     sleep($interval);

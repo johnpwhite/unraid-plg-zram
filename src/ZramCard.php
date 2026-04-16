@@ -1,235 +1,180 @@
 <?php
-// ZramCard.php - Live Stats with Chart
-// Refreshed: 2026-02-13
+/**
+ * <module_context>
+ *   <name>ZramCard</name>
+ *   <description>Dashboard card renderer showing tiered ZRAM + SSD swap stats</description>
+ *   <dependencies>zram_config</dependencies>
+ *   <consumers>UnraidZramDash.page</consumers>
+ * </module_context>
+ */
 
 if (!function_exists('getZramDashboardCard')) {
     function getZramDashboardCard() {
-        // Standardized Logger
-        $zram_log = function($msg, $level = 'DEBUG') {
-            $dir = '/tmp/unraid-zram-card';
-            $ini = '/boot/config/plugins/unraid-zram-card/settings.ini';
-            $level = strtoupper($level);
-            
-            if ($level === 'DEBUG') {
-                $loaded = @parse_ini_file($ini);
-                if (($loaded['debug'] ?? 'no') !== 'yes') return;
-            }
-            
-            if (!is_dir($dir)) @mkdir($dir, 0777, true);
-            $logMsg = date('[Y-m-d H:i:s] ') . "[$level] $msg\n";
-            @file_put_contents($dir . '/debug.log', $logMsg, FILE_APPEND);
-            @chmod($dir . '/debug.log', 0666);
-        };
-        
+        $docroot = $_SERVER['DOCUMENT_ROOT'] ?: '/usr/local/emhttp';
+        require_once "$docroot/plugins/unraid-zram-card/zram_config.php";
+
         try {
-            // --- HELPER: Format Bytes ---
-            $formatBytes = function($bytes, $precision = 2) {
-                $units = ['B', 'KB', 'MB', 'GB', 'TB'];
-                $bytes = max($bytes, 0);
+            $cfg = zram_config_read();
+            if (($cfg['enabled'] ?? 'yes') !== 'yes') return '';
+
+            $fmt = function($bytes, $p = 2) {
+                $u = ['B','KB','MB','GB','TB'];
                 if ($bytes < 1) return '0 B';
-                $pow = floor(log($bytes) / log(1024));
-                $pow = min($pow, count($units) - 1);
-                $pow = max($pow, 0);
-                $bytes /= pow(1024, $pow);
-                return round($bytes, $precision) . ' ' . $units[$pow];
+                $pow = min(floor(log(max($bytes,1)) / log(1024)), count($u) - 1);
+                return round($bytes / pow(1024, $pow), $p) . ' ' . $u[$pow];
             };
 
-            // --- 1. Load Settings ---
-            $zram_settings = ['enabled' => 'yes', 'refresh_interval' => '1000'];
-            $zram_iniFile = '/boot/config/plugins/unraid-zram-card/settings.ini';
-            if (file_exists($zram_iniFile)) {
-                $zram_loaded = @parse_ini_file($zram_iniFile);
-                if (is_array($zram_loaded)) $zram_settings = array_merge($zram_settings, $zram_loaded);
-            }
+            // Fetch our device stats
+            $ourDev = zram_get_our_device();
+            $totalOriginal = 0; $totalCompressed = 0; $totalUsed = 0; $diskSize = 0;
+            $algo = '-'; $devCount = 0;
 
-            if (($zram_settings['enabled'] ?? 'yes') !== 'yes') return '';
-
-            // --- 2. Fetch Initial ZRAM Data ---
-            $output = [];
-            $return_var = 0;
-            exec('zramctl --output-all --bytes --json 2>/dev/null', $output, $return_var);
-            
-            $devices = [];
-            if ($return_var === 0 && !empty($output)) {
-                $parsed = json_decode(implode("\n", $output), true);
-                $devices = $parsed['zramctl'] ?? [];
-            } else {
-                unset($output);
-                exec('zramctl --output-all --bytes --noheadings --raw 2>/dev/null', $output, $return_var);
-                foreach ($output as $line) {
-                    $parts = preg_split('/\s+/', trim($line));
-                    if (count($parts) >= 8) {
-                        $devices[] = [
-                            'name' => $parts[0], 'disksize' => $parts[1], 'data' => $parts[2],
-                            'compr' => $parts[3], 'algorithm' => $parts[4], 'total' => $parts[7],
-                        ];
+            if ($ourDev) {
+                $devCount = 1;
+                $out = [];
+                exec("zramctl --bytes --noheadings --raw --output NAME,DISKSIZE,DATA,COMPR,ALGORITHM,TOTAL /dev/$ourDev 2>/dev/null", $out);
+                foreach ($out as $line) {
+                    $p = preg_split('/\s+/', trim($line));
+                    if (count($p) >= 6 && basename($p[0]) === $ourDev) {
+                        $diskSize = intval($p[1]);
+                        $totalOriginal = intval($p[2]);
+                        $totalCompressed = intval($p[3]);
+                        $algo = $p[4];
+                        $totalUsed = intval($p[5]);
                     }
                 }
             }
 
-            $totalOriginal = 0; $totalCompressed = 0; $totalUsed = 0;
-            foreach ($devices as $dev) {
-                $totalOriginal += intval($dev['data'] ?? 0);
-                $totalCompressed += intval($dev['compr'] ?? 0);
-                $totalUsed += intval($dev['total'] ?? 0);
-            }
             $memorySaved = max(0, $totalOriginal - $totalUsed);
-            $ratio = ($totalCompressed > 0) ? round($totalOriginal / $totalCompressed, 2) : 0.00;
+            $ratio = ($totalCompressed > 0) ? round($totalOriginal / $totalCompressed, 2) : 0;
+            $swappiness = trim(@file_get_contents('/proc/sys/vm/swappiness') ?: '60');
 
-            // --- 3. Unraid Version Check ---
-            $zram_isResponsive = false;
-            if (file_exists('/etc/unraid-version')) {
-                $zram_ver_arr = @parse_ini_file('/etc/unraid-version');
-                if (isset($zram_ver_arr['version'])) {
-                    $zram_isResponsive = version_compare($zram_ver_arr['version'], '7.2.0-beta', '>=');
+            // SSD swap info
+            $ssdInfo = '';
+            $ssdPath = $cfg['ssd_swap_path'] ?? '';
+            $ssdActive = false;
+            if ($ssdPath && file_exists($ssdPath)) {
+                $swaps = @file_get_contents('/proc/swaps') ?: '';
+                $ssdActive = strpos($swaps, $ssdPath) !== false;
+            }
+
+            // Priority
+            $prio = '-';
+            if ($ourDev) {
+                exec('swapon --noheadings --show=NAME,PRIO 2>/dev/null', $sw);
+                foreach ($sw as $sl) {
+                    $sp = preg_split('/\s+/', trim($sl));
+                    if (count($sp) >= 2 && basename($sp[0]) === $ourDev) { $prio = $sp[1]; break; }
                 }
             }
 
-            // --- 4. Render Output ---
+            // Unraid 7.2+ responsive check
+            $isResp = false;
+            if (file_exists('/etc/unraid-version')) {
+                $v = @parse_ini_file('/etc/unraid-version');
+                if (isset($v['version'])) $isResp = version_compare($v['version'], '7.2.0-beta', '>=');
+            }
+
+            $pollInterval = intval($cfg['refresh_interval'] ?? 3000);
+            $version = '2026.04.16';
+
+            // Tier label for subtitle
+            $tierLabel = $devCount > 0 ? 'Active' : 'Inactive';
+            if ($ssdActive) $tierLabel .= ' + SSD';
+
             ob_start();
 ?>
-            <style>
-            @keyframes zram-fade-blink {
-                0% { opacity: 0.3; }
-                50% { opacity: 1; color: #7fba59; text-shadow: 0 0 2px #7fba59; }
-                100% { opacity: 0.3; }
-            }
-            .zram-pulse {
-                animation: zram-fade-blink 0.6s ease-in-out;
-            }
-            </style>
-            <tbody title='ZRAM Usage'>
-                <tr>
-                    <td>
-                        <span class='tile-header'>
-                            <span class='tile-header-left'>
-                                <img src='/plugins/unraid-zram-card/unraid-zram-card.png' class='f32' style='width:32px; height:32px; margin-right:10px;'>
-                                <div class='section'>
-                                    <?php if ($zram_isResponsive): ?>
-                                        <h3 class='tile-header-main'>ZRAM STATUS</h3>
-                                    <?php else: ?>
-                                        ZRAM Status<br>
-                                    <?php endif; ?>
-                                    <span class="subtitle">
-                                        <i class="fa fa-fw fa-info-circle"></i> <?php echo count($devices) > 0 ? 'Active (' . count($devices) . ' devs)' : 'Inactive'; ?>
-                                    </span>
-                                </div>
-                            </span>
-                            <span class='tile-header-right'>
-                                <span class='tile-header-right-controls'>
-                                    <span class="zram-refresh-indicator" style="opacity: 0.6; display: inline-flex; align-items: center; gap: 4px; margin-right: 8px;">
-                                        <i class="fa fa-fw fa-refresh" id="zram-refresh-icon"></i>
-                                        <span id="zram-refresh-text" style="font-family: monospace; font-size: 0.9em;"><?php echo round(($zram_settings['refresh_interval'] ?? 3000)/1000, 1); ?>s</span>
-                                    </span>
-                                    <a href="/Dashboard/Settings/UnraidZramCard" title="ZRAM Settings">
-                                        <i class="fa fa-fw fa-cog control"></i>
-                                    </a>
-                                </span>
-                            </span>
-                        </span>
-                    </td>
-                </tr>
-                <tr>
-                    <td>
-                        <div class="zram-content" style="padding: 0 8px;">
-                            <!-- Stats Grid (Tightened) -->
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 6px; margin-bottom: 8px; margin-top: 5px;">
-                                <div style="background-color: rgba(0,0,0,0.1); padding: 6px; border-radius: 4px; text-align: center;">
-                                    <span id="zram-saved" style="font-size: 1.1em; font-weight: bold; display: block; color: #7fba59;">
-                                        <?php echo $formatBytes($memorySaved); ?>
-                                    </span>
-                                    <span style="font-size: 0.75em; opacity: 0.7;">RAM Saved</span>
-                                </div>
-                                <div style="background-color: rgba(0,0,0,0.1); padding: 6px; border-radius: 4px; text-align: center;">
-                                    <span id="zram-ratio" style="font-size: 1.1em; font-weight: bold; display: block; color: #ffae00;">
-                                        <?php echo $ratio; ?>x
-                                    </span>
-                                    <span style="font-size: 0.75em; opacity: 0.7;">Ratio</span>
-                                </div>
-                                <div style="background-color: rgba(0,0,0,0.1); padding: 6px; border-radius: 4px; text-align: center;">
-                                    <span id="zram-used" style="font-size: 1.1em; font-weight: bold; display: block; color: #00a4d8;">
-                                        <?php echo $formatBytes($totalUsed); ?>
-                                    </span>
-                                    <span style="font-size: 0.75em; opacity: 0.7;">Actual Used</span>
-                                </div>
-                                <div style="background-color: rgba(0,0,0,0.1); padding: 6px; border-radius: 4px; text-align: center;">
-                                    <span id="zram-load" title="Waiting for data..." style="font-size: 1.1em; font-weight: bold; display: block; color: #e57373;">
-                                        0%
-                                    </span>
-                                    <span style="font-size: 0.75em; opacity: 0.7;">Load</span>
-                                </div>
-                                <div style="background-color: rgba(0,0,0,0.1); padding: 6px; border-radius: 4px; text-align: center;">
-                                    <span id="zram-swappiness" style="font-size: 1.1em; font-weight: bold; display: block; color: #ba7fba;">
-                                        <?php echo trim(@file_get_contents('/proc/sys/vm/swappiness') ?: '60'); ?>
-                                    </span>
-                                    <span style="font-size: 0.75em; opacity: 0.7;">Swappiness</span>
-                                </div>
-                            </div>
-
-                            <!-- Chart Canvas (Smaller Height) -->
-                            <div style="height: 70px; width: 100%; margin-bottom: 8px;">
-                                <canvas id="zramChart"></canvas>
-                            </div>
-
-                            <!-- Device List (Compact) -->
-                            <div id="zram-device-list" style="margin-top: 3px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 2px;">
-                                <?php if (count($devices) > 0): 
-                                    // Initial fetch of priorities for static render
-                                    $prioMap = [];
-                                    exec('swapon --noheadings --show=NAME,PRIO 2>/dev/null', $swap_out);
-                                    foreach ($swap_out as $line) {
-                                        $parts = preg_split('/\s+/', trim($line));
-                                        if (count($parts) >= 2 && strpos($parts[0], '/dev') === 0) {
-                                            $prio = $parts[count($parts) - 1];
-                                            if (is_numeric($prio) || $prio === '-1') {
-                                                $prioMap[$parts[0]] = $prio;
-                                            }
-                                        }
-                                    }
-                                ?>
-                                    <div style="display: grid; grid-template-columns: 1.5fr 1fr 0.8fr 1fr; gap: 4px; opacity: 0.5; font-size: 0.75em; margin-bottom: 1px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                        <div style="text-align: left;">Dev</div>
-                                        <div style="text-align: right;">Size</div>
-                                        <div style="text-align: right;">Prio</div>
-                                        <div style="text-align: right;">Algo</div>
-                                    </div>
-                                    <?php foreach ($devices as $dev): 
-                                        $devPath = (strpos($dev['name'], '/dev/') === 0) ? $dev['name'] : "/dev/{$dev['name']}";
-                                        $prio = $prioMap[$devPath] ?? '-';
-                                    ?>
-                                    <div style="display: grid; grid-template-columns: 1.5fr 1fr 0.8fr 1fr; gap: 4px; font-size: 0.8em; padding: 1px 0;">
-                                        <div style="text-align: left; font-weight: bold;"><?php echo htmlspecialchars(basename($dev['name'] ?? '?')); ?></div>
-                                        <div style="text-align: right; opacity: 0.7;"><?php echo $formatBytes(intval($dev['disksize'] ?? 0), 0); ?></div>
-                                        <div style="text-align: right; opacity: 0.7;"><?php echo (intval($prio) < 0) ? "Auto ($prio)" : $prio; ?></div>
-                                        <div style="text-align: right; opacity: 0.7;"><?php echo htmlspecialchars($dev['algorithm'] ?? '?'); ?></div>
-                                    </div>
-                                    <?php endforeach; ?>
-                                <?php else: ?>
-                                    <div style="text-align: center; opacity: 0.5; padding: 3px; font-size: 0.8em;">No ZRAM devices active.</div>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                        
-                        <!-- Configuration and Scripts -->
-                        <script>
-                            window.ZRAM_CONFIG = {
-                                url: '/plugins/unraid-zram-card/zram_status.php',
-                                pollInterval: <?php echo intval($zram_settings['refresh_interval'] ?? 3000); ?>
-                            };
-                        </script>
-                        <script src="/plugins/unraid-zram-card/js/chart.min.js"></script>
-                        <script src="/plugins/unraid-zram-card/js/zram-card.js?v=<?php echo time(); ?>"></script>
-                    </td>
-                </tr>
-            </tbody>
+<style>
+@keyframes zram-fade-blink { 0%{opacity:0.3} 50%{opacity:1;color:#7fba59;text-shadow:0 0 2px #7fba59} 100%{opacity:0.3} }
+.zram-pulse { animation: zram-fade-blink 0.6s ease-in-out; }
+</style>
+<tbody title='ZRAM Usage'>
+    <tr><td>
+        <span class='tile-header'>
+            <span class='tile-header-left'>
+                <img src='/plugins/unraid-zram-card/unraid-zram-card.png' class='f32' style='width:32px;height:32px;margin-right:10px;'>
+                <div class='section'>
+                    <?php if ($isResp): ?><h3 class='tile-header-main'>ZRAM STATUS</h3>
+                    <?php else: ?>ZRAM Status<br><?php endif; ?>
+                    <span class="subtitle"><i class="fa fa-fw fa-info-circle"></i> <?php echo $tierLabel; ?></span>
+                </div>
+            </span>
+            <span class='tile-header-right'><span class='tile-header-right-controls'>
+                <span style="opacity:0.6;display:inline-flex;align-items:center;gap:4px;margin-right:8px;">
+                    <i class="fa fa-fw fa-refresh" id="zram-refresh-icon"></i>
+                    <span id="zram-refresh-text" style="font-family:monospace;font-size:0.9em;"><?php echo round($pollInterval/1000, 1); ?>s</span>
+                </span>
+                <a href="/Dashboard/Settings/UnraidZramCard" title="ZRAM Settings"><i class="fa fa-fw fa-cog control"></i></a>
+            </span></span>
+        </span>
+    </td></tr>
+    <tr><td>
+        <div class="zram-content" style="padding:0 8px;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:6px;margin:5px 0 8px;">
+                <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
+                    <span id="zram-saved" style="font-size:1.1em;font-weight:bold;display:block;color:#7fba59;"><?php echo $fmt($memorySaved); ?></span>
+                    <span style="font-size:0.75em;opacity:0.7;">RAM Saved</span>
+                </div>
+                <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
+                    <span id="zram-ratio" style="font-size:1.1em;font-weight:bold;display:block;color:#ffae00;"><?php echo $ratio; ?>x</span>
+                    <span style="font-size:0.75em;opacity:0.7;">Ratio</span>
+                </div>
+                <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
+                    <span id="zram-used" style="font-size:1.1em;font-weight:bold;display:block;color:#00a4d8;"><?php echo $fmt($totalUsed); ?></span>
+                    <span style="font-size:0.75em;opacity:0.7;">Actual Used</span>
+                </div>
+                <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
+                    <span id="zram-load" style="font-size:1.1em;font-weight:bold;display:block;color:#e57373;">0%</span>
+                    <span style="font-size:0.75em;opacity:0.7;">Load</span>
+                </div>
+                <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
+                    <span id="zram-swappiness" style="font-size:1.1em;font-weight:bold;display:block;color:#ba7fba;"><?php echo $swappiness; ?></span>
+                    <span style="font-size:0.75em;opacity:0.7;">Swappiness</span>
+                </div>
+            </div>
+            <div style="height:70px;width:100%;margin-bottom:8px;"><canvas id="zramChart"></canvas></div>
+            <div id="zram-device-list" style="margin-top:3px;border-top:1px solid rgba(255,255,255,0.05);padding-top:2px;">
+<?php if ($ourDev): ?>
+                <div style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr 1fr;gap:4px;opacity:0.5;font-size:0.75em;margin-bottom:1px;border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <div>Tier</div><div style="text-align:right;">Dev</div><div style="text-align:right;">Size</div><div style="text-align:right;">Prio</div><div style="text-align:right;">Algo</div>
+                </div>
+                <div style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr 1fr;gap:4px;font-size:0.8em;padding:1px 0;">
+                    <div style="color:#7fba59;">ZRAM</div>
+                    <div style="text-align:right;font-weight:bold;"><?php echo htmlspecialchars($ourDev); ?></div>
+                    <div style="text-align:right;opacity:0.7;"><?php echo $fmt($diskSize, 0); ?></div>
+                    <div style="text-align:right;opacity:0.7;"><?php echo $prio; ?></div>
+                    <div style="text-align:right;opacity:0.7;"><?php echo htmlspecialchars($algo); ?></div>
+                </div>
+<?php if ($ssdPath): ?>
+                <div id="zram-ssd-row" style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr 1fr;gap:4px;font-size:0.8em;padding:1px 0;">
+                    <div style="color:<?php echo $ssdActive ? '#00a4d8' : '#666'; ?>;">SSD<?php if (!$ssdActive) echo ' (idle)'; ?></div>
+                    <div style="text-align:right;opacity:0.7;" title="<?php echo htmlspecialchars($ssdPath); ?>">swap file</div>
+                    <div style="text-align:right;opacity:0.7;"><?php echo $fmt(filesize($ssdPath), 0); ?></div>
+                    <div style="text-align:right;opacity:0.7;">10</div>
+                    <div style="text-align:right;opacity:0.7;">—</div>
+                </div>
+<?php endif; ?>
+<?php else: ?>
+                <div style="text-align:center;opacity:0.5;padding:3px;font-size:0.8em;">No ZRAM devices active.</div>
+<?php endif; ?>
+            </div>
+        </div>
+        <script>
+            window.ZRAM_CONFIG = {
+                url: '/plugins/unraid-zram-card/zram_status.php',
+                pollInterval: <?php echo $pollInterval; ?>
+            };
+        </script>
+        <script src="/plugins/unraid-zram-card/js/chart.min.js?v=<?php echo $version; ?>"></script>
+        <script src="/plugins/unraid-zram-card/js/zram-card.js?v=<?php echo $version; ?>"></script>
+    </td></tr>
+</tbody>
 <?php
             return ob_get_clean();
-
         } catch (Throwable $e) {
             if (ob_get_level() > 0) ob_end_clean();
-            $zram_log("CRITICAL ERROR: " . $e->getMessage(), 'ERROR');
-            return "<tbody title='ZRAM Error'><tr><td><div style='padding: 10px; color: #E57373; text-align: center;'><strong>ZRAM Plugin Error</strong><br><small>Run: cat /tmp/unraid-zram-card/debug.log</small></div></td></tr></tbody>";
+            zram_log("CRITICAL: " . $e->getMessage(), 'ERROR');
+            return "<tbody title='ZRAM Error'><tr><td><div style='padding:10px;color:#E57373;text-align:center;'><strong>ZRAM Plugin Error</strong><br><small>cat /tmp/unraid-zram-card/debug.log</small></div></td></tr></tbody>";
         }
     }
 }
-?>

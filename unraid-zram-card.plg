@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.02.18.07">
+<!ENTITY version   "2026.04.16.01">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.02.18.07" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.16.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.04.16.01
+- Feat: Tiered swap manager with labeled ZRAM devices and SSD swap file support. Rewrote all backend for standards compliance. Auto-sizes ZRAM to percent of RAM. Drive picker for Tier 2 SSD overflow.
 ## 2026.02.18.07
 - Feat: Added ZRAM discovery to boot init log for existing devices
 ## 2026.02.18.06
@@ -214,9 +216,11 @@ rm -rf "$EMHTTP_DEST"
 mkdir -p "$EMHTTP_DEST/js"
 
 FILES=(
+    "zram_config.php:src/zram_config.php"
     "ZramCard.php:src/ZramCard.php"
     "zram_status.php:src/zram_status.php"
-    "zram_swap.php:src/zram_swap.php"
+    "zram_actions.php:src/zram_actions.php"
+    "zram_drives.php:src/zram_drives.php"
     "zram_collector.php:src/zram_collector.php"
     "zram_init.sh:src/zram_init.sh"
     "UnraidZramCard.page:src/UnraidZramCard.page"
@@ -247,7 +251,8 @@ for mapping in "${FILES[@]}"; do
 done
 
 chmod +x "$EMHTTP_DEST/zram_status.php"
-chmod +x "$EMHTTP_DEST/zram_swap.php"
+chmod +x "$EMHTTP_DEST/zram_actions.php"
+chmod +x "$EMHTTP_DEST/zram_drives.php"
 chmod +x "$EMHTTP_DEST/zram_collector.php"
 chmod +x "$EMHTTP_DEST/zram_init.sh"
 
@@ -255,15 +260,21 @@ echo "--- INSTALL COMPLETE ---"
 mkdir -p "/boot/config/plugins/$NAME"
 if [ ! -f "/boot/config/plugins/$NAME/settings.ini" ]; then
     echo "Creating default configuration..."
-    echo 'enabled="yes"' > "/boot/config/plugins/$NAME/settings.ini"
-    echo 'refresh_interval="3000"' >> "/boot/config/plugins/$NAME/settings.ini"
-    echo 'collection_interval="3"' >> "/boot/config/plugins/$NAME/settings.ini"
-    echo 'swappiness="100"' >> "/boot/config/plugins/$NAME/settings.ini"
-    echo 'console_visible="yes"' >> "/boot/config/plugins/$NAME/settings.ini"
-    echo 'swap_size="1G"' >> "/boot/config/plugins/$NAME/settings.ini"
-    echo 'compression_algo="zstd"' >> "/boot/config/plugins/$NAME/settings.ini"
-    echo 'zram_devices=""' >> "/boot/config/plugins/$NAME/settings.ini"
-    echo 'debug="no"' >> "/boot/config/plugins/$NAME/settings.ini"
+    cat > "/boot/config/plugins/$NAME/settings.ini" &lt;&lt; 'DEFCFG'
+enabled="yes"
+refresh_interval="3000"
+collection_interval="3"
+swappiness="100"
+debug="no"
+console_visible="yes"
+zram_size="auto"
+zram_percent="50"
+zram_algo="zstd"
+ssd_swap_enabled="no"
+ssd_swap_path=""
+ssd_swap_size="16G"
+ssd_swap_mount=""
+DEFCFG
 fi
 rm /tmp/unraid-zram-card-installer
 </INLINE>
@@ -289,15 +300,41 @@ fi
 NAME="unraid-zram-card"
 PLUGIN_DIR="/usr/local/emhttp/plugins/$NAME"
 CONFIG_DIR="/boot/config/plugins/$NAME"
+ZRAM_LABEL="ZRAM_CARD"
 echo "Removing $NAME..."
+
+# Stop collector
 if [ -f "/tmp/$NAME/collector.pid" ]; then
     PID=$(cat "/tmp/$NAME/collector.pid")
-    echo "Stopping background collector (PID $PID)..."
-    kill $PID 2>/dev/null
+    echo "Stopping collector (PID $PID)..."
+    kill "$PID" 2>/dev/null
 fi
-if [ -f "$PLUGIN_DIR/zram_swap.php" ]; then
-    php "$PLUGIN_DIR/zram_swap.php" action=remove > /dev/null 2>&amp;1
+
+# Deactivate SSD swap file if configured
+if [ -f "$CONFIG_DIR/settings.ini" ]; then
+    SSD_PATH=$(grep "ssd_swap_path=" "$CONFIG_DIR/settings.ini" 2>/dev/null | cut -d'"' -f2)
+    if [ -n "$SSD_PATH" ] &amp;&amp; grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
+        echo "Deactivating SSD swap: $SSD_PATH"
+        swapoff "$SSD_PATH" 2>/dev/null
+    fi
+    if [ -n "$SSD_PATH" ] &amp;&amp; [ -f "$SSD_PATH" ]; then
+        echo "Removing swap file: $SSD_PATH"
+        rm -f "$SSD_PATH"
+    fi
 fi
+
+# Deactivate our labeled ZRAM device
+for zdev in /sys/block/zram*; do
+    [ -d "$zdev" ] || continue
+    ZID=$(basename "$zdev")
+    ELABEL=$(blkid -s LABEL -o value "/dev/$ZID" 2>/dev/null || true)
+    if [ "$ELABEL" = "$ZRAM_LABEL" ]; then
+        echo "Deactivating /dev/$ZID (label: $ZRAM_LABEL)"
+        swapoff "/dev/$ZID" 2>/dev/null
+        zramctl --reset "/dev/$ZID" 2>/dev/null
+    fi
+done
+
 rm -rf "$PLUGIN_DIR"
 rm -rf "$CONFIG_DIR"
 rm -rf "/tmp/$NAME"
