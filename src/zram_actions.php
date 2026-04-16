@@ -163,15 +163,26 @@ if ($action === 'create_ssd_swap') {
 
     if (!is_dir($swapDir)) @mkdir($swapDir, 0700, true);
 
+    // Detect btrfs — swap files need NOCOW attribute
+    $fsType = trim(exec("stat -f -c %T " . escapeshellarg($mount) . " 2>/dev/null"));
+    $isBtrfs = ($fsType === 'btrfs');
+
     // Allocate swap file
-    zram_cmd_log("Creating {$sizeStr} swap file on $mount...", 'cmd');
-    $ddCmd = "dd if=/dev/zero of=" . escapeshellarg($swapFile) . " bs=1M count=$sizeMB status=none";
-    if (zram_run($ddCmd, $logs) !== 0) {
-        echo json_encode(['success' => false, 'message' => 'Failed to create swap file', 'logs' => $logs]);
-        exit;
+    zram_cmd_log("Creating {$sizeStr} swap file on $mount" . ($isBtrfs ? " (btrfs NOCOW)" : "") . "...", 'cmd');
+
+    if ($isBtrfs) {
+        // btrfs requires: create empty file, set NOCOW, then fill
+        zram_run("truncate -s 0 " . escapeshellarg($swapFile), $logs);
+        zram_run("chattr +C " . escapeshellarg($swapFile), $logs);
     }
 
     @chmod($swapFile, 0600);
+    $ddCmd = "dd if=/dev/zero of=" . escapeshellarg($swapFile) . " bs=1M count=$sizeMB status=none";
+    if (zram_run($ddCmd, $logs) !== 0) {
+        @unlink($swapFile);
+        echo json_encode(['success' => false, 'message' => 'Failed to create swap file', 'logs' => $logs]);
+        exit;
+    }
 
     if (zram_run("mkswap -L " . escapeshellarg(ZRAM_SSD_LABEL) . " " . escapeshellarg($swapFile), $logs) !== 0) {
         @unlink($swapFile);
