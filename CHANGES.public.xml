@@ -1,4 +1,23 @@
 <CHANGES>
+## 2026.04.16.08
+- Major Feature: Tiered Swap Manager — ZRAM (in-memory, compressed) plus optional SSD swap file (overflow protection).
+- Feature: Auto-sizes ZRAM to a percentage of system RAM (configurable 25-75%, default 50%).
+- Feature: Drive picker for SSD/NVMe swap file with media detection (recommends NVMe, warns on HDD, blocks USB).
+- Feature: Device labeling — all plugin-managed ZRAM devices tagged with ZRAM_CARD label.
+- Feature: Device isolation — only shows plugin-owned devices; hides ZRAM from other plugins.
+- Feature: Detects btrfs RAID pools and warns that swap files are not supported on multi-device btrfs.
+- Feature: Handles btrfs single-device filesystems with NOCOW attribute for swap file compatibility.
+- Security: CSRF token validation on all actions, escapeshellarg on all shell commands.
+- Security: Swap files created with 600 permissions.
+- Fix: Atomic config writes with file locking prevent corruption from concurrent requests.
+- Fix: Background collector no longer reads config from USB flash every 3 seconds (cached with periodic refresh).
+- Fix: History file writes are atomic (write-to-tmp then rename).
+- Fix: Collector restart uses SIGTERM with SIGKILL fallback instead of sleep-and-hope.
+- Architecture: Single ZRAM device model replaces multi-device (modern kernels parallelize within one device).
+- Architecture: Shared config module eliminates 4x duplicated logging functions.
+- Architecture: All JavaScript moved to external files for Unraid page framework compatibility.
+- Upgrade: Automatic migration from legacy multi-device config to single-device on first boot.
+
 ## 2026.02.18.07
 - Feature: Added ZRAM discovery to boot init log for existing devices.
 - Fix: Corrected dashboard logo sizing and removed duplicate expander icon.
