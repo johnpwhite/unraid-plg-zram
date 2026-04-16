@@ -36,6 +36,14 @@ foreach ($mounts as $line) {
     if (preg_match('#^/mnt/disk\d+$#', $mount)) continue;
     // Skip /mnt/user (FUSE share aggregator)
     if (strpos($mount, '/mnt/user') === 0) continue;
+    // Skip system/service mounts — not suitable for swap files
+    if (strpos($mount, '/var/lib/docker') === 0) continue;  // Docker storage
+    if (strpos($mount, '/etc/libvirt') === 0) continue;      // VM config
+    if (strpos($mount, '/tmp/') === 0) continue;              // RAM-backed tmpfs, zram upper dirs
+    // Skip zram-backed mounts (putting swap on zram defeats the purpose)
+    if (strpos($dev, '/dev/zram') === 0) continue;
+    // Only allow mounts under /mnt/disks/ (Unassigned Devices) or /mnt/cache
+    if (strpos($mount, '/mnt/') !== 0) continue;
 
     // Resolve to base block device (strip partition number for sysfs lookup)
     $base = preg_replace('/p?\d+$/', '', basename(realpath($dev)));
