@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.04.16.04">
+<!ENTITY version   "2026.04.16.05">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.16.04" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.16.05" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.04.16.05
+- Fix: Move all settings JS to external file to avoid Markdown parser escaping inline script tags in page files
 ## 2026.04.16.04
 - Fix: Move script block before style to match Unraid page framework pattern where script follows PHP close tag
 ## 2026.04.16.03
@@ -234,6 +236,7 @@ FILES=(
     "unraid-zram-card.png:src/unraid-zram-card.png"
     "README.md:src/README.md"
     "js/zram-card.js:src/js/zram-card.js"
+    "js/zram-settings.js:src/js/zram-settings.js"
     "js/chart.min.js:src/js/chart.min.js"
 )
 
