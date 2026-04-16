@@ -1,4 +1,7 @@
 <CHANGES>
+## 2026.04.16.09
+- Fix: Drive picker only shows mounts under /mnt/. Excludes Docker, libvirt, tmpfs, and zram-backed mounts that are unsuitable for swap files.
+
 ## 2026.04.16.08
 - Major Feature: Tiered Swap Manager — ZRAM (in-memory, compressed) plus optional SSD swap file (overflow protection).
 - Feature: Auto-sizes ZRAM to a percentage of system RAM (configurable 25-75%, default 50%).
