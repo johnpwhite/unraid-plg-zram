@@ -176,13 +176,13 @@ if ($action === 'create_ssd_swap') {
         zram_run("chattr +C " . escapeshellarg($swapFile), $logs);
     }
 
-    @chmod($swapFile, 0600);
     $ddCmd = "dd if=/dev/zero of=" . escapeshellarg($swapFile) . " bs=1M count=$sizeMB status=none";
     if (zram_run($ddCmd, $logs) !== 0) {
         @unlink($swapFile);
         echo json_encode(['success' => false, 'message' => 'Failed to create swap file', 'logs' => $logs]);
         exit;
     }
+    @chmod($swapFile, 0600);
 
     if (zram_run("mkswap -L " . escapeshellarg(ZRAM_SSD_LABEL) . " " . escapeshellarg($swapFile), $logs) !== 0) {
         @unlink($swapFile);
