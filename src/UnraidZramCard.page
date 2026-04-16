@@ -262,7 +262,6 @@ $fmtB = function($b) { $u = ['B','KB','MB','GB','TB']; if ($b < 1) return '0 B';
     </div>
 </div>
 </div>
-
 <script>
 var CSRF = '<?php echo addslashes($csrf); ?>';
 var API = '/plugins/unraid-zram-card/zram_actions.php';
