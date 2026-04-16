@@ -78,9 +78,19 @@ foreach ($mounts as $line) {
     $free = @disk_free_space($mount);
     $total = @disk_total_space($mount);
 
+    // Check btrfs RAID (swap files not supported on multi-device btrfs)
+    $btrfsRaid = false;
+    if ($fstype === 'btrfs') {
+        exec("btrfs filesystem show " . escapeshellarg($mount) . " 2>/dev/null | grep -c 'devid'", $devCount);
+        if (intval($devCount[0] ?? 0) > 1) $btrfsRaid = true;
+    }
+
     $classify = 'ok';
     $warning = '';
-    if ($transport === 'nvme') {
+    if ($btrfsRaid) {
+        $classify = 'warn';
+        $warning = 'Btrfs RAID pool — swap files not supported by kernel on multi-device btrfs';
+    } elseif ($transport === 'nvme') {
         $classify = 'recommended';
     } elseif ($transport === 'hdd') {
         $classify = 'warn';

@@ -192,7 +192,9 @@ if ($action === 'create_ssd_swap') {
 
     if (zram_run("swapon " . escapeshellarg($swapFile) . " -p 10", $logs) !== 0) {
         @unlink($swapFile);
-        echo json_encode(['success' => false, 'message' => 'swapon failed', 'logs' => $logs]);
+        @rmdir(dirname($swapFile)); // Clean up empty .swap dir
+        $hint = $isBtrfs ? ' (btrfs RAID or compressed mount may not support swap files)' : '';
+        echo json_encode(['success' => false, 'message' => 'swapon failed' . $hint, 'logs' => $logs]);
         exit;
     }
 
