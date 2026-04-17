@@ -8,18 +8,18 @@
  * </module_context>
  */
 
-define('ZRAM_LABEL', 'ZRAM_CARD');
-define('ZRAM_SSD_LABEL', 'ZRAM_CARD_SSD');
-define('ZRAM_CONFIG_FILE', '/boot/config/plugins/unraid-zram-card/settings.ini');
-define('ZRAM_LOG_DIR', '/tmp/unraid-zram-card');
-define('ZRAM_DEBUG_LOG', ZRAM_LOG_DIR . '/debug.log');
-define('ZRAM_CMD_LOG', ZRAM_LOG_DIR . '/cmd.log');
-define('ZRAM_LOCK_FILE', ZRAM_LOG_DIR . '/config.lock');
-define('ZRAM_DEVICE_FILE', ZRAM_LOG_DIR . '/device.conf');
-define('ZRAM_HISTORY_FILE', ZRAM_LOG_DIR . '/history.json');
-define('ZRAM_PID_FILE', ZRAM_LOG_DIR . '/collector.pid');
+defined('ZRAM_LABEL')        || define('ZRAM_LABEL', 'ZRAM_CARD');
+defined('ZRAM_SSD_LABEL')    || define('ZRAM_SSD_LABEL', 'ZRAM_CARD_SSD');
+defined('ZRAM_CONFIG_FILE')  || define('ZRAM_CONFIG_FILE', '/boot/config/plugins/unraid-zram-card/settings.ini');
+defined('ZRAM_LOG_DIR')      || define('ZRAM_LOG_DIR', '/tmp/unraid-zram-card');
+defined('ZRAM_DEBUG_LOG')    || define('ZRAM_DEBUG_LOG', ZRAM_LOG_DIR . '/debug.log');
+defined('ZRAM_CMD_LOG')      || define('ZRAM_CMD_LOG', ZRAM_LOG_DIR . '/cmd.log');
+defined('ZRAM_LOCK_FILE')    || define('ZRAM_LOCK_FILE', ZRAM_LOG_DIR . '/config.lock');
+defined('ZRAM_DEVICE_FILE')  || define('ZRAM_DEVICE_FILE', ZRAM_LOG_DIR . '/device.conf');
+defined('ZRAM_HISTORY_FILE') || define('ZRAM_HISTORY_FILE', ZRAM_LOG_DIR . '/history.json');
+defined('ZRAM_PID_FILE')     || define('ZRAM_PID_FILE', ZRAM_LOG_DIR . '/collector.pid');
 
-define('ZRAM_DEFAULTS', [
+defined('ZRAM_DEFAULTS') || define('ZRAM_DEFAULTS', [
     'enabled'             => 'yes',
     'refresh_interval'    => '3000',
     'collection_interval' => '3',

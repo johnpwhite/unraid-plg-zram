@@ -1,0 +1,15 @@
+parameters:
+    level: 5
+    paths:
+        - src
+    excludePaths:
+        - src/tests
+        - src/vendor
+        - src/*.page
+    ignoreErrors:
+        # .page files declare $docroot / $var / $mytiles via Unraid's templating layer
+        - '#Undefined variable: \$docroot#'
+        - '#Undefined variable: \$var#'
+        - '#Undefined variable: \$mytiles#'
+        # Unraid's auto-loaded globals
+        - '#Constant ZRAM_[A-Z_]+ not found#'

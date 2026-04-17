@@ -1,20 +1,57 @@
 // zram-card.js — Dashboard chart and live stats (tiered: ZRAM + SSD)
 
+function formatBytes(bytes, dec = 2) {
+    bytes = parseFloat(bytes);
+    if (isNaN(bytes) || bytes <= 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = Math.max(0, Math.floor(Math.log(bytes) / Math.log(k)));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dec)) + ' ' + sizes[i];
+}
+
+// Format a byte value for axis ticks, rounded to the nearest `step` in its
+// natural unit. For graph labels — stat cards still use formatBytes() for
+// precision. If the scaled value is smaller than step, drop to the next
+// smaller unit so we don't lose resolution (e.g. 1 KB stays readable).
+function formatBytesRound(bytes, step = 5) {
+    bytes = parseFloat(bytes);
+    if (isNaN(bytes) || bytes <= 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = Math.max(0, Math.floor(Math.log(bytes) / Math.log(k)));
+    let scaled = bytes / Math.pow(k, i);
+    while (scaled < step && i > 0) {
+        i--;
+        scaled = bytes / Math.pow(k, i);
+    }
+    const rounded = Math.round(scaled / step) * step;
+    return rounded + ' ' + sizes[i];
+}
+
+// Filter a raw history array to only new-schema entries {t,o,u,l}.
+// Legacy entries {t,s,l} from pre-2026.04.17 collectors are dropped so the
+// chart doesn't render bogus zero points. Returns a fresh array.
+function filterHistory(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(item => item && item.o !== undefined && item.u !== undefined);
+}
+
+// Node.js export for Vitest — no-op in the browser (module is undefined there).
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { formatBytes, formatBytesRound, filterHistory };
+}
+
 (function () {
+    // Bail early in non-dashboard contexts (tests, other Unraid pages) so we
+    // don't start polling timers that have nothing to render.
+    if (typeof document === 'undefined' || !document.getElementById('zramChart')) {
+        return;
+    }
     let chartInstance = null;
     const historyLimit = 300;
     const historyData = { labels: [], original: [], used: [], load: [] };
     let lastTotalTicks = null;
     let lastTime = null;
-
-    function formatBytes(bytes, dec = 2) {
-        bytes = parseFloat(bytes);
-        if (isNaN(bytes) || bytes <= 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-        let i = Math.max(0, Math.floor(Math.log(bytes) / Math.log(k)));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(dec)) + ' ' + sizes[i];
-    }
 
     function initChart() {
         const canvas = document.getElementById('zramChart');
@@ -70,7 +107,7 @@
                         beginAtZero: true, grace: '10%', suggestedMax: 1048576,
                         grid: { color: 'rgba(255,255,255,0.05)' },
                         ticks: { color: '#888', font: { size: 10 }, maxTicksLimit: 6,
-                            callback: v => formatBytes(v, v >= 1048576 ? 1 : 0) }
+                            callback: v => formatBytesRound(v, 5) }
                     },
                     y1: {
                         type: 'linear', display: true, position: 'right',
@@ -140,8 +177,7 @@
 
             // Chart data — initial backfill, filtering out legacy entries missing o/u
             if (!historyLoaded && data.history && data.history.length > 0) {
-                data.history.forEach(item => {
-                    if (item.o === undefined || item.u === undefined) return;
+                filterHistory(data.history).forEach(item => {
                     historyData.labels.push(item.t);
                     historyData.original.push(item.o);
                     historyData.used.push(item.u);

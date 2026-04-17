@@ -1,0 +1,18 @@
+{
+  "name": "johnpwhite/unraid-zram-card",
+  "description": "Unraid ZRAM Card plugin — dev-only dependencies for testing and static analysis.",
+  "type": "project",
+  "license": "MIT",
+  "require-dev": {
+    "phpunit/phpunit": "^10.5",
+    "phpstan/phpstan": "^1.11"
+  },
+  "scripts": {
+    "test": "phpunit",
+    "analyse": "phpstan analyse"
+  },
+  "config": {
+    "sort-packages": true,
+    "optimize-autoloader": true
+  }
+}

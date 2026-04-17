@@ -1,0 +1,16 @@
+{
+  "name": "unraid-zram-card",
+  "version": "0.0.0-dev",
+  "private": true,
+  "description": "Dev-only harness for testing and linting the ZRAM Card plugin. Nothing from node_modules ships to users.",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/js"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "jsdom": "^24.0.0",
+    "vitest": "^1.6.0"
+  }
+}

@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.04.17.06">
+<!ENTITY version   "2026.04.18.01">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.17.06" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.18.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.04.18.01
+- Feat: Dashboard graph Y-axis labels now round to the nearest 5 in their natural unit (MB/GB/etc) via a new formatBytesRound helper. Stat cards still show precise values through formatBytes.
 ## 2026.04.17.06
 - Feat: Uncompressed layer recoloured from slate-navy to muted amber (c46b36 border, d49373 card text) with lower fill alpha (0.32). Slate was too cold and heavy; amber conveys the theoretical RAM cost without overpowering the green compressed layer.
 ## 2026.04.17.05
