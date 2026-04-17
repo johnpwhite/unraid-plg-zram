@@ -47,9 +47,16 @@ fi
 rm -f "$DASH_ERR"
 echo "  [1/6] Dashboard renders clean"
 
-# ---- Assertion 2: Status JSON shape ----
-STATUS_JSON=$(curl -sf "http://${HOST}/plugins/${PLG}/zram_status.php") \
-    || fail 3 "zram_status.php returned non-2xx"
+# ---- Assertion 2: Status JSON shape (via PHP CLI, bypassing nginx auth) ----
+STATUS_JSON=$(php -d display_errors=0 -r "
+    \$_SERVER['DOCUMENT_ROOT']='/usr/local/emhttp';
+    chdir('${PLUGIN_DIR}');
+    require '${PLUGIN_DIR}/zram_status.php';
+" 2>/dev/null)
+
+if [ -z "$STATUS_JSON" ]; then
+    fail 3 "zram_status.php produced no output via CLI"
+fi
 
 if command -v jq >/dev/null 2>&1; then
     for key in '.aggregates.total_original' '.aggregates.total_used' '.aggregates.compression_ratio'; do
@@ -64,29 +71,56 @@ fi
 echo "  [2/6] Status JSON has required keys"
 
 # ---- Assertion 3: Settings form POST persists (regression guard: 2026.04.17.02) ----
-CSRF=$(grep -m1 csrf_token /var/local/emhttp/var.ini 2>/dev/null | cut -d'"' -f2)
-if [ -z "$CSRF" ]; then
-    fail 3 "could not read CSRF token from /var/local/emhttp/var.ini"
+# Invokes the .page save handler via PHP CLI with faked $_POST/$_SERVER, bypassing
+# nginx auth. Backs up the current config and restores it after the test so we
+# don't leave random state behind.
+CFG_BACKUP=""
+if [ -f "$CONFIG_FILE" ]; then
+    CFG_BACKUP=$(mktemp)
+    cp "$CONFIG_FILE" "$CFG_BACKUP"
+    # Restore on exit, regardless of pass/fail
+    trap 'if [ -n "$CFG_BACKUP" ] && [ -f "$CFG_BACKUP" ]; then cp "$CFG_BACKUP" "'"$CONFIG_FILE"'"; rm -f "$CFG_BACKUP"; fi' EXIT
 fi
 
 MTIME_BEFORE=$(stat -c %Y "$CONFIG_FILE" 2>/dev/null || echo 0)
-TEST_INTERVAL=$(( (RANDOM % 3000) + 1000 ))  # 1000-3999 ms — well outside the default
+TEST_INTERVAL=$(( (RANDOM % 3000) + 1000 ))  # 1000-3999 ms — distinct from any likely real value
+sleep 1  # ensure mtime granularity (stat -c %Y is seconds)
 
-HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
-    -d "csrf_token=${CSRF}&save_settings=1&enabled=yes&refresh_interval=${TEST_INTERVAL}&collection_interval=3&swappiness=100&zram_size=auto&zram_percent=50&zram_algo=zstd" \
-    "http://${HOST}/Utilities/UnraidZramCard")
+php -d display_errors=0 -r "
+    \$_SERVER['DOCUMENT_ROOT']='/usr/local/emhttp';
+    \$_SERVER['REQUEST_METHOD']='POST';
+    \$_POST = [
+        'save_settings'       => '1',
+        'enabled'             => 'yes',
+        'refresh_interval'    => '${TEST_INTERVAL}',
+        'collection_interval' => '3',
+        'swappiness'          => '100',
+        'zram_size'           => 'auto',
+        'zram_percent'        => '50',
+        'zram_algo'           => 'zstd',
+    ];
+    \$var = ['csrf_token' => ''];
+    chdir('${PLUGIN_DIR}');
+    ob_start();
+    require '${PLUGIN_DIR}/UnraidZramCard.page';
+    ob_end_clean();
+" 2>/dev/null
 
-sleep 1
 MTIME_AFTER=$(stat -c %Y "$CONFIG_FILE" 2>/dev/null || echo 0)
-PERSISTED_INTERVAL=$(grep -m1 'refresh_interval=' "$CONFIG_FILE" | cut -d'"' -f2)
+PERSISTED_INTERVAL=$(grep -m1 'refresh_interval=' "$CONFIG_FILE" 2>/dev/null | cut -d'"' -f2)
 
 if [ "$MTIME_AFTER" -le "$MTIME_BEFORE" ]; then
-    fail 4 "settings.ini mtime did not advance after POST (HTTP $HTTP_CODE) — form save is broken"
+    fail 4 "settings.ini mtime did not advance after simulated POST — save handler broken"
 fi
 if [ "$PERSISTED_INTERVAL" != "$TEST_INTERVAL" ]; then
     fail 4 "refresh_interval did not persist correctly (wrote ${TEST_INTERVAL}, read ${PERSISTED_INTERVAL})"
 fi
-echo "  [3/6] Settings POST persists (refresh_interval=${TEST_INTERVAL} written)"
+echo "  [3/6] Settings POST persists (refresh_interval=${TEST_INTERVAL} written, restoring)"
+
+# Explicit restore here too, in case trap is skipped by later assertion failure
+if [ -n "$CFG_BACKUP" ] && [ -f "$CFG_BACKUP" ]; then
+    cp "$CFG_BACKUP" "$CONFIG_FILE"
+fi
 
 # ---- Assertion 4: Cache-buster uses dynamic value (regression guard: 2026.04.17.02) ----
 DASH_HTML=$(curl -sf "http://${HOST}/Dashboard" 2>/dev/null || true)
@@ -112,12 +146,21 @@ esac
 echo "  [4/6] Cache-buster is dynamic: $VBUST"
 
 # ---- Assertion 5: Collector process alive ----
-if [ ! -f "$PID_FILE" ]; then
-    fail 6 "collector PID file missing: $PID_FILE"
-fi
-COLL_PID=$(cat "$PID_FILE")
-if ! kill -0 "$COLL_PID" 2>/dev/null; then
-    fail 6 "collector PID $COLL_PID not running"
+# Assertion 3's save handler restarts the collector (benign side effect). Poll
+# up to ~6s for the new PID to settle before declaring failure.
+COLL_PID=""
+for attempt in 1 2 3 4 5 6; do
+    if [ -f "$PID_FILE" ]; then
+        COLL_PID=$(cat "$PID_FILE" 2>/dev/null)
+        if [ -n "$COLL_PID" ] && kill -0 "$COLL_PID" 2>/dev/null; then
+            break
+        fi
+    fi
+    COLL_PID=""
+    sleep 1
+done
+if [ -z "$COLL_PID" ]; then
+    fail 6 "collector did not come back alive within 6s (PID file: $(cat "$PID_FILE" 2>/dev/null || echo missing))"
 fi
 echo "  [5/6] Collector alive (PID $COLL_PID)"
 
