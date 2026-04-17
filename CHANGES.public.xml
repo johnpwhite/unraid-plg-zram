@@ -1,4 +1,10 @@
 <CHANGES>
+## 2026.04.17.06
+- Feat: Dashboard graph now visualises both uncompressed and compressed memory as stacked filled layers, with CPU load overlaid on top. The visible gap between the two layers is the RAM saved by ZRAM.
+- Feat: Mini stats cards reworked to match the graph: Uncompressed, Compressed, Ratio, Load, Swappiness.
+- Fix: Settings form POST was silently dropped on save. Refresh interval and other settings now persist correctly.
+- Fix: JS/CSS cache-buster now uses filemtime so browsers pick up fresh assets on every plugin upgrade (no more manual hard-refresh after installing a new version).
+
 ## 2026.04.16.09
 - Fix: Drive picker only shows mounts under /mnt/. Excludes Docker, libvirt, tmpfs, and zram-backed mounts that are unsuitable for swap files.
 
