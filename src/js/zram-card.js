@@ -24,10 +24,10 @@
             data: {
                 labels: historyData.labels,
                 datasets: [
-                    // Back layer: uncompressed size (what the OS thinks it swapped out)
+                    // Back layer: uncompressed size — muted amber, the "cost" before ZRAM
                     {
                         label: 'Uncompressed', data: historyData.original,
-                        borderColor: '#34495e', backgroundColor: 'rgba(52,73,94,0.45)',
+                        borderColor: '#c46b36', backgroundColor: 'rgba(196,107,54,0.32)',
                         borderWidth: 1.2, fill: true, tension: 0.4, pointRadius: 0,
                         yAxisID: 'y', order: 3
                     },
