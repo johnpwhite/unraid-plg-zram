@@ -2,16 +2,22 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.04.16.09">
+<!ENTITY version   "2026.04.17.01">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.16.09" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.17.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.04.17.01
+- Feat: Dashboard graph now shows uncompressed memory (dark slate, back) and compressed memory (cyan, front) as stacked filled layers. The gap between them is the visible RAM saved.
+- Feat: CPU load line remains overlaid on top (right axis, red).
+- Feat: Stats cards reworked to match graph. Dropped RAM Saved card (now visually intrinsic in the graph gap). Added Uncompressed card. Renamed Actual Used to Compressed.
+- Refactor: Collector history schema updated from t/s/l to t/o/u/l so the dashboard can plot uncompressed and compressed values over time.
+- Fix: Frontend gracefully skips legacy history entries missing the new fields to avoid chart glitches on upgrade.
 ## 2026.04.16.09
 - Fix: Drive picker only shows mounts under /mnt/. Excludes Docker, libvirt, tmpfs, and zram-backed mounts that are unsuitable for swap files.
 ## 2026.04.16.08

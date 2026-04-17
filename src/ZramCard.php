@@ -45,7 +45,6 @@ if (!function_exists('getZramDashboardCard')) {
                 }
             }
 
-            $memorySaved = max(0, $totalOriginal - $totalUsed);
             $ratio = ($totalCompressed > 0) ? round($totalOriginal / $totalCompressed, 2) : 0;
             $swappiness = trim(@file_get_contents('/proc/sys/vm/swappiness') ?: '60');
 
@@ -112,16 +111,16 @@ if (!function_exists('getZramDashboardCard')) {
         <div class="zram-content" style="padding:0 8px;">
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:6px;margin:5px 0 8px;">
                 <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
-                    <span id="zram-saved" style="font-size:1.1em;font-weight:bold;display:block;color:#7fba59;"><?php echo $fmt($memorySaved); ?></span>
-                    <span style="font-size:0.75em;opacity:0.7;">RAM Saved</span>
+                    <span id="zram-uncompressed" style="font-size:1.1em;font-weight:bold;display:block;color:#8aa4b8;"><?php echo $fmt($totalOriginal); ?></span>
+                    <span style="font-size:0.75em;opacity:0.7;">Uncompressed</span>
+                </div>
+                <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
+                    <span id="zram-compressed" style="font-size:1.1em;font-weight:bold;display:block;color:#00a4d8;"><?php echo $fmt($totalUsed); ?></span>
+                    <span style="font-size:0.75em;opacity:0.7;">Compressed</span>
                 </div>
                 <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
                     <span id="zram-ratio" style="font-size:1.1em;font-weight:bold;display:block;color:#ffae00;"><?php echo $ratio; ?>x</span>
                     <span style="font-size:0.75em;opacity:0.7;">Ratio</span>
-                </div>
-                <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
-                    <span id="zram-used" style="font-size:1.1em;font-weight:bold;display:block;color:#00a4d8;"><?php echo $fmt($totalUsed); ?></span>
-                    <span style="font-size:0.75em;opacity:0.7;">Actual Used</span>
                 </div>
                 <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
                     <span id="zram-load" style="font-size:1.1em;font-weight:bold;display:block;color:#e57373;">0%</span>

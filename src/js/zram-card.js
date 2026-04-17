@@ -3,7 +3,7 @@
 (function () {
     let chartInstance = null;
     const historyLimit = 300;
-    const historyData = { labels: [], saved: [], load: [] };
+    const historyData = { labels: [], original: [], used: [], load: [] };
     let lastTotalTicks = null;
     let lastTime = null;
 
@@ -24,15 +24,26 @@
             data: {
                 labels: historyData.labels,
                 datasets: [
+                    // Back layer: uncompressed size (what the OS thinks it swapped out)
                     {
-                        label: 'RAM Saved', data: historyData.saved,
-                        borderColor: '#7fba59', backgroundColor: 'rgba(127,186,89,0.1)',
-                        borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 0, yAxisID: 'y'
+                        label: 'Uncompressed', data: historyData.original,
+                        borderColor: '#546b7f', backgroundColor: 'rgba(84,107,127,0.35)',
+                        borderWidth: 1.2, fill: true, tension: 0.4, pointRadius: 0,
+                        yAxisID: 'y', order: 3
                     },
+                    // Front layer: compressed size (actual RAM occupied)
+                    {
+                        label: 'Compressed', data: historyData.used,
+                        borderColor: '#00a4d8', backgroundColor: 'rgba(0,164,216,0.35)',
+                        borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 0,
+                        yAxisID: 'y', order: 2
+                    },
+                    // CPU load: line on top, right axis
                     {
                         label: 'CPU Load', data: historyData.load,
                         borderColor: '#e57373', backgroundColor: 'rgba(229,115,115,0.1)',
-                        borderWidth: 1.5, fill: false, tension: 0.4, pointRadius: 2, yAxisID: 'y1'
+                        borderWidth: 1.5, fill: false, tension: 0.4, pointRadius: 2,
+                        yAxisID: 'y1', order: 1
                     }
                 ]
             },
@@ -44,9 +55,10 @@
                         mode: 'index', intersect: false,
                         callbacks: {
                             label: function (ctx) {
-                                return ctx.dataset.yAxisID === 'y'
-                                    ? 'Saved: ' + formatBytes(ctx.parsed.y)
-                                    : 'Load: ' + ctx.parsed.y.toFixed(1) + '%';
+                                if (ctx.dataset.yAxisID === 'y1') {
+                                    return 'Load: ' + ctx.parsed.y.toFixed(1) + '%';
+                                }
+                                return ctx.dataset.label + ': ' + formatBytes(ctx.parsed.y);
                             }
                         }
                     }
@@ -84,9 +96,9 @@
 
             // Update stat elements
             const el = id => document.getElementById(id);
-            if (el('zram-saved')) el('zram-saved').textContent = formatBytes(aggs.memory_saved);
+            if (el('zram-uncompressed')) el('zram-uncompressed').textContent = formatBytes(aggs.total_original);
+            if (el('zram-compressed')) el('zram-compressed').textContent = formatBytes(aggs.total_used);
             if (el('zram-ratio')) el('zram-ratio').textContent = aggs.compression_ratio + 'x';
-            if (el('zram-used')) el('zram-used').textContent = formatBytes(aggs.total_used);
             if (el('zram-swappiness')) el('zram-swappiness').textContent = aggs.swappiness;
 
             // CPU load from ticks
@@ -126,30 +138,27 @@
                 }
             }
 
-            // Update device list dynamically
-            const list = el('zram-device-list');
-            if (list && data.zram_device) {
-                const dev = data.zram_device;
-                // Only rebuild if device changed (keep static otherwise for perf)
-            }
-
-            // Chart data
+            // Chart data — initial backfill, filtering out legacy entries missing o/u
             if (!historyLoaded && data.history && data.history.length > 0) {
                 data.history.forEach(item => {
+                    if (item.o === undefined || item.u === undefined) return;
                     historyData.labels.push(item.t);
-                    historyData.saved.push(item.s);
+                    historyData.original.push(item.o);
+                    historyData.used.push(item.u);
                     historyData.load.push(item.l);
                 });
                 historyLoaded = true;
             } else {
                 historyData.labels.push(new Date().toLocaleTimeString());
-                historyData.saved.push(aggs.memory_saved);
+                historyData.original.push(aggs.total_original);
+                historyData.used.push(aggs.total_used);
                 historyData.load.push(loadPct);
             }
 
             while (historyData.labels.length > historyLimit) {
                 historyData.labels.shift();
-                historyData.saved.shift();
+                historyData.original.shift();
+                historyData.used.shift();
                 historyData.load.shift();
             }
 

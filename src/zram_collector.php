@@ -60,7 +60,8 @@ while (true) {
             $ourDev = zram_get_our_device();
         }
 
-        $memorySaved = 0;
+        $totalOriginal = 0;
+        $totalUsed = 0;
         $currentTotalTicks = 0;
 
         if ($ourDev && file_exists("/sys/block/$ourDev")) {
@@ -70,7 +71,8 @@ while (true) {
             foreach ($raw as $line) {
                 $p = preg_split('/\s+/', trim($line));
                 if (count($p) >= 3 && basename($p[0]) === $ourDev) {
-                    $memorySaved = max(0, intval($p[1]) - intval($p[2]));
+                    $totalOriginal = intval($p[1]);
+                    $totalUsed = intval($p[2]);
                     break;
                 }
             }
@@ -97,8 +99,8 @@ while (true) {
         $lastTotalTicks = $currentTotalTicks;
         $lastTime = $now;
 
-        // Append to history
-        $history[] = ['t' => date('H:i:s'), 's' => $memorySaved, 'l' => round($loadPct, 1)];
+        // Append to history (schema: t=timestamp, o=original uncompressed, u=used compressed, l=load%)
+        $history[] = ['t' => date('H:i:s'), 'o' => $totalOriginal, 'u' => $totalUsed, 'l' => round($loadPct, 1)];
         if (count($history) > $maxPoints) array_shift($history);
 
         // Atomic-ish write (write to tmp then rename)
@@ -107,7 +109,7 @@ while (true) {
             rename($tmp, ZRAM_HISTORY_FILE);
         }
 
-        zram_log("Poll: saved=" . round($memorySaved/1048576) . "MB, load=" . round($loadPct, 1) . "%");
+        zram_log("Poll: orig=" . round($totalOriginal/1048576) . "MB, used=" . round($totalUsed/1048576) . "MB, load=" . round($loadPct, 1) . "%");
 
         // Log rotation: truncate if > 1MB
         if (file_exists(ZRAM_DEBUG_LOG) && filesize(ZRAM_DEBUG_LOG) > 1048576) {
