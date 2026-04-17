@@ -75,7 +75,9 @@ if (!function_exists('getZramDashboardCard')) {
             }
 
             $pollInterval = intval($cfg['refresh_interval'] ?? 3000);
-            $version = '2026.04.16';
+            // Cache-buster: filemtime auto-invalidates whenever assets are reinstalled
+            $jsMtime  = @filemtime(__DIR__ . '/js/zram-card.js')  ?: time();
+            $chartMtime = @filemtime(__DIR__ . '/js/chart.min.js') ?: $jsMtime;
 
             // Tier label for subtitle
             $tierLabel = $devCount > 0 ? 'Active' : 'Inactive';
@@ -164,8 +166,8 @@ if (!function_exists('getZramDashboardCard')) {
                 pollInterval: <?php echo $pollInterval; ?>
             };
         </script>
-        <script src="/plugins/unraid-zram-card/js/chart.min.js?v=<?php echo $version; ?>"></script>
-        <script src="/plugins/unraid-zram-card/js/zram-card.js?v=<?php echo $version; ?>"></script>
+        <script src="/plugins/unraid-zram-card/js/chart.min.js?v=<?php echo $chartMtime; ?>"></script>
+        <script src="/plugins/unraid-zram-card/js/zram-card.js?v=<?php echo $jsMtime; ?>"></script>
     </td></tr>
 </tbody>
 <?php

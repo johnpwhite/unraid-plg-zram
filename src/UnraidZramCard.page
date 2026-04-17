@@ -219,7 +219,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 </div>
 
 <!-- PLUGIN SETTINGS -->
-<form method="post" action="/Settings/UnraidZramCard">
+<form method="post">
 <div class="zram-card">
     <div class="zram-card-header"><span><i class="fa fa-cog"></i> Plugin Settings</span></div>
     <div class="zram-card-body" style="padding-top:10px;">
