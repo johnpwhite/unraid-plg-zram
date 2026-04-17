@@ -27,7 +27,7 @@
                     // Back layer: uncompressed size (what the OS thinks it swapped out)
                     {
                         label: 'Uncompressed', data: historyData.original,
-                        borderColor: '#3a5a2f', backgroundColor: 'rgba(58,90,47,0.5)',
+                        borderColor: '#34495e', backgroundColor: 'rgba(52,73,94,0.45)',
                         borderWidth: 1.2, fill: true, tension: 0.4, pointRadius: 0,
                         yAxisID: 'y', order: 3
                     },
