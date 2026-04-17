@@ -34,7 +34,7 @@
                     // Front layer: compressed size (actual RAM occupied)
                     {
                         label: 'Compressed', data: historyData.used,
-                        borderColor: '#00a4d8', backgroundColor: 'rgba(0,164,216,0.35)',
+                        borderColor: '#7fba59', backgroundColor: 'rgba(127,186,89,0.35)',
                         borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 0,
                         yAxisID: 'y', order: 2
                     },
