@@ -18,6 +18,8 @@ Check for:
 
 **Ignore content INSIDE log/console/debug/terminal/history panels.** These are designed to display historical events including failures. A log line like "swapon: Invalid argument" or a stack trace inside a Command History, Debug Log, or Console pane is NOT a regression — it is content the panel is meant to show. Only flag errors that appear in page chrome, headers, stat cards, or actual error banners.
 
+**Do NOT attempt to compare numeric values.** Do not flag "value X in stat card is larger than axis tick Y" or "stat card number doesn't match chart peak". Reading exact numbers off a rendered chart is unreliable from a screenshot — you will misread tick labels. Only flag a chart issue if an actual line/bar/fill is visibly drawn outside the plot area, or the chart canvas is empty when data is expected.
+
 Severity guidance:
 - "high" — content broken or invisible (clipping, overflow hiding data, error messages)
 - "medium" — noticeable but non-blocking (minor text truncation, slight overlap)
