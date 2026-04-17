@@ -104,13 +104,20 @@ if (typeof module !== 'undefined' && module.exports) {
         el.style.opacity = '1';
         const ttH = el.offsetHeight;
         const ttW = el.offsetWidth;
-        // Flip below caret if placing above would clip viewport top
+        // Vertical: flip below caret if placing above would clip viewport top
         if (rect.top + tt.caretY - ttH - 10 < 0) {
             el.style.top = (pageY + 10) + 'px';
         } else {
             el.style.top = (pageY - ttH - 10) + 'px';
         }
-        el.style.left = (pageX - ttW / 2) + 'px';
+        // Horizontal: clamp to the chart's own bounds so the tooltip can't
+        // overflow into adjacent stat cards when hovering near an edge.
+        const chartLeftPage  = rect.left  + window.pageXOffset;
+        const chartRightPage = rect.right + window.pageXOffset;
+        let left = pageX - ttW / 2;
+        if (left + ttW > chartRightPage) left = chartRightPage - ttW;
+        if (left < chartLeftPage) left = chartLeftPage;
+        el.style.left = left + 'px';
     }
 
     function initChart() {

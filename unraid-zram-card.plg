@@ -2,16 +2,20 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.04.18.03">
+<!ENTITY version   "2026.04.18.04">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.18.03" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.18.04" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.04.18.04
+- Fix: Chart tooltip no longer overflows horizontally into adjacent stat cards when hovering near the right edge of the graph. Clamps tooltip left-edge to the chart bounding box. Caught by the new L4 visual-review layer.
+- Feat: Introduce L4 visual regression testing — a Haiku+Chrome-MCP subagent drives the dashboard via a playbook, captures screenshots at known interaction states, and pipes each through Gemini 3 Flash with a ZRAM-scoped correctness prompt. Aggregates findings into tests/visual_review.sh, failing on high-severity issues.
+- Docs: docs/specs/L4_VISUAL_TESTS.md describes the architecture, auth handling, and prompt-tuning discipline. tests/ui_e2e_playbook.md gives the Haiku subagent step-by-step instructions including the Windows path gotcha.
 ## 2026.04.18.03
 - Fix: Chart tooltip no longer clips when hovering in the lower half of the graph. Replaced the canvas-drawn Chart.js tooltip with an external HTML div floated on document.body, so it can extend beyond the chart's 70px height. Positions above the caret by default; flips below if there is no room. Built with safe DOM methods (no innerHTML).
 ## 2026.04.18.02

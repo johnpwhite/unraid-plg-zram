@@ -1,0 +1,24 @@
+Output ONLY a JSON object — no markdown fences, no prose, no commentary.
+
+Schema:
+{"issues":[{"severity":"high"|"medium"|"low","element":"<short name>","problem":"<short description>"}]}
+
+Return {"issues":[]} if no issues.
+
+Review the attached screenshot for OBSERVABLE CORRECTNESS problems in the **ZRAM card or ZRAM settings page ONLY**. The screenshot may show a full Unraid dashboard with many plugin cards (POWER, PROCESSOR, SYSTEM, GPU, SHARES, DOCKER, etc.) — **ignore those completely**. Only flag issues inside the "ZRAM STATUS" heading region, its stat cards (Uncompressed, Compressed, Ratio, Load, Swappiness), its chart, its device list, or the ZRAM settings page if that is what the screenshot shows.
+
+Ignore aesthetic preferences, colour choices, and subjective design opinions.
+
+Check for:
+- UI elements visibly clipped by their container (tooltip cut off, text truncated, chart extending beyond card boundary)
+- Text overlapping other elements or unreadable due to contrast
+- Missing or broken content (empty cards where content is expected, literal "undefined" / "null" / "NaN" showing as text, blank chart when data should be present)
+- Broken layout (overlapping boxes, misaligned grid cells, elements outside their container)
+- Error messages or stack traces visible in chrome/layout (not inside an intentional log console)
+
+**Ignore content INSIDE log/console/debug/terminal/history panels.** These are designed to display historical events including failures. A log line like "swapon: Invalid argument" or a stack trace inside a Command History, Debug Log, or Console pane is NOT a regression — it is content the panel is meant to show. Only flag errors that appear in page chrome, headers, stat cards, or actual error banners.
+
+Severity guidance:
+- "high" — content broken or invisible (clipping, overflow hiding data, error messages)
+- "medium" — noticeable but non-blocking (minor text truncation, slight overlap)
+- "low" — cosmetic only
