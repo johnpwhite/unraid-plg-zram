@@ -53,6 +53,66 @@ if (typeof module !== 'undefined' && module.exports) {
     let lastTotalTicks = null;
     let lastTime = null;
 
+    // Render an HTML tooltip floating on document.body. Unlike Chart.js's default
+    // canvas-drawn tooltip, this can extend beyond the chart's tiny 70px height.
+    // Positions the tooltip above the caret, flipping below if there's no room.
+    function externalTooltip(context) {
+        let el = document.getElementById('zram-chart-tooltip');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'zram-chart-tooltip';
+            el.style.cssText = [
+                'position:absolute', 'pointer-events:none',
+                'background:rgba(0,0,0,0.85)', 'color:#fff',
+                'border-radius:4px', 'padding:6px 8px',
+                'font-size:11px', 'line-height:1.45',
+                'white-space:nowrap', 'z-index:10000',
+                'transition:opacity 0.1s', 'opacity:0',
+                'box-shadow:0 2px 8px rgba(0,0,0,0.4)'
+            ].join(';');
+            document.body.appendChild(el);
+        }
+        const tt = context.tooltip;
+        if (!tt || tt.opacity === 0) { el.style.opacity = '0'; return; }
+
+        // Rebuild the tooltip body using safe DOM nodes — no innerHTML, all inputs
+        // treated as text even though they're numerically derived
+        while (el.firstChild) el.removeChild(el.firstChild);
+
+        if (tt.title && tt.title.length) {
+            const title = document.createElement('div');
+            title.style.cssText = 'font-weight:bold;margin-bottom:3px;';
+            title.textContent = String(tt.title[0]);
+            el.appendChild(title);
+        }
+        (tt.dataPoints || []).forEach(p => {
+            const row = document.createElement('div');
+            const swatch = document.createElement('span');
+            swatch.style.cssText = 'display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:1px;';
+            swatch.style.background = p.dataset.borderColor;
+            row.appendChild(swatch);
+            const val = p.dataset.yAxisID === 'y1'
+                ? p.parsed.y.toFixed(1) + '%'
+                : formatBytes(p.parsed.y);
+            row.appendChild(document.createTextNode(String(p.dataset.label) + ': ' + val));
+            el.appendChild(row);
+        });
+
+        const rect = context.chart.canvas.getBoundingClientRect();
+        const pageX = rect.left + window.pageXOffset + tt.caretX;
+        const pageY = rect.top + window.pageYOffset + tt.caretY;
+        el.style.opacity = '1';
+        const ttH = el.offsetHeight;
+        const ttW = el.offsetWidth;
+        // Flip below caret if placing above would clip viewport top
+        if (rect.top + tt.caretY - ttH - 10 < 0) {
+            el.style.top = (pageY + 10) + 'px';
+        } else {
+            el.style.top = (pageY - ttH - 10) + 'px';
+        }
+        el.style.left = (pageX - ttW / 2) + 'px';
+    }
+
     function initChart() {
         const canvas = document.getElementById('zramChart');
         if (!canvas || typeof Chart === 'undefined') return;
@@ -89,15 +149,12 @@ if (typeof module !== 'undefined' && module.exports) {
                 plugins: {
                     legend: { display: false },
                     tooltip: {
+                        // External HTML tooltip — the canvas is only 70px tall, so canvas-drawn
+                        // tooltips with 4 lines get clipped. Render as a floating div on the body
+                        // so the tooltip can extend anywhere on the page.
+                        enabled: false,
                         mode: 'index', intersect: false,
-                        callbacks: {
-                            label: function (ctx) {
-                                if (ctx.dataset.yAxisID === 'y1') {
-                                    return 'Load: ' + ctx.parsed.y.toFixed(1) + '%';
-                                }
-                                return ctx.dataset.label + ': ' + formatBytes(ctx.parsed.y);
-                            }
-                        }
+                        external: externalTooltip
                     }
                 },
                 scales: {

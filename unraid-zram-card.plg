@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.04.18.02">
+<!ENTITY version   "2026.04.18.03">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.18.02" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.18.03" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.04.18.03
+- Fix: Chart tooltip no longer clips when hovering in the lower half of the graph. Replaced the canvas-drawn Chart.js tooltip with an external HTML div floated on document.body, so it can extend beyond the chart's 70px height. Positions above the caret by default; flips below if there is no room. Built with safe DOM methods (no innerHTML).
 ## 2026.04.18.02
 - Feat: Introduce layered test suite. Layer 1 is static analysis via phpstan.neon and eslintrc.json. Layer 2 is PHPUnit plus Vitest unit tests covering config read-write, cache-buster regression, history-schema filter, and the rounded-bytes formatter. Layer 3 is an SSH smoke suite with 6 assertions that run against the live server after install.
 - Refactor: zram-card.js extracts formatBytes, formatBytesRound, and filterHistory to module scope with a conditional CommonJS export, so Vitest can import them without disturbing browser behaviour.
