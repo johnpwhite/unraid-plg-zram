@@ -60,32 +60,61 @@ Unraid's WebGUI may redirect unauthenticated requests to `/login` or to the myun
 
 ### Step 2 — Chart hover (3 positions)
 
-Find the chart canvas bounding box:
+**First: wait for chart data to populate.** After page load the chart fetches the history JSON; hovering before data arrives produces no tooltip (Chart.js has nothing to look up). Poll Chart.js's internal state until labels are populated:
+
 ```
 mcp__chrome-devtools__evaluate_script:
-  const c = document.getElementById('zramChart');
-  const r = c.getBoundingClientRect();
-  return JSON.stringify({x: r.x, y: r.y, w: r.width, h: r.height});
+  async () => {
+    const start = Date.now();
+    while (Date.now() - start < 10000) {
+      const c = document.getElementById('zramChart');
+      const inst = c && typeof Chart !== 'undefined' ? Chart.getChart(c) : null;
+      const labels = inst?.data?.labels || [];
+      if (labels.length > 3) {
+        const r = c.getBoundingClientRect();
+        return JSON.stringify({ ready: true, labels: labels.length, x: r.x, y: r.y, w: r.width, h: r.height });
+      }
+      await new Promise(res => setTimeout(res, 250));
+    }
+    return JSON.stringify({ ready: false, reason: 'chart labels not populated in 10s' });
+  }
 ```
 
+If `ready: false`, mark step 2 as `pass: false` with the reason and skip the three hovers. Continue to step 3 — don't abort the whole playbook.
+
 For each `fraction` in `[0.1, 0.5, 0.9]`:
-1. Move mouse to `(x + w*fraction, y + h/2)` using `mcp__chrome-devtools__hover` on the canvas at that offset, OR use `evaluate_script` to dispatch a `mousemove` event on the canvas if `hover` doesn't accept coords.
-2. Wait 300ms for the tooltip to render.
-3. `evaluate_script`:
+1. **Trigger the tooltip programmatically** via Chart.js's own API — dispatching synthetic `mousemove` events does not reliably activate Chart.js tooltips in every browser/version. Use `setActiveElements`:
    ```
-   const tt = document.getElementById('zram-chart-tooltip');
-   if (!tt) return JSON.stringify({present: false});
-   const rect = tt.getBoundingClientRect();
-   return JSON.stringify({
-     present: true,
-     opacity: tt.style.opacity,
-     bottomInViewport: rect.bottom <= window.innerHeight,
-     topInViewport: rect.top >= 0,
-     text: tt.innerText
-   });
+   mcp__chrome-devtools__evaluate_script:
+     async () => {
+       const c = document.getElementById('zramChart');
+       const inst = Chart.getChart(c);
+       const r = c.getBoundingClientRect();
+       const frac = <FRACTION>;
+       const chartX = r.width * frac;
+       const chartY = r.height / 2;
+       const idx = Math.round(frac * (inst.data.labels.length - 1));
+       inst.tooltip.setActiveElements(
+         inst.data.datasets.map((_, di) => ({ datasetIndex: di, index: idx })),
+         { x: chartX, y: chartY }
+       );
+       inst.update('none');
+       await new Promise(res => setTimeout(res, 300));
+       const tt = document.getElementById('zram-chart-tooltip');
+       const tr = tt ? tt.getBoundingClientRect() : null;
+       return JSON.stringify({
+         present: !!tt,
+         opacity: tt ? tt.style.opacity : null,
+         left: tr?.left, right: tr?.right, top: tr?.top, bottom: tr?.bottom,
+         canvasRight: r.right, canvasLeft: r.left,
+         horizontalOverflow: tt && tr ? Math.max(0, tr.right - r.right, r.left - tr.left) : null,
+         viewportH: window.innerHeight,
+         text: tt ? tt.innerText : null
+       });
+     }
    ```
-4. Assert: `present: true`, `opacity === "1"`, both `bottomInViewport` and `topInViewport` are true, text contains all of `Uncompressed`, `Compressed`, `Load`.
-5. `take_screenshot` → `<OUT_DIR>/02-hover-<fraction>.png` (e.g. `02-hover-0.1.png`).
+2. Assert: `present: true`, `opacity === "1"`, `bottom <= viewportH` AND `top >= 0` (vertical clip), `horizontalOverflow === 0` (horizontal clamp), and `text` contains all of `Uncompressed`, `Compressed`, `Load`.
+3. `take_screenshot` → `<OUT_DIR>/02-hover-<fraction>.png` (e.g. `02-hover-0.1.png`). Use Windows-style `C:/tmp/...` path per the PATH TRAP rule.
 
 ### Step 3 — Settings cog navigation
 
