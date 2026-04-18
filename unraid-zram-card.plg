@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.04.18.06">
+<!ENTITY version   "2026.04.18.07">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.18.06" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.18.07" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.04.18.07
+- Fix: Plugin uninstall hook no longer wipes user settings from /boot/config/plugins/unraid-zram-card. Caught by the new L3 uninstall smoke test, which asserts flash config survives uninstall per Unraid convention. Users can now uninstall and reinstall without losing refresh interval, compression algorithm choice, swappiness, or SSD swap configuration.
 ## 2026.04.18.06
 - Chore: Supersedes 2026.04.18.05 which was an accidental publish from a pipeline dry-run test. No functional changes to plugin source. Workspace root receives three new pre-publish guards: PLG FILE URL manifest drift check, src tree leak audit for secrets and bloat, and a proper --dry-run flag on publish-factory so this particular mistake cannot repeat.
 ## 2026.04.18.05
@@ -388,7 +390,10 @@ for zdev in /sys/block/zram*; do
 done
 
 rm -rf "$PLUGIN_DIR"
-rm -rf "$CONFIG_DIR"
+# $CONFIG_DIR (/boot/config/plugins/unraid-zram-card/) is preserved across
+# uninstall per Unraid convention: settings, custom algo choices, SSD-swap
+# config, and the persisted device.conf survive so a later reinstall picks
+# up where the user left off. To fully wipe, delete that dir manually.
 rm -rf "/tmp/$NAME"
 removepkg "$NAME" > /dev/null 2>&amp;1
 if [ -f /usr/local/sbin/update_plugin_cache ]; then

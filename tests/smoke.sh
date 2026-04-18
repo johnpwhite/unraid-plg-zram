@@ -8,13 +8,14 @@
 # Exit codes:
 #   0   all assertions pass
 #   1   infrastructure error (missing tool, unwritable tmp, etc.)
-#   2   assertion 1 failed: dashboard PHP renders without errors
+#   2   assertion 1 failed: dashboard PHP renders without errors or sentinel leaks
 #   3   assertion 2 failed: zram_status.php JSON shape
 #   4   assertion 3 failed: settings form POST persists
 #   5   assertion 4 failed: cache-buster uses dynamic value
 #   6   assertion 5 failed: collector process alive
 #   7   assertion 6 failed: history.json has new-schema entries
 #   8   assertion 7 failed: plugin icon asset present and readable
+#   9   assertion 8 failed: inactive-state renders gracefully
 
 set -u
 PLG="unraid-zram-card"
@@ -37,16 +38,25 @@ command -v curl >/dev/null 2>&1 || fail 1 "curl not available"
 command -v php  >/dev/null 2>&1 || fail 1 "php not available"
 command -v jq   >/dev/null 2>&1 || echo "WARN: jq not available — JSON checks use grep fallback" >&2
 
-# ---- Assertion 1: Dashboard page renders without PHP errors ----
+# ---- Assertion 1: Dashboard page renders without PHP errors or leaked sentinel values ----
 DASH_ERR=$(mktemp)
-php "${PLUGIN_DIR}/UnraidZramDash.page" >/dev/null 2>"$DASH_ERR"
-if grep -qiE '(PHP (Fatal|Warning|Notice)|Parse error|Uncaught)' "$DASH_ERR"; then
+DASH_OUT=$(mktemp)
+php "${PLUGIN_DIR}/UnraidZramDash.page" >"$DASH_OUT" 2>"$DASH_ERR"
+if grep -qiE '(PHP (Fatal|Warning|Notice|Deprecated)|Parse error|Uncaught)' "$DASH_ERR"; then
     cat "$DASH_ERR" >&2
-    rm -f "$DASH_ERR"
+    rm -f "$DASH_ERR" "$DASH_OUT"
     fail 2 "UnraidZramDash.page emitted PHP errors"
 fi
-rm -f "$DASH_ERR"
-echo "  [1/7] Dashboard renders clean"
+# Scan rendered HTML for sentinel values that mean something didn't compute.
+# Constrained regex: only flag these when they appear as a value in a tag (between
+# > and <) or as a lone word — NOT substrings in class names, CSS, or JS code.
+if grep -Eq '>(undefined|NaN|null)[[:space:]]*<' "$DASH_OUT"; then
+    grep -nE '>(undefined|NaN|null)[[:space:]]*<' "$DASH_OUT" >&2
+    rm -f "$DASH_ERR" "$DASH_OUT"
+    fail 2 "UnraidZramDash.page rendered sentinel value (undefined/NaN/null) as visible text"
+fi
+rm -f "$DASH_ERR" "$DASH_OUT"
+echo "  [1/8] Dashboard renders clean (no PHP notices, no sentinel leaks)"
 
 # ---- Assertion 2: Status JSON shape (via PHP CLI, bypassing nginx auth) ----
 STATUS_JSON=$(php -d display_errors=0 -r "
@@ -69,7 +79,7 @@ else
     echo "$STATUS_JSON" | grep -q '"total_used"'     || fail 3 "missing total_used"
     echo "$STATUS_JSON" | grep -q '"compression_ratio"' || fail 3 "missing compression_ratio"
 fi
-echo "  [2/7] Status JSON has required keys"
+echo "  [2/8] Status JSON has required keys"
 
 # ---- Assertion 3: Settings form POST persists (regression guard: 2026.04.17.02) ----
 # Invokes the .page save handler via PHP CLI with faked $_POST/$_SERVER, bypassing
@@ -116,7 +126,7 @@ fi
 if [ "$PERSISTED_INTERVAL" != "$TEST_INTERVAL" ]; then
     fail 4 "refresh_interval did not persist correctly (wrote ${TEST_INTERVAL}, read ${PERSISTED_INTERVAL})"
 fi
-echo "  [3/7] Settings POST persists (refresh_interval=${TEST_INTERVAL} written, restoring)"
+echo "  [3/8] Settings POST persists (refresh_interval=${TEST_INTERVAL} written, restoring)"
 
 # Explicit restore here too, in case trap is skipped by later assertion failure
 if [ -n "$CFG_BACKUP" ] && [ -f "$CFG_BACKUP" ]; then
@@ -144,7 +154,7 @@ case "$VBUST" in
         fail 5 "cache-buster is a hardcoded calendar version: $VBUST — should be filemtime()"
         ;;
 esac
-echo "  [4/7] Cache-buster is dynamic: $VBUST"
+echo "  [4/8] Cache-buster is dynamic: $VBUST"
 
 # ---- Assertion 5: Collector process alive ----
 # Assertion 3's save handler restarts the collector (benign side effect). Poll
@@ -163,21 +173,21 @@ done
 if [ -z "$COLL_PID" ]; then
     fail 6 "collector did not come back alive within 6s (PID file: $(cat "$PID_FILE" 2>/dev/null || echo missing))"
 fi
-echo "  [5/7] Collector alive (PID $COLL_PID)"
+echo "  [5/8] Collector alive (PID $COLL_PID)"
 
 # ---- Assertion 6: History has new-schema entries ----
 if [ ! -s "$HISTORY_FILE" ]; then
-    echo "  [6/7] history.json empty — skipping schema check (collector may have just started)"
+    echo "  [6/8] history.json empty — skipping schema check (collector may have just started)"
 else
     if command -v jq >/dev/null 2>&1; then
         NEW_COUNT=$(jq '[.[] | select(.o != null and .u != null)] | length' "$HISTORY_FILE")
         if [ "$NEW_COUNT" -lt 1 ]; then
             fail 7 "history.json has no new-schema {o,u,l} entries — collector writing legacy format?"
         fi
-        echo "  [6/7] history.json has $NEW_COUNT new-schema entries"
+        echo "  [6/8] history.json has $NEW_COUNT new-schema entries"
     else
         grep -q '"o":' "$HISTORY_FILE" || fail 7 "history.json has no 'o' field — legacy schema?"
-        echo "  [6/7] history.json has new-schema entries (grep fallback)"
+        echo "  [6/8] history.json has new-schema entries (grep fallback)"
     fi
 fi
 
@@ -198,7 +208,41 @@ MAGIC=$(head -c 4 "$ICON_PATH" 2>/dev/null | od -An -tx1 | tr -d ' \n')
 if [ "$MAGIC" != "89504e47" ]; then
     fail 8 "plugin icon is not a valid PNG (magic=$MAGIC)"
 fi
-echo "  [7/7] Icon file valid ($ICON_SIZE bytes, PNG magic ok)"
+echo "  [7/8] Icon file valid ($ICON_SIZE bytes, PNG magic ok)"
+
+# ---- Assertion 8: Dashboard renders gracefully in "no ZRAM device" state ----
+# Forces the inactive path via PHP CLI with stubbed constants so the plugin's
+# device-lookup returns empty without touching the real kernel zram device.
+# The render must: (a) emit no PHP notices, (b) contain the graceful
+# "No ZRAM devices active" fallback text, (c) leak no undefined/NaN/null.
+INACTIVE_ERR=$(mktemp)
+INACTIVE_HTML=$(php -d display_errors=0 -r "
+    define('ZRAM_LABEL', 'ZRAM_CARD_SMOKE_NO_SUCH_LABEL');
+    define('ZRAM_SSD_LABEL', 'ZRAM_CARD_SMOKE_NO_SUCH_SSD');
+    define('ZRAM_DEVICE_FILE', '/tmp/zram-smoke-nonexistent-device-file');
+    \$_SERVER['DOCUMENT_ROOT']='/usr/local/emhttp';
+    require_once '${PLUGIN_DIR}/zram_config.php';
+    require_once '${PLUGIN_DIR}/ZramCard.php';
+    echo getZramDashboardCard();
+" 2>"$INACTIVE_ERR")
+
+if grep -qiE '(PHP (Fatal|Warning|Notice|Deprecated)|Parse error|Uncaught)' "$INACTIVE_ERR"; then
+    cat "$INACTIVE_ERR" >&2
+    rm -f "$INACTIVE_ERR"
+    fail 9 "Inactive-state render emitted PHP errors"
+fi
+if ! echo "$INACTIVE_HTML" | grep -qE 'No ZRAM devices active'; then
+    echo "--- inactive render output (first 40 lines) ---" >&2
+    echo "$INACTIVE_HTML" | head -40 >&2
+    rm -f "$INACTIVE_ERR"
+    fail 9 "Inactive-state render did not show 'No ZRAM devices active' fallback"
+fi
+if echo "$INACTIVE_HTML" | grep -Eq '>(undefined|NaN|null)[[:space:]]*<'; then
+    rm -f "$INACTIVE_ERR"
+    fail 9 "Inactive-state render leaked sentinel values (undefined/NaN/null)"
+fi
+rm -f "$INACTIVE_ERR"
+echo "  [8/8] Inactive-state renders gracefully (fallback visible, no errors, no sentinel leaks)"
 
 echo "SMOKE PASS"
 exit 0
