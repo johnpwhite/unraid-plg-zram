@@ -1,4 +1,9 @@
 <CHANGES>
+## 2026.04.18.07
+- Feat: Dashboard graph Y-axis labels now round to the nearest 5 in their natural unit (MB / GB / etc) for easier reading. Stat cards continue to show precise values.
+- Fix: Chart tooltip no longer clips at the bottom of the graph or overflows into adjacent cards when hovering near the edges.
+- Fix: Uninstalling the plugin no longer wipes your saved settings. Refresh interval, compression algorithm, swappiness, and SSD swap configuration now survive uninstall/reinstall per Unraid convention.
+
 ## 2026.04.17.06
 - Feat: Dashboard graph now visualises both uncompressed and compressed memory as stacked filled layers, with CPU load overlaid on top. The visible gap between the two layers is the RAM saved by ZRAM.
 - Feat: Mini stats cards reworked to match the graph: Uncompressed, Compressed, Ratio, Load, Swappiness.
