@@ -14,6 +14,7 @@
 #   5   assertion 4 failed: cache-buster uses dynamic value
 #   6   assertion 5 failed: collector process alive
 #   7   assertion 6 failed: history.json has new-schema entries
+#   8   assertion 7 failed: plugin icon asset present and readable
 
 set -u
 PLG="unraid-zram-card"
@@ -45,7 +46,7 @@ if grep -qiE '(PHP (Fatal|Warning|Notice)|Parse error|Uncaught)' "$DASH_ERR"; th
     fail 2 "UnraidZramDash.page emitted PHP errors"
 fi
 rm -f "$DASH_ERR"
-echo "  [1/6] Dashboard renders clean"
+echo "  [1/7] Dashboard renders clean"
 
 # ---- Assertion 2: Status JSON shape (via PHP CLI, bypassing nginx auth) ----
 STATUS_JSON=$(php -d display_errors=0 -r "
@@ -68,7 +69,7 @@ else
     echo "$STATUS_JSON" | grep -q '"total_used"'     || fail 3 "missing total_used"
     echo "$STATUS_JSON" | grep -q '"compression_ratio"' || fail 3 "missing compression_ratio"
 fi
-echo "  [2/6] Status JSON has required keys"
+echo "  [2/7] Status JSON has required keys"
 
 # ---- Assertion 3: Settings form POST persists (regression guard: 2026.04.17.02) ----
 # Invokes the .page save handler via PHP CLI with faked $_POST/$_SERVER, bypassing
@@ -115,7 +116,7 @@ fi
 if [ "$PERSISTED_INTERVAL" != "$TEST_INTERVAL" ]; then
     fail 4 "refresh_interval did not persist correctly (wrote ${TEST_INTERVAL}, read ${PERSISTED_INTERVAL})"
 fi
-echo "  [3/6] Settings POST persists (refresh_interval=${TEST_INTERVAL} written, restoring)"
+echo "  [3/7] Settings POST persists (refresh_interval=${TEST_INTERVAL} written, restoring)"
 
 # Explicit restore here too, in case trap is skipped by later assertion failure
 if [ -n "$CFG_BACKUP" ] && [ -f "$CFG_BACKUP" ]; then
@@ -143,7 +144,7 @@ case "$VBUST" in
         fail 5 "cache-buster is a hardcoded calendar version: $VBUST — should be filemtime()"
         ;;
 esac
-echo "  [4/6] Cache-buster is dynamic: $VBUST"
+echo "  [4/7] Cache-buster is dynamic: $VBUST"
 
 # ---- Assertion 5: Collector process alive ----
 # Assertion 3's save handler restarts the collector (benign side effect). Poll
@@ -162,23 +163,42 @@ done
 if [ -z "$COLL_PID" ]; then
     fail 6 "collector did not come back alive within 6s (PID file: $(cat "$PID_FILE" 2>/dev/null || echo missing))"
 fi
-echo "  [5/6] Collector alive (PID $COLL_PID)"
+echo "  [5/7] Collector alive (PID $COLL_PID)"
 
 # ---- Assertion 6: History has new-schema entries ----
 if [ ! -s "$HISTORY_FILE" ]; then
-    echo "  [6/6] history.json empty — skipping schema check (collector may have just started)"
+    echo "  [6/7] history.json empty — skipping schema check (collector may have just started)"
 else
     if command -v jq >/dev/null 2>&1; then
         NEW_COUNT=$(jq '[.[] | select(.o != null and .u != null)] | length' "$HISTORY_FILE")
         if [ "$NEW_COUNT" -lt 1 ]; then
             fail 7 "history.json has no new-schema {o,u,l} entries — collector writing legacy format?"
         fi
-        echo "  [6/6] history.json has $NEW_COUNT new-schema entries"
+        echo "  [6/7] history.json has $NEW_COUNT new-schema entries"
     else
         grep -q '"o":' "$HISTORY_FILE" || fail 7 "history.json has no 'o' field — legacy schema?"
-        echo "  [6/6] history.json has new-schema entries (grep fallback)"
+        echo "  [6/7] history.json has new-schema entries (grep fallback)"
     fi
 fi
+
+# ---- Assertion 7: Plugin icon asset present and readable ----
+# Catches the case where the .plg FILE manifest drops the icon, or the install
+# hook puts it in the wrong place. Note: file-present is necessary but NOT
+# sufficient — L4 verifies the icon actually renders (naturalWidth > 0).
+ICON_PATH="${PLUGIN_DIR}/unraid-zram-card.png"
+if [ ! -f "$ICON_PATH" ]; then
+    fail 8 "plugin icon missing on server: $ICON_PATH"
+fi
+ICON_SIZE=$(stat -c %s "$ICON_PATH" 2>/dev/null || echo 0)
+if [ "$ICON_SIZE" -lt 1024 ]; then
+    fail 8 "plugin icon suspiciously small ($ICON_SIZE bytes): $ICON_PATH"
+fi
+# PNG magic bytes: 89 50 4E 47
+MAGIC=$(head -c 4 "$ICON_PATH" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+if [ "$MAGIC" != "89504e47" ]; then
+    fail 8 "plugin icon is not a valid PNG (magic=$MAGIC)"
+fi
+echo "  [7/7] Icon file valid ($ICON_SIZE bytes, PNG magic ok)"
 
 echo "SMOKE PASS"
 exit 0

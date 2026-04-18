@@ -49,6 +49,50 @@ Unraid's WebGUI may redirect unauthenticated requests to `/login` or to the myun
    - SSH to the server: `ssh root@<SERVER> "cat /var/local/emhttp/var.ini | grep -E 'NAME|PASS|hostname'"`
    - Report auth-blocked and skip remaining steps. Return `{auth_blocked: true, steps: []}`.
 
+### Step 0.5 — Settings tab: icon row present AND actually rendered
+
+**Unraid URL-mapping gotcha:** despite the `.page` directive reading `Menu="Utilities"`, the row actually renders on the **`/Settings`** page (top-nav "SETTINGS"), not `/Utilities`. Clicking the row navigates to `/Settings/<PageName>`. The `/Utilities` URL exists but renders an empty page and is NOT where plugin entries appear in modern Unraid. Don't let the `Menu=` value confuse you.
+
+This step catches two regressions L3 can't:
+- The row appears with broken-image placeholder (file served 404 or corrupted)
+- The row disappears entirely (Menu directive changed, install hook failed, or Unraid remapped the menu category in a future version)
+
+1. `mcp__chrome-devtools__navigate_page` url=`http://<SERVER>/Settings`
+2. Wait up to 6s: `mcp__chrome-devtools__wait_for` text=`Unraid ZRAM`.
+3. Assert via `evaluate_script`:
+   ```
+   () => {
+     // Find the row for our plugin — the link whose href ends with /Settings/UnraidZramCard
+     const link = [...document.querySelectorAll('a[href]')].find(
+       a => a.getAttribute('href').endsWith('/Settings/UnraidZramCard')
+     );
+     if (!link) return JSON.stringify({ok: false, reason: 'Settings row missing — Menu directive may be wrong'});
+
+     // Find our icon — an <img> whose src references our PNG
+     const img = [...document.querySelectorAll('img')].find(
+       i => i.src && i.src.includes('unraid-zram-card')
+     );
+     if (!img) return JSON.stringify({ok: false, reason: 'Icon <img> tag missing in Settings row'});
+
+     // CRITICAL: verify the image actually loaded. <img> can exist with src set
+     // but naturalWidth=0 when the resource 404s or is corrupt — Unraid still
+     // renders a broken-image placeholder, and L3's file-on-disk check passes.
+     const rendered = img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
+     return JSON.stringify({
+       ok: rendered,
+       href: link.getAttribute('href'),
+       imgSrc: img.src,
+       complete: img.complete,
+       naturalWidth: img.naturalWidth,
+       naturalHeight: img.naturalHeight,
+       rendered,
+       reason: rendered ? '' : 'Icon <img> present but naturalWidth=0 — file failed to load or is corrupt'
+     });
+   }
+   ```
+4. Pass condition: `ok === true` AND `naturalWidth >= 16` (reject tiny/favicon-sized sprites that aren't our icon).
+5. `mcp__chrome-devtools__take_screenshot` → `<OUT_DIR>/00-settings-tab.png` (Windows-style path).
+
 ### Step 1 — Dashboard idle state
 
 1. Wait up to 8s for the ZRAM card to render: `mcp__chrome-devtools__wait_for` text=`ZRAM STATUS`.
@@ -136,6 +180,88 @@ For each `fraction` in `[0.1, 0.5, 0.9]`:
 5. `take_screenshot` → `<OUT_DIR>/04-settings-saved.png`.
 6. Assert no JS errors: `evaluate_script: return (window.__errors || [])`  (returns errors captured by a page-level error listener if one exists, else empty).
 
+### Step 4a — Settings page static content (structural elements)
+
+Navigate back to the settings page (`/Utilities/UnraidZramCard`) fresh so Save banner from step 4 is gone, then assert via `evaluate_script` that every structural element exists. This catches regressions where a form field or pane disappears without failing the save flow.
+
+```
+() => {
+  const byName = n => document.querySelector(`[name="${n}"]`);
+  const byId = i => document.getElementById(i);
+  const checks = {
+    refresh_interval:    !!byName('refresh_interval'),
+    collection_interval: !!byName('collection_interval'),
+    swappiness:          !!byName('swappiness'),
+    enabled_select:      !!byName('enabled'),
+    zram_size_mode:      !!byId('zram_size_mode'),
+    zram_algo_select:    !!byId('zram_algo_select'),
+    zram_percent_slider: !!byId('zram_percent_slider'),
+    drive_list:          !!byId('drive-list'),
+    console_log:         !!byId('console-log'),
+    debug_log_view:      !!byId('debug-log-view'),
+    tab_cmd:             !!byId('tab-cmd'),
+    tab_debug:           !!byId('tab-debug-log'),
+    save_button:         [...document.querySelectorAll('button')].some(
+                            b => /apply.*save/i.test(b.textContent)
+                          ),
+  };
+  const missing = Object.entries(checks).filter(([,v]) => !v).map(([k]) => k);
+  return JSON.stringify({ok: missing.length === 0, missing, checks});
+}
+```
+
+Pass condition: `missing` array is empty. Fail note should list which structural elements were missing.
+
+`take_screenshot` → `<OUT_DIR>/04a-settings-content.png`.
+
+### Step 4b — Tab switcher interaction
+
+The settings page has `.zram-tab` elements that toggle between the Console log and the Debug Log views. A broken tab handler is silent — the page still "works" but one pane is stuck hidden. Test the switch programmatically:
+
+```
+// Click Debug Log tab
+() => {
+  const tab = document.getElementById('tab-debug-log');
+  if (!tab) return JSON.stringify({ok: false, reason: 'tab-debug-log missing'});
+  tab.click();
+  // Allow any handler/animation to complete
+  return new Promise(resolve => setTimeout(() => {
+    const console = document.getElementById('console-log');
+    const debug = document.getElementById('debug-log-view');
+    const consoleHidden = !console || window.getComputedStyle(console).display === 'none';
+    const debugVisible  = !!debug && window.getComputedStyle(debug).display !== 'none';
+    resolve(JSON.stringify({
+      ok: consoleHidden && debugVisible,
+      consoleHidden, debugVisible
+    }));
+  }, 300));
+}
+```
+
+Pass: `ok === true`. Then `take_screenshot` → `<OUT_DIR>/04b-settings-debug-tab.png`.
+
+Repeat the reverse to confirm the Console tab also activates:
+
+```
+() => {
+  const tab = document.getElementById('tab-cmd');
+  if (!tab) return JSON.stringify({ok: false, reason: 'tab-cmd missing'});
+  tab.click();
+  return new Promise(resolve => setTimeout(() => {
+    const console = document.getElementById('console-log');
+    const debug = document.getElementById('debug-log-view');
+    const consoleVisible = !!console && window.getComputedStyle(console).display !== 'none';
+    const debugHidden  = !debug || window.getComputedStyle(debug).display === 'none';
+    resolve(JSON.stringify({
+      ok: consoleVisible && debugHidden,
+      consoleVisible, debugHidden
+    }));
+  }, 300));
+}
+```
+
+Pass: `ok === true`. Then `take_screenshot` → `<OUT_DIR>/04c-settings-console-tab.png`.
+
 ### Step 5 — Close
 
 `mcp__chrome-devtools__close_page`.
@@ -149,12 +275,16 @@ The subagent MUST return a single JSON object as its final message:
   "auth_blocked": false,
   "screenshots_dir": "<OUT_DIR>",
   "steps": [
-    {"n": 1, "name": "dashboard-idle",      "pass": true,  "notes": ""},
-    {"n": 2, "name": "chart-hover-0.1",     "pass": true,  "notes": ""},
-    {"n": 2, "name": "chart-hover-0.5",     "pass": true,  "notes": ""},
-    {"n": 2, "name": "chart-hover-0.9",     "pass": true,  "notes": ""},
-    {"n": 3, "name": "settings-cog-nav",    "pass": true,  "notes": ""},
-    {"n": 4, "name": "settings-form-save",  "pass": true,  "notes": ""}
+    {"n": "0.5", "name": "settings-tab-icon",      "pass": true, "notes": ""},
+    {"n": 1,     "name": "dashboard-idle",         "pass": true, "notes": ""},
+    {"n": 2,     "name": "chart-hover-0.1",        "pass": true, "notes": ""},
+    {"n": 2,     "name": "chart-hover-0.5",        "pass": true, "notes": ""},
+    {"n": 2,     "name": "chart-hover-0.9",        "pass": true, "notes": ""},
+    {"n": 3,     "name": "settings-cog-nav",       "pass": true, "notes": ""},
+    {"n": 4,     "name": "settings-form-save",     "pass": true, "notes": ""},
+    {"n": "4a",  "name": "settings-static-content","pass": true, "notes": ""},
+    {"n": "4b",  "name": "tab-switcher-debug",     "pass": true, "notes": ""},
+    {"n": "4b",  "name": "tab-switcher-console",   "pass": true, "notes": ""}
   ],
   "overall": "pass"
 }
