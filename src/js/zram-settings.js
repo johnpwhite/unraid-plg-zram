@@ -111,7 +111,7 @@ function switchTab(tab) {
 function fetchDebugLog() {
     var v = document.getElementById('debug-log-view');
     v.innerText = 'Loading...';
-    $.get(window.ZRAM_PAGE.API + '?action=view_log', function(data) { v.innerText = data; v.scrollTop = v.scrollHeight; });
+    $.get(window.ZRAM_PAGE.API + '?action=view_log&csrf_token=' + encodeURIComponent(window.ZRAM_PAGE.CSRF), function(data) { v.innerText = data; v.scrollTop = v.scrollHeight; });
 }
 
 function clearDebugLog() {
@@ -142,7 +142,7 @@ function addLog(msg, type) {
 }
 
 $(function() {
-    $.get(window.ZRAM_PAGE.API + '?action=view_cmd_log', function(logs) {
+    $.get(window.ZRAM_PAGE.API + '?action=view_cmd_log&csrf_token=' + encodeURIComponent(window.ZRAM_PAGE.CSRF), function(logs) {
         if (!logs || logs.length === 0) addLog('Console ready.');
         else logs.forEach(renderLog);
     });

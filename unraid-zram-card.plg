@@ -2,16 +2,22 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.04.18.07">
+<!ENTITY version   "2026.04.20.01">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.18.07" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.20.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.04.20.01
+- Archive zram_swap.php: replaced with inert stub; file was dead code superseded by zram_actions.php and had no CSRF validation, used REQUEST variables directly without escaping
+- Add CSRF validation to view_log and view_cmd_log actions in zram_actions.php; previously these log-read endpoints were exempt from the CSRF gate but can leak config details to cross-origin requests
+- Add csrf_token parameter to view_log and view_cmd_log AJAX calls in zram-settings.js to match new server-side gate
+- Update TIERED_SWAP_MANAGER.md status from Draft to Approved; all requirements and Appendix A bugs are shipped
+- Update L4_VISUAL_TESTS.md status from Draft to In Progress; core flow shipped in v2026.04.18.04
 ## 2026.04.18.07
 - Fix: Plugin uninstall hook no longer wipes user settings from /boot/config/plugins/unraid-zram-card. Caught by the new L3 uninstall smoke test, which asserts flash config survives uninstall per Unraid convention. Users can now uninstall and reinstall without losing refresh interval, compression algorithm choice, swappiness, or SSD swap configuration.
 ## 2026.04.18.06

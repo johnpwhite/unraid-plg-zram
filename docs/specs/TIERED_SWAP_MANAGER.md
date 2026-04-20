@@ -1,7 +1,7 @@
 # Feature: Tiered Swap Manager
 
 ## Status
-Draft
+Approved
 
 ## Problem
 

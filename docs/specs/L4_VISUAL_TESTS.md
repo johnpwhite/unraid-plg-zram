@@ -1,7 +1,7 @@
 # Feature: L4 — UI Interaction + Visual Review
 
 ## Status
-Draft
+In Progress
 
 ## Problem
 L1–L3 catch server-side correctness, pure-logic regressions, and config persistence. They don't catch:

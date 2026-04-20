@@ -13,8 +13,8 @@ require_once dirname(__FILE__) . '/zram_config.php';
 $action = filter_input(INPUT_GET, 'action', FILTER_UNSAFE_RAW) ?: '';
 $csrf   = filter_input(INPUT_GET, 'csrf_token', FILTER_UNSAFE_RAW) ?: '';
 
-// Non-mutating actions: view logs (no CSRF required)
 if ($action === 'view_log') {
+    if (empty($csrf)) { http_response_code(403); header('Content-Type: text/plain; charset=utf-8'); echo "Missing CSRF token\n"; exit; }
     header('Content-Type: text/plain; charset=utf-8');
     header('Cache-Control: no-cache');
     if (file_exists(ZRAM_DEBUG_LOG) && is_readable(ZRAM_DEBUG_LOG)) {
@@ -26,6 +26,7 @@ if ($action === 'view_log') {
 }
 
 if ($action === 'view_cmd_log') {
+    if (empty($csrf)) { http_response_code(403); header('Content-Type: application/json'); echo json_encode([]); exit; }
     header('Content-Type: application/json');
     $entries = [];
     if (file_exists(ZRAM_CMD_LOG)) {
