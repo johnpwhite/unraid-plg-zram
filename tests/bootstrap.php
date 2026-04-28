@@ -31,7 +31,7 @@ define('ZRAM_DEFAULTS', [
     'enabled'             => 'yes',
     'refresh_interval'    => '3000',
     'collection_interval' => '3',
-    'swappiness'          => '100',
+    'swappiness'          => '150',
     'debug'               => 'no',
     'console_visible'     => 'yes',
     'zram_size'           => 'auto',

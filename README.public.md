@@ -9,7 +9,7 @@ Tier 1: ZRAM Swap (always active)
   Compressed in RAM — fast, ~3:1 ratio
   8 GB server → effectively ~20 GB usable memory
 
-Tier 2: SSD Swap File (optional)
+Tier 2: Disk Swap File (optional)
   Overflow to NVMe/SSD when ZRAM fills
   Prevents OOM — the kernel handles overflow automatically via priority
 ```
@@ -39,9 +39,9 @@ Copy and paste into **Plugins > Install Plugin**:
 - **Size**: Auto (percentage of RAM) or a fixed size like `4G`.
 - **Auto Size Slider**: 25-75% of physical RAM. Default 50%. Shows calculated size in real-time.
 - **Algorithm**: `zstd` recommended (best compression ratio with good speed).
-- **Swappiness**: 0-100. Value of **100** recommended for ZRAM (tells kernel to prefer swap over dropping caches).
+- **Swappiness**: 0-200 (kernel 5.8+ range). Default **150**, recommended for ZRAM systems — tells the kernel that compressed-RAM swap is cheaper than dropping page cache. Use 100 for legacy parity, 180+ for aggressive zram with SSD swap as fallback.
 
-### Tier 2: SSD Swap File
+### Tier 2: Disk Swap File
 - **Drive Picker**: Shows eligible mounted filesystems with smart classification:
   - NVMe: Recommended (green)
   - SATA SSD: OK (green)

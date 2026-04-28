@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
         'enabled'             => ($_POST['enabled'] ?? 'yes') === 'yes' ? 'yes' : 'no',
         'refresh_interval'    => max(1000, intval($_POST['refresh_interval'] ?? 3000)),
         'collection_interval' => max(1, intval($_POST['collection_interval'] ?? 3)),
-        'swappiness'          => max(0, min(100, intval($_POST['swappiness'] ?? 100))),
+        'swappiness'          => max(0, min(200, intval($_POST['swappiness'] ?? 150))),
         'debug'               => ($_POST['debug'] ?? '') === 'yes' ? 'yes' : 'no',
         'console_visible'     => ($_POST['console_visible'] ?? 'yes') === 'yes' ? 'yes' : 'no',
         'zram_size'           => $_POST['zram_size'] ?: 'auto',
@@ -181,7 +181,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 <!-- TIER 2: SSD SWAP -->
 <div class="zram-card">
     <div class="zram-card-header">
-        <span><i class="fa fa-hdd-o"></i> Tier 2: SSD Swap File (Overflow)</span>
+        <span><i class="fa fa-hdd-o"></i> Tier 2: Disk Swap File (Overflow)</span>
 <?php if ($ssdActive): ?>
         <button type="button" class="zram-btn zram-btn-danger" onclick="zramAction('remove_ssd_swap')">REMOVE</button>
 <?php endif; ?>
@@ -233,8 +233,16 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
             <dd><input type="number" name="refresh_interval" value="<?php echo htmlspecialchars($settings['refresh_interval']); ?>" min="1000" step="500"></dd>
             <dt>Collection Interval (sec):</dt>
             <dd><input type="number" name="collection_interval" value="<?php echo htmlspecialchars($settings['collection_interval']); ?>" min="1" step="1"></dd>
-            <dt>Swappiness (0-100):</dt>
-            <dd><input type="number" name="swappiness" value="<?php echo htmlspecialchars($settings['swappiness']); ?>" min="0" max="100"></dd>
+            <dt>Swappiness (0-200):</dt>
+            <dd>
+                <input type="number" name="swappiness" value="<?php echo htmlspecialchars($settings['swappiness']); ?>" min="0" max="200">
+                <div style="font-size:0.8em;opacity:0.7;margin-top:4px;line-height:1.4;">
+                    <strong>60</strong> kernel default (disk-swap era) &middot;
+                    <strong>100</strong> equal weighting &middot;
+                    <strong>150</strong> recommended for zram &middot;
+                    <strong>180+</strong> aggressive (best with SSD swap as fallback)
+                </div>
+            </dd>
             <dt>Debug Mode:</dt>
             <dd><label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
                 <input type="checkbox" name="debug" value="yes" <?php echo ($settings['debug']=='yes')?'checked':''; ?>>

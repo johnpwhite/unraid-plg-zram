@@ -71,7 +71,7 @@ The ZRAM Card plugin currently manages ZRAM swap devices but has several archite
 │  │ Compressed in RAM, ~3:1 ratio                 │  │
 │  └───────────────────────────────────────────────┘  │
 │                                                     │
-│  Tier 2: SSD Swap File (optional, user-enabled)     │
+│  Tier 2: Disk Swap File (optional, user-enabled)    │
 │  ┌───────────────────────────────────────────────┐  │
 │  │ /mnt/cache/.swap/zram-card.swap (or similar)  │  │
 │  │ Priority: 10                                  │  │
@@ -211,7 +211,7 @@ ssd_swap_mount=""
 │ │ [APPLY]  [RESET DEVICE]                              │ │
 │ └──────────────────────────────────────────────────────┘ │
 │                                                          │
-│ Tier 2: SSD Swap File (Overflow Protection)              │
+│ Tier 2: Disk Swap File (Overflow Protection)             │
 │ ┌──────────────────────────────────────────────────────┐ │
 │ │ Status: Inactive                                     │ │
 │ │                                                      │ │
@@ -298,7 +298,7 @@ src/
       - mkswap -L ZRAM_CARD /dev/zramN
       - swapon -p 100 /dev/zramN
 
-4. Tier 2 - SSD Swap File (if enabled):
+4. Tier 2 - Disk Swap File (if enabled):
    a. Check if mount point is available
    b. Check if swap file exists at configured path
    c. If exists → swapon -p 10 $PATH (idempotent: check /proc/swaps first)
@@ -346,7 +346,7 @@ function zram_config_write($settings) {
 | `zram_size` | `"auto"` | `"auto"` or size string | ZRAM device size |
 | `zram_percent` | `"50"` | 25-75 | Percent of RAM when auto |
 | `zram_algo` | `"zstd"` | Kernel-supported algos | Compression algorithm |
-| `swappiness` | `"100"` | 0-100 | vm.swappiness value |
+| `swappiness` | `"150"` | 0-200 | vm.swappiness value (kernel 5.8+ range; see SWAPPINESS_RANGE_EXTENSION.md) |
 | `ssd_swap_enabled` | `"no"` | yes/no | Enable Tier 2 |
 | `ssd_swap_path` | `""` | File path | Path to swap file |
 | `ssd_swap_size` | `"16G"` | Size string | Swap file size |

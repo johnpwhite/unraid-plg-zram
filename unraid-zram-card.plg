@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.04.20.01">
+<!ENTITY version   "2026.04.28.01">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.20.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.04.28.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.04.28.01
+- Feat: Extend vm.swappiness range to 0-200 (kernel 5.8+) and bump default to 150 for zram-priority swap topology. Settings UI shows tier guidance under the input. Fix: drop unsupported HDD parity-interference warning, replace with honest random-IO impact note that acknowledges bad swap beats OOM. Fix: Tier 2 drive picker label and empty-state copy updated to be inclusive of HDD-only users - picker already accepts cache pool HDDs but previous copy implied SSD-only. Tests: new PHPUnit assertion for 180 and 200 round-trip through config layer; smoke updated to use 175 (a value impossible to test before this change).
 ## 2026.04.20.01
 - Archive zram_swap.php: replaced with inert stub; file was dead code superseded by zram_actions.php and had no CSRF validation, used REQUEST variables directly without escaping
 - Add CSRF validation to view_log and view_cmd_log actions in zram_actions.php; previously these log-read endpoints were exempt from the CSRF gate but can leak config details to cross-origin requests

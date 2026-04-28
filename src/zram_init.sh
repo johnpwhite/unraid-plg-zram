@@ -74,7 +74,7 @@ fi
 
 # --- Apply swappiness ---
 SWAPPINESS=$(cfg_val "swappiness")
-if [ -z "$SWAPPINESS" ]; then SWAPPINESS=100; fi
+if [ -z "$SWAPPINESS" ]; then SWAPPINESS=150; fi
 zlog "Setting vm.swappiness=$SWAPPINESS" "INFO"
 sysctl -q vm.swappiness="$SWAPPINESS"
 

@@ -54,7 +54,10 @@ function loadDrives() {
         var list = document.getElementById('drive-list');
         if (!list) return;
         if (!data.drives || data.drives.length === 0) {
-            list.innerHTML = '<div style="opacity:0.5;font-size:0.9em;padding:8px;">No eligible SSD/NVMe drives found.</div>';
+            var empty = document.createElement('div');
+            empty.style.cssText = 'opacity:0.5;font-size:0.9em;padding:8px;';
+            empty.textContent = 'No eligible drives found. Tier 2 needs a writable mount under /mnt/cache or /mnt/disks (Unassigned Devices).';
+            list.replaceChildren(empty);
             return;
         }
         var html = '';

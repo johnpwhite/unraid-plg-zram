@@ -36,7 +36,7 @@ final class ConfigTest extends TestCase
 
         $this->assertSame('no', $cfg['enabled'], 'value from file wins');
         $this->assertSame('1000', $cfg['refresh_interval'], 'value from file wins');
-        $this->assertSame('100', $cfg['swappiness'], 'missing keys fall back to defaults');
+        $this->assertSame('150', $cfg['swappiness'], 'missing keys fall back to defaults');
     }
 
     public function testWriteRoundTripsThroughRead(): void
@@ -62,6 +62,20 @@ final class ConfigTest extends TestCase
         $cfg = zram_config_read();
         $this->assertSame('2000', $cfg['refresh_interval'], 'first write survives second');
         $this->assertSame('80',   $cfg['swappiness']);
+    }
+
+    public function testSwappinessAcceptsExtendedKernelRange(): void
+    {
+        // Regression guard for SWAPPINESS_RANGE_EXTENSION spec:
+        // kernel 5.8+ supports vm.swappiness up to 200; storage layer must
+        // round-trip values in the 101-200 band without silent clamping.
+        zram_config_write(['swappiness' => '180']);
+        $cfg = zram_config_read();
+        $this->assertSame('180', $cfg['swappiness'], 'config layer must not clamp at the legacy 100 ceiling');
+
+        zram_config_write(['swappiness' => '200']);
+        $cfg = zram_config_read();
+        $this->assertSame('200', $cfg['swappiness'], 'kernel maximum (200) must round-trip');
     }
 
     public function testWriteIsAtomicAgainstConcurrentReaders(): void

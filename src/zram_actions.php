@@ -245,8 +245,8 @@ if ($action === 'remove_ssd_swap') {
 // --- SETTINGS ACTIONS ---
 
 if ($action === 'update_swappiness') {
-    $val = filter_input(INPUT_GET, 'val', FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 100]]);
-    if ($val === false || $val === null) $val = 100;
+    $val = filter_input(INPUT_GET, 'val', FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 200]]);
+    if ($val === false || $val === null) $val = 150;
     zram_run("sysctl vm.swappiness=" . intval($val), $logs);
     zram_config_write(['swappiness' => $val]);
     echo json_encode(['success' => true, 'message' => "Swappiness set to $val", 'logs' => $logs]);

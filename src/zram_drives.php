@@ -102,7 +102,7 @@ foreach ($mounts as $line) {
         $classify = 'recommended';
     } elseif ($transport === 'hdd') {
         $classify = 'warn';
-        $warning = 'HDD swap causes severe performance degradation and may interfere with parity operations';
+        $warning = 'HDD random-IO is slow; expect significant performance impact, but still better than OOM if no SSD is available';
     }
 
     $drives[] = [
