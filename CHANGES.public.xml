@@ -1,4 +1,10 @@
 <CHANGES>
+## 2026.04.28.02
+- Feat: Extended swappiness range (0-200, kernel 5.8+ aware). The Swappiness setting now accepts the full kernel range (was 0-100) and the default is raised to 150 — the recommended setting for compressed-RAM swap, where evicting a zram page is cheaper than dropping page cache. Settings page shows tier guidance: 60 kernel default, 100 equal weighting, 150 recommended for zram, 180+ aggressive. Existing users keep their saved value on upgrade.
+- Improve: Inclusive Tier 2 terminology. "SSD Swap File" renamed to "Disk Swap File" across the settings page, dashboard card, action toasts, init logs, and public README. The drive picker has always accepted HDD cache-pool drives (with a warning), but the previous copy implied SSD/NVMe-only.
+- Improve: Honest HDD warning. Rewrote the HDD warning in the Tier 2 drive picker. The previous "may interfere with parity operations" claim was misleading — the picker excludes array drives entirely, so HDD swap on a cache pool cannot directly affect parity calculation. The new wording is honest about random-IO performance impact and acknowledges that a slow swap is still better than running out of memory.
+- Security: CSRF hardening for log-read endpoints. Added CSRF token validation to the view_log and view_cmd_log AJAX actions (previously exempt; could leak diagnostic details to cross-origin requests). Archived the legacy zram_swap.php handler, which had been superseded by zram_actions.php and used REQUEST variables without proper escaping.
+
 ## 2026.04.18.07
 - Feat: Dashboard graph Y-axis labels now round to the nearest 5 in their natural unit (MB / GB / etc) for easier reading. Stat cards continue to show precise values.
 - Fix: Chart tooltip no longer clips at the bottom of the graph or overflows into adjacent cards when hovering near the edges.
