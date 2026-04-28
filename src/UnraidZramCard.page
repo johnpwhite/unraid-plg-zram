@@ -201,7 +201,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
         </div>
 <?php else: ?>
         <p style="font-size:0.9em;opacity:0.7;margin-top:0;">
-            When ZRAM fills up, overflow pages go to an SSD swap file. Prevents OOM on memory-constrained servers.
+            When ZRAM fills up, overflow pages go to a disk swap file. Prevents OOM on memory-constrained servers.
         </p>
         <div id="drive-picker" style="margin-bottom:12px;">
             <div style="font-size:0.85em;color:#aaa;margin-bottom:6px;">Select a drive:</div>
@@ -240,7 +240,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
                     <strong>60</strong> kernel default (disk-swap era) &middot;
                     <strong>100</strong> equal weighting &middot;
                     <strong>150</strong> recommended for zram &middot;
-                    <strong>180+</strong> aggressive (best with SSD swap as fallback)
+                    <strong>180+</strong> aggressive (best with disk swap as fallback)
                 </div>
             </dd>
             <dt>Debug Mode:</dt>

@@ -136,17 +136,17 @@ if [ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ]; then
     if [ -f "$SSD_PATH" ]; then
         # Check if already active
         if grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
-            zlog "SSD swap already active: $SSD_PATH" "INFO"
+            zlog "Disk swap already active: $SSD_PATH" "INFO"
         else
-            zlog "Activating SSD swap: $SSD_PATH" "INFO"
-            $SWAPON "$SSD_PATH" -p 10 2>&1 || zlog "Failed to activate SSD swap" "ERROR"
+            zlog "Activating disk swap: $SSD_PATH" "INFO"
+            $SWAPON "$SSD_PATH" -p 10 2>&1 || zlog "Failed to activate disk swap" "ERROR"
         fi
     else
         SSD_MOUNT=$(cfg_val "ssd_swap_mount")
         if mountpoint -q "$SSD_MOUNT" 2>/dev/null; then
-            zlog "SSD swap file missing but mount available. File may need recreation." "WARN"
+            zlog "Disk swap file missing but mount available. File may need recreation." "WARN"
         else
-            zlog "SSD swap mount ($SSD_MOUNT) not available yet. Skipping Tier 2." "WARN"
+            zlog "Disk swap mount ($SSD_MOUNT) not available yet. Skipping Tier 2." "WARN"
         fi
     fi
 fi

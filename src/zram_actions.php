@@ -215,7 +215,7 @@ if ($action === 'remove_ssd_swap') {
     $swapFile = $cfg['ssd_swap_path'] ?? '';
 
     if (empty($swapFile) || !file_exists($swapFile)) {
-        echo json_encode(['success' => false, 'message' => 'No SSD swap file found', 'logs' => $logs]);
+        echo json_encode(['success' => false, 'message' => 'No disk swap file found', 'logs' => $logs]);
         exit;
     }
 
@@ -238,7 +238,7 @@ if ($action === 'remove_ssd_swap') {
         'ssd_swap_mount'   => '',
     ]);
 
-    echo json_encode(['success' => true, 'message' => 'SSD swap file removed', 'logs' => $logs]);
+    echo json_encode(['success' => true, 'message' => 'Disk swap file removed', 'logs' => $logs]);
     exit;
 }
 

@@ -1,6 +1,6 @@
 # Unraid ZRAM — Tiered Swap Manager
 
-A smart swap manager for Unraid that combines compressed RAM (ZRAM) with optional SSD overflow protection. Helps memory-constrained servers avoid OOM crashes.
+A smart swap manager for Unraid that combines compressed RAM (ZRAM) with optional disk overflow protection. Helps memory-constrained servers avoid OOM crashes.
 
 ## How It Works
 
@@ -10,7 +10,7 @@ Tier 1: ZRAM Swap (always active)
   8 GB server → effectively ~20 GB usable memory
 
 Tier 2: Disk Swap File (optional)
-  Overflow to NVMe/SSD when ZRAM fills
+  Overflow to a writable disk when ZRAM fills (NVMe/SSD recommended)
   Prevents OOM — the kernel handles overflow automatically via priority
 ```
 
@@ -18,7 +18,7 @@ Tier 2: Disk Swap File (optional)
 
 - **Auto-Sizing**: Automatically sizes ZRAM to a percentage of your RAM (configurable 25-75%, default 50%).
 - **Live Dashboard Card**: Real-time stats — RAM saved, compression ratio, CPU load, and a 1-hour history chart.
-- **SSD Overflow Protection**: Optional swap file on NVMe/SSD for when ZRAM fills up. Includes a drive picker with smart media detection.
+- **Disk Overflow Protection**: Optional swap file on any allowed mount (NVMe/SSD recommended; HDD permitted with a warning) for when ZRAM fills up. Includes a drive picker with smart media detection.
 - **Device Isolation**: Labels all managed devices. Only shows its own ZRAM — won't interfere with other plugins that use ZRAM.
 - **Safe Operations**: OOM evacuation checks before removing swap. Atomic config writes. CSRF protection on all actions.
 - **Boot Persistence**: Automatically recreates your swap configuration on every boot.
@@ -39,7 +39,7 @@ Copy and paste into **Plugins > Install Plugin**:
 - **Size**: Auto (percentage of RAM) or a fixed size like `4G`.
 - **Auto Size Slider**: 25-75% of physical RAM. Default 50%. Shows calculated size in real-time.
 - **Algorithm**: `zstd` recommended (best compression ratio with good speed).
-- **Swappiness**: 0-200 (kernel 5.8+ range). Default **150**, recommended for ZRAM systems — tells the kernel that compressed-RAM swap is cheaper than dropping page cache. Use 100 for legacy parity, 180+ for aggressive zram with SSD swap as fallback.
+- **Swappiness**: 0-200 (kernel 5.8+ range). Default **150**, recommended for ZRAM systems — tells the kernel that compressed-RAM swap is cheaper than dropping page cache. Use 100 for legacy parity, 180+ for aggressive zram with disk swap as fallback.
 
 ### Tier 2: Disk Swap File
 - **Drive Picker**: Shows eligible mounted filesystems with smart classification:
@@ -49,7 +49,7 @@ Copy and paste into **Plugins > Install Plugin**:
   - USB/Removable: Hidden
   - Btrfs RAID: Warned (swap files not supported on multi-device btrfs)
 - **Size**: Configurable. 16 GB default.
-- **Priority**: Automatically set to 10 (ZRAM is 100). Kernel uses ZRAM first, overflows to SSD only when needed.
+- **Priority**: Automatically set to 10 (ZRAM is 100). Kernel uses ZRAM first, overflows to the disk tier only when needed.
 
 ### Plugin Settings
 - **Refresh Interval**: Dashboard update frequency (default 3000ms).
@@ -60,7 +60,7 @@ Copy and paste into **Plugins > Install Plugin**:
 ## Requirements
 - Unraid 6.12.1 or newer (optimized for Unraid 7.2+).
 - ZRAM kernel module (standard in Unraid).
-- For Tier 2: An NVMe or SSD with a mounted filesystem (XFS, ext4, or single-device btrfs).
+- For Tier 2: A writable mount under `/mnt/cache` or `/mnt/disks` with a supported filesystem (XFS, ext4, or single-device btrfs). NVMe/SSD recommended; HDD permitted but slower.
 
 ---
 *Created by John White*

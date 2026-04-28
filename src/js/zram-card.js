@@ -228,13 +228,13 @@ if (typeof module !== 'undefined' && module.exports) {
                 if (tierEl) {
                     if (s.active && s.used > 0) {
                         tierEl.style.color = '#e57373';
-                        tierEl.textContent = 'SSD (' + formatBytes(s.used, 0) + ')';
+                        tierEl.textContent = 'Disk (' + formatBytes(s.used, 0) + ')';
                     } else if (s.active) {
                         tierEl.style.color = '#00a4d8';
-                        tierEl.textContent = 'SSD (idle)';
+                        tierEl.textContent = 'Disk (idle)';
                     } else {
                         tierEl.style.color = '#666';
-                        tierEl.textContent = 'SSD (off)';
+                        tierEl.textContent = 'Disk (off)';
                     }
                 }
             }

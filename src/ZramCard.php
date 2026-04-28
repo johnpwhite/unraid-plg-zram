@@ -81,7 +81,7 @@ if (!function_exists('getZramDashboardCard')) {
 
             // Tier label for subtitle
             $tierLabel = $devCount > 0 ? 'Active' : 'Inactive';
-            if ($ssdActive) $tierLabel .= ' + SSD';
+            if ($ssdActive) $tierLabel .= ' + Disk';
 
             ob_start();
 ?>
@@ -148,7 +148,7 @@ if (!function_exists('getZramDashboardCard')) {
                 </div>
 <?php if ($ssdPath): ?>
                 <div id="zram-ssd-row" style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr 1fr;gap:4px;font-size:0.8em;padding:1px 0;">
-                    <div style="color:<?php echo $ssdActive ? '#00a4d8' : '#666'; ?>;">SSD<?php if (!$ssdActive) echo ' (idle)'; ?></div>
+                    <div style="color:<?php echo $ssdActive ? '#00a4d8' : '#666'; ?>;">Disk<?php if (!$ssdActive) echo ' (idle)'; ?></div>
                     <div style="text-align:right;opacity:0.7;" title="<?php echo htmlspecialchars($ssdPath); ?>">swap file</div>
                     <div style="text-align:right;opacity:0.7;"><?php echo $fmt(filesize($ssdPath), 0); ?></div>
                     <div style="text-align:right;opacity:0.7;">10</div>
