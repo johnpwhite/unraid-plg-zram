@@ -21,6 +21,26 @@ function syncFormValues() {
     document.getElementById('form_zram_algo').value = document.getElementById('zram_algo_select').value;
 }
 
+// Read current Tier 1 form state and return query params for create_zram.
+// Without this, CREATE used only saved-config values, so a slider tweak or
+// algo change made between APPLY & SAVE clicks was silently dropped at
+// creation time. See docs/specs/CREATE_ZRAM_LIVE_PARAMS.md.
+function buildCreateZramParams() {
+    var mode = document.getElementById('zram_size_mode').value;
+    var algo = document.getElementById('zram_algo_select').value;
+    var pct  = document.getElementById('zram_percent_slider').value;
+    var size = document.getElementById('zram_custom_size').value;
+    var p = 'size_mode=' + encodeURIComponent(mode) +
+            '&algo='     + encodeURIComponent(algo);
+    if (mode === 'auto')   p += '&percent=' + encodeURIComponent(pct);
+    if (mode === 'custom') p += '&size='    + encodeURIComponent(size);
+    return p;
+}
+
+function createZram() {
+    zramAction('create_zram', buildCreateZramParams());
+}
+
 function zramAction(action, extra) {
     var CSRF = window.ZRAM_PAGE.CSRF;
     var API = window.ZRAM_PAGE.API;

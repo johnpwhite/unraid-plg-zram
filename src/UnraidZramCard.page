@@ -134,7 +134,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 <?php if ($devActive): ?>
         <button type="button" class="zram-btn zram-btn-danger" onclick="zramAction('remove_zram')">REMOVE</button>
 <?php else: ?>
-        <button type="button" class="zram-btn" onclick="zramAction('create_zram')">CREATE</button>
+        <button type="button" class="zram-btn" onclick="createZram()">CREATE</button>
 <?php endif; ?>
     </div>
     <div class="zram-card-body">

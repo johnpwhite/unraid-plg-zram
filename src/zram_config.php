@@ -109,8 +109,11 @@ function zram_run(string $cmd, array &$logs): int {
  * Checks blkid for ZRAM_CARD label, falls back to device.conf cache.
  */
 function zram_get_our_device(): string {
-    // Primary: check blkid for our label
-    exec('blkid -t LABEL=' . escapeshellarg(ZRAM_LABEL) . ' -o device 2>/dev/null', $out);
+    // Primary: probe directly, bypassing /run/blkid/blkid.tab via -c /dev/null.
+    // Without it, a freshly reset zram device can keep returning matches from
+    // the cache because zramctl --reset fires no udev change event — that stale
+    // window is what made the REMOVE button "stick" across reloads.
+    exec('blkid -c /dev/null -t LABEL=' . escapeshellarg(ZRAM_LABEL) . ' -o device 2>/dev/null', $out);
     foreach ($out as $line) {
         $dev = trim($line);
         if (strpos($dev, '/dev/zram') === 0) {

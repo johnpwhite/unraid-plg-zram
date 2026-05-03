@@ -3,8 +3,12 @@ parameters:
     paths:
         - src
     excludePaths:
-        - src/tests
-        - src/vendor
+        # `(?)` marks the path optional — these directories don't exist in
+        # this plugin layout (tests live at top-level tests/, no vendor in
+        # src/). Leaving them as hard requirements aborts phpstan with
+        # "Invalid entries in excludePaths" before analysis runs.
+        - src/tests (?)
+        - src/vendor (?)
         - src/*.page
     ignoreErrors:
         # .page files declare $docroot / $var / $mytiles via Unraid's templating layer

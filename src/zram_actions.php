@@ -53,15 +53,58 @@ $logs = [];
 
 if ($action === 'create_zram') {
     $cfg = zram_config_read();
-    $size = $cfg['zram_size'];
-    $algo = filter_input(INPUT_GET, 'algo', FILTER_UNSAFE_RAW) ?: $cfg['zram_algo'];
 
-    // Auto-size calculation
+    // Live-form parameters from the CREATE click. Without these, the action
+    // would use only saved-config values, which is what produced the user
+    // bug "I moved the slider to 75% but it always creates 16G — turns out
+    // I had to APPLY & SAVE first". Now CREATE uses what the user sees on
+    // screen and persists those values for next-boot init.
+    $sizeMode = filter_input(INPUT_GET, 'size_mode', FILTER_UNSAFE_RAW);
+    $sizeIn   = filter_input(INPUT_GET, 'size', FILTER_UNSAFE_RAW);
+    $pctIn    = filter_input(INPUT_GET, 'percent', FILTER_VALIDATE_INT,
+                             ['options' => ['min_range' => 25, 'max_range' => 75]]);
+    $algoIn   = filter_input(INPUT_GET, 'algo', FILTER_UNSAFE_RAW) ?: '';
+
+    // Validate algorithm against the kernel's live allow-list, then static
+    // fallback. Anything else falls through to saved config (no error toast
+    // — a malformed algo means our own dropdown lied, not that the user is
+    // attacking us).
+    $allowedAlgos = ['zstd', 'lz4', 'lzo', 'deflate'];
+    foreach (glob('/sys/block/zram*/comp_algorithm') as $af) {
+        $raw = str_replace(['[', ']'], '', @file_get_contents($af));
+        $allowedAlgos = preg_split('/\s+/', trim($raw));
+        break;
+    }
+    $algo = (in_array($algoIn, $allowedAlgos, true)) ? $algoIn : $cfg['zram_algo'];
+
+    // Resolve size source. Custom requires a well-formed unit string; an
+    // invalid custom size is rejected explicitly rather than silently
+    // falling through to the previously-saved value.
+    if ($sizeMode === 'custom') {
+        if (!preg_match('/^\d+\s*[GMT]$/i', (string)$sizeIn)) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Invalid custom size format (use e.g. 4G, 512M, 1T)',
+                'logs'    => $logs,
+            ]);
+            exit;
+        }
+        $size = $sizeIn;
+    } elseif ($sizeMode === 'auto') {
+        $size = 'auto';
+    } else {
+        $size = $cfg['zram_size'];
+    }
+
+    $pct = ($pctIn !== false && $pctIn !== null) ? $pctIn : intval($cfg['zram_percent']);
+
+    // Auto-size calculation — uses resolved $pct so a live slider value wins
+    // over the previously-saved one.
     if ($size === 'auto') {
         $memKb = 0;
         $meminfo = @file_get_contents('/proc/meminfo') ?: '';
         if (preg_match('/MemTotal:\s+(\d+)/', $meminfo, $m)) $memKb = intval($m[1]);
-        $pct = max(25, min(75, intval($cfg['zram_percent'])));
+        $pct = max(25, min(75, $pct));
         $sizeBytes = intval(($memKb * 1024) * ($pct / 100));
         $size = intval($sizeBytes / 1048576) . 'M';
     }
@@ -99,7 +142,17 @@ if ($action === 'create_zram') {
 
     // Cache device name for collector
     @file_put_contents(ZRAM_DEVICE_FILE, $devName);
-    zram_config_write(['zram_algo' => $algo, 'zram_size' => $cfg['zram_size']]);
+
+    // Persist what we actually used so next-boot init.sh reproduces the same
+    // device, and so the form on the next page render reflects reality. The
+    // pre-fix code wrote `zram_size: $cfg['zram_size']` (the stale value)
+    // and never persisted `zram_percent` at all — so a slider tweak was lost
+    // on every CREATE.
+    zram_config_write([
+        'zram_algo'    => $algo,
+        'zram_size'    => ($sizeMode === 'custom') ? $sizeIn : 'auto',
+        'zram_percent' => max(25, min(75, $pct)),
+    ]);
     echo json_encode(['success' => true, 'message' => "Created $dev ($size, $algo)", 'logs' => $logs]);
     exit;
 }
@@ -118,8 +171,36 @@ if ($action === 'remove_zram') {
         exit;
     }
 
-    zram_run("swapoff " . escapeshellarg($devPath), $logs);
-    zram_run("zramctl --reset " . escapeshellarg($devPath), $logs);
+    // Each step must succeed. Silent failure here was the root cause of the
+    // "REMOVE button persists across reloads" bug: under memory pressure
+    // swapoff can fail, zramctl --reset then also fails, and we used to
+    // unlink device.conf and report success regardless — leaving the kernel
+    // device active while the UI lost track of it.
+    if (zram_run("swapoff " . escapeshellarg($devPath), $logs) !== 0) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'swapoff failed — pages may not have evacuated. Retry once memory pressure subsides.',
+            'logs' => $logs,
+        ]);
+        exit;
+    }
+
+    // Wipe the swap signature so blkid (and its /run/blkid/blkid.tab cache)
+    // immediately stops reporting our label on this device. Without this
+    // step a stale cache entry can survive `zramctl --reset` (which fires
+    // no udev change event) and make the next page load think the device
+    // is still active. Logged but not fatal: the cache-bypassing probe in
+    // zram_get_our_device() is the second line of defence.
+    zram_run("wipefs -a " . escapeshellarg($devPath), $logs);
+
+    if (zram_run("zramctl --reset " . escapeshellarg($devPath), $logs) !== 0) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'zramctl --reset failed (device may still be allocated)',
+            'logs' => $logs,
+        ]);
+        exit;
+    }
     @unlink(ZRAM_DEVICE_FILE);
     echo json_encode(['success' => true, 'message' => "Removed $devPath", 'logs' => $logs]);
     exit;
