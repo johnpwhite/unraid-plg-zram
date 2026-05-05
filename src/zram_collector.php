@@ -99,8 +99,35 @@ while (true) {
         $lastTotalTicks = $currentTotalTicks;
         $lastTime = $now;
 
-        // Append to history (schema: t=timestamp, o=original uncompressed, u=used compressed, l=load%)
-        $history[] = ['t' => date('H:i:s'), 'o' => $totalOriginal, 'u' => $totalUsed, 'l' => round($loadPct, 1)];
+        // Sample Tier 2 (SSD swap) used bytes so the dashboard can plot
+        // spillover historically. Sourced from `swapon --bytes` filtered to
+        // our configured ssd_swap_path. 0 when unconfigured, inactive, or
+        // unreadable — the schema treats absent === zero.
+        $ssdUsed = 0;
+        $ssdPath = $settings['ssd_swap_path'] ?? '';
+        if ($ssdPath !== '') {
+            $swapRows = [];
+            exec('swapon --bytes --noheadings --show=NAME,USED 2>/dev/null', $swapRows);
+            foreach ($swapRows as $row) {
+                $parts = preg_split('/\s+/', trim($row));
+                if (count($parts) >= 2 && $parts[0] === $ssdPath) {
+                    $ssdUsed = intval($parts[1]);
+                    break;
+                }
+            }
+        }
+
+        // Append to history. Schema: t=timestamp, o=original uncompressed,
+        // u=used compressed (Tier 1), l=load%, s=Tier 2 used bytes.
+        // The 's' field was added in the tier-observability release; older
+        // collectors omit it and the dashboard treats absent as 0.
+        $history[] = [
+            't' => date('H:i:s'),
+            'o' => $totalOriginal,
+            'u' => $totalUsed,
+            'l' => round($loadPct, 1),
+            's' => $ssdUsed,
+        ];
         if (count($history) > $maxPoints) array_shift($history);
 
         // Atomic-ish write (write to tmp then rename)

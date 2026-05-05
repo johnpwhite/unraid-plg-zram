@@ -16,6 +16,7 @@
 #   7   assertion 6 failed: history.json has new-schema entries
 #   8   assertion 7 failed: plugin icon asset present and readable
 #   9   assertion 8 failed: inactive-state renders gracefully
+#  10   assertion 9 failed: settings page UX clarifiers (swappiness scope + priority explainers)
 
 set -u
 PLG="unraid-zram-card"
@@ -175,19 +176,29 @@ if [ -z "$COLL_PID" ]; then
 fi
 echo "  [5/8] Collector alive (PID $COLL_PID)"
 
-# ---- Assertion 6: History has new-schema entries ----
+# ---- Assertion 6: History has new-schema entries (incl. tier-2 's' field) ----
 if [ ! -s "$HISTORY_FILE" ]; then
-    echo "  [6/8] history.json empty — skipping schema check (collector may have just started)"
+    echo "  [6/9] history.json empty — skipping schema check (collector may have just started)"
 else
     if command -v jq >/dev/null 2>&1; then
         NEW_COUNT=$(jq '[.[] | select(.o != null and .u != null)] | length' "$HISTORY_FILE")
         if [ "$NEW_COUNT" -lt 1 ]; then
             fail 7 "history.json has no new-schema {o,u,l} entries — collector writing legacy format?"
         fi
-        echo "  [6/8] history.json has $NEW_COUNT new-schema entries"
+        # Soft check: tier-2 's' field is present in newer collectors. We don't
+        # hard-fail on its absence because (a) a freshly upgraded collector
+        # may still be flushing pre-upgrade entries, and (b) jq's any-match
+        # semantics on a 300-entry history makes a single legacy entry pass.
+        # The aim is to detect the case where the collector silently drops 's'
+        # across a future refactor — that should be visible in the smoke log.
+        S_COUNT=$(jq '[.[] | select(.s != null)] | length' "$HISTORY_FILE")
+        if [ "$S_COUNT" -lt 1 ]; then
+            echo "  [6/9] WARN: history.json has $NEW_COUNT new-schema entries but 0 with 's' (Tier 2). Pre-upgrade entries only?" >&2
+        fi
+        echo "  [6/9] history.json has $NEW_COUNT new-schema entries (Tier 2 's' present in $S_COUNT)"
     else
         grep -q '"o":' "$HISTORY_FILE" || fail 7 "history.json has no 'o' field — legacy schema?"
-        echo "  [6/8] history.json has new-schema entries (grep fallback)"
+        echo "  [6/9] history.json has new-schema entries (grep fallback)"
     fi
 fi
 
@@ -208,7 +219,7 @@ MAGIC=$(head -c 4 "$ICON_PATH" 2>/dev/null | od -An -tx1 | tr -d ' \n')
 if [ "$MAGIC" != "89504e47" ]; then
     fail 8 "plugin icon is not a valid PNG (magic=$MAGIC)"
 fi
-echo "  [7/8] Icon file valid ($ICON_SIZE bytes, PNG magic ok)"
+echo "  [7/9] Icon file valid ($ICON_SIZE bytes, PNG magic ok)"
 
 # ---- Assertion 8: Dashboard renders gracefully in "no ZRAM device" state ----
 # Forces the inactive path via PHP CLI with stubbed constants so the plugin's
@@ -242,7 +253,33 @@ if echo "$INACTIVE_HTML" | grep -Eq '>(undefined|NaN|null)[[:space:]]*<'; then
     fail 9 "Inactive-state render leaked sentinel values (undefined/NaN/null)"
 fi
 rm -f "$INACTIVE_ERR"
-echo "  [8/8] Inactive-state renders gracefully (fallback visible, no errors, no sentinel leaks)"
+echo "  [8/9] Inactive-state renders gracefully (fallback visible, no errors, no sentinel leaks)"
+
+# ---- Assertion 9: Settings page UX clarifiers present (TIER_OBSERVABILITY) ----
+# Three text strings must survive a render of UnraidZramCard.page:
+#   - "Global kernel setting"   — swappiness clarifier (Ask 1)
+#   - "used first"              — Tier 1 priority explainer (Ask 3)
+#   - "overflow only"           — Tier 2 priority explainer (Ask 3)
+# These are the entire UX response to user-asked questions about per-tier
+# swappiness and priority customisation. Hard fail on any missing.
+SETTINGS_HTML=$(php -d display_errors=0 -r "
+    \$_SERVER['DOCUMENT_ROOT']='/usr/local/emhttp';
+    \$_SERVER['REQUEST_METHOD']='GET';
+    \$var = ['csrf_token' => ''];
+    chdir('${PLUGIN_DIR}');
+    ob_start();
+    require '${PLUGIN_DIR}/UnraidZramCard.page';
+    echo ob_get_clean();
+" 2>/dev/null)
+
+for marker in 'Global kernel setting' 'used first' 'overflow only'; do
+    if ! echo "$SETTINGS_HTML" | grep -qF "$marker"; then
+        echo "--- settings render (first 60 lines) ---" >&2
+        echo "$SETTINGS_HTML" | head -60 >&2
+        fail 10 "Settings page missing UX clarifier text: '$marker' (see docs/specs/TIER_OBSERVABILITY.md)"
+    fi
+done
+echo "  [9/9] Settings page renders all UX clarifiers (swappiness scope + priority explainers)"
 
 echo "SMOKE PASS"
 exit 0

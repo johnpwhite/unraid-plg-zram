@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "PowerShell($php = 'C:\\\\Users\\\\john\\\\Dev Projects\\\\unraid-extensions\\\\server-stack\\\\php\\\\php.exe'; $base = 'C:\\\\Users\\\\john\\\\Dev Projects\\\\unraid-extensions'; $phar = \"$base\\\\.gemini\\\\skills\\\\unraid-factory\\\\tools\\\\phpunit.phar\"; & $php $phar --colors=never -c \"$base\\\\unraid-plg-zram\\\\phpunit.xml\" 2>&1 | Select-Object -Last 15)",
-      "PowerShell($php = 'C:\\\\Users\\\\john\\\\Dev Projects\\\\unraid-extensions\\\\server-stack\\\\php\\\\php.exe'; $base = 'C:\\\\Users\\\\john\\\\Dev Projects\\\\unraid-extensions'; $phar = \"$base\\\\.gemini\\\\skills\\\\unraid-factory\\\\tools\\\\phpstan.phar\"; & $php $phar analyse --no-progress --memory-limit=512M --error-format=raw -c \"$base\\\\unraid-plg-zram\\\\phpstan.neon\" 2>&1 | Select-Object -Last 30)"
+      "PowerShell($php = 'C:\\\\Users\\\\john\\\\Dev Projects\\\\unraid-extensions\\\\server-stack\\\\php\\\\php.exe'; $base = 'C:\\\\Users\\\\john\\\\Dev Projects\\\\unraid-extensions'; $phar = \"$base\\\\.gemini\\\\skills\\\\unraid-factory\\\\tools\\\\phpstan.phar\"; & $php $phar analyse --no-progress --memory-limit=512M --error-format=raw -c \"$base\\\\unraid-plg-zram\\\\phpstan.neon\" 2>&1 | Select-Object -Last 30)",
+      "Bash(ping -n 2 192.168.1.4)"
     ]
   }
 }

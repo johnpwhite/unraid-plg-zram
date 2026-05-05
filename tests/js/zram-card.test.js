@@ -116,4 +116,50 @@ describe('filterHistory', () => {
     ];
     expect(filterHistory(raw)).toHaveLength(1);
   });
+
+  // Regression guard for TIER_OBSERVABILITY.md (2026.05.04+): the collector
+  // schema gained an `s` field (Tier 2 used in bytes). The dashboard must
+  // forward-accept entries with `s` and tolerate older entries without it,
+  // so a chart upgrade doesn't break on history files written by the
+  // previous collector.
+  it('keeps entries with the new s field {t,o,u,l,s}', () => {
+    const raw = [
+      { t: '12:00:00', o: 1000, u: 300, l: 5.0, s: 50 },
+      { t: '12:00:03', o: 1100, u: 320, l: 5.2, s: 75 },
+    ];
+    const filtered = filterHistory(raw);
+    expect(filtered).toHaveLength(2);
+    expect(filtered[0].s).toBe(50);
+    expect(filtered[1].s).toBe(75);
+  });
+
+  it('keeps entries from a pre-s-field collector (forward-compat read)', () => {
+    // A user upgrading mid-day will have history entries written by both
+    // old (no s) and new (has s) collectors in the same JSON file. Both
+    // must render — the new chart treats missing s as 0.
+    const raw = [
+      { t: '11:59:00', o: 1000, u: 300, l: 5.0 },               // old, no s
+      { t: '12:00:00', o: 1100, u: 320, l: 5.2, s: 0 },         // new, idle Tier 2
+      { t: '12:00:03', o: 1200, u: 340, l: 5.4, s: 1024000 },   // new, Tier 2 active
+    ];
+    const filtered = filterHistory(raw);
+    expect(filtered).toHaveLength(3);
+    // Forward-compat consumer can do `entry.s ?? 0` — that's the
+    // contract we expect, not something filterHistory enforces directly.
+    expect(filtered[0].s).toBeUndefined();
+    expect(filtered[1].s).toBe(0);
+    expect(filtered[2].s).toBe(1024000);
+  });
+
+  it('drops entries with s but missing o or u (corrupt or partial write)', () => {
+    // Defence against a torn write where only some fields landed. We trust
+    // the {o,u} pair as the schema marker; an entry with s but no o is not
+    // a valid plot point.
+    const raw = [
+      { t: '12:00:00', s: 999, l: 5.0 },                  // partial — dropped
+      { t: '12:00:03', o: 1000, u: 300, l: 5.0, s: 0 },   // valid — kept
+    ];
+    expect(filterHistory(raw)).toHaveLength(1);
+    expect(filterHistory(raw)[0].t).toBe('12:00:03');
+  });
 });

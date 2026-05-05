@@ -41,15 +41,21 @@ $settings = zram_config_read();
 $ourDev = zram_get_our_device();
 $csrf = $var['csrf_token'] ?? '';
 
-// Device info
+// Device info — extended to include live used bytes (DATA = uncompressed,
+// TOTAL = compressed actual occupancy) so the status row can answer "how
+// much is actually in this tier right now?" instead of just "what is the
+// allocated size?".
 $devSize = '-'; $devAlgo = '-'; $devPrio = '-'; $devActive = false;
+$devUsedCompressed = 0; $devUsedOriginal = 0;
 if ($ourDev && file_exists("/sys/block/$ourDev")) {
     $devActive = true;
-    exec("zramctl --bytes --noheadings --raw --output DISKSIZE,ALGORITHM /dev/$ourDev 2>/dev/null", $di);
+    exec("zramctl --bytes --noheadings --raw --output DISKSIZE,ALGORITHM,DATA,TOTAL /dev/$ourDev 2>/dev/null", $di);
     if (!empty($di)) {
         $dp = preg_split('/\s+/', trim($di[0]));
         $devSize = intval($dp[0] ?? 0);
         $devAlgo = $dp[1] ?? '-';
+        $devUsedOriginal   = intval($dp[2] ?? 0);
+        $devUsedCompressed = intval($dp[3] ?? 0);
     }
     exec('swapon --noheadings --show=NAME,PRIO 2>/dev/null', $sp);
     foreach ($sp as $sl) {
@@ -74,12 +80,32 @@ foreach (glob('/sys/block/zram*/comp_algorithm') as $af) {
     break;
 }
 
-// SSD swap status
+// SSD swap status — extended to read live "used" bytes from `swapon` so the
+// Tier 2 status row can show how much spillover has actually occurred. A
+// non-zero value here means Tier 1 has been at capacity at least once and
+// pages were demoted to disk.
 $ssdPath = $settings['ssd_swap_path'] ?? '';
 $ssdActive = false;
+$ssdSize   = 0;
+$ssdUsed   = 0;
+$ssdPrio   = '-';
 if ($ssdPath && file_exists($ssdPath)) {
     $swaps = @file_get_contents('/proc/swaps') ?: '';
     $ssdActive = strpos($swaps, $ssdPath) !== false;
+    if ($ssdActive) {
+        exec('swapon --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssdRows);
+        foreach ($ssdRows as $row) {
+            $rp = preg_split('/\s+/', trim($row));
+            if (count($rp) >= 4 && $rp[0] === $ssdPath) {
+                $ssdSize = intval($rp[1]);
+                $ssdUsed = intval($rp[2]);
+                $ssdPrio = $rp[3];
+                break;
+            }
+        }
+    } else {
+        $ssdSize = filesize($ssdPath) ?: 0;
+    }
 }
 
 $fmtB = function($b) { $u = ['B','KB','MB','GB','TB']; if ($b < 1) return '0 B'; $p = min(floor(log(max($b,1))/log(1024)), 4); return round($b/pow(1024,$p), 1).' '.$u[$p]; };
@@ -146,7 +172,9 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
                 </strong>
 <?php if ($devActive): ?>
                 <div style="font-size:0.85em;opacity:0.7;margin-top:2px;">
-                    <?php echo $fmtB($devSize); ?> &middot; <?php echo htmlspecialchars($devAlgo); ?> &middot; priority <?php echo $devPrio; ?>
+                    Used: <?php echo $fmtB($devUsedCompressed); ?> / <?php echo $fmtB($devSize); ?>
+                    &middot; <?php echo htmlspecialchars($devAlgo); ?>
+                    &middot; priority <?php echo $devPrio; ?> &mdash; used first
                 </div>
 <?php endif; ?>
             </div>
@@ -192,10 +220,18 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
             <i class="fa fa-fw <?php echo $ssdActive ? 'fa-check-circle' : 'fa-pause-circle'; ?>" style="color:<?php echo $ssdActive ? '#00a4d8' : '#666'; ?>;font-size:1.3em;"></i>
             <div>
                 <strong style="color:<?php echo $ssdActive ? '#00a4d8' : '#888'; ?>;">
-                    <?php echo $ssdActive ? 'Active (priority 10)' : 'File exists, not active'; ?>
+                    <?php echo $ssdActive ? 'Active' : 'File exists, not active'; ?>
                 </strong>
                 <div style="font-size:0.85em;opacity:0.7;margin-top:2px;">
-                    <?php echo htmlspecialchars($ssdPath); ?> &middot; <?php echo $fmtB(filesize($ssdPath)); ?>
+<?php if ($ssdActive): ?>
+                    Used: <?php echo $fmtB($ssdUsed); ?> / <?php echo $fmtB($ssdSize); ?>
+                    &middot; priority <?php echo htmlspecialchars($ssdPrio); ?> &mdash; overflow only
+<?php else: ?>
+                    <?php echo $fmtB($ssdSize); ?> &middot; priority 10 &mdash; overflow only
+<?php endif; ?>
+                </div>
+                <div style="font-size:0.8em;opacity:0.5;margin-top:2px;font-family:monospace;">
+                    <?php echo htmlspecialchars($ssdPath); ?>
                 </div>
             </div>
         </div>
@@ -241,6 +277,10 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
                     <strong>100</strong> equal weighting &middot;
                     <strong>150</strong> recommended for zram &middot;
                     <strong>180+</strong> aggressive (best with disk swap as fallback)
+                </div>
+                <div style="font-size:0.8em;opacity:0.6;margin-top:4px;line-height:1.4;font-style:italic;">
+                    Global kernel setting &mdash; applies to swap as a whole, not per-tier.
+                    Tier order is controlled by priority (Tier 1 = 100, Tier 2 = 10), not swappiness.
                 </div>
             </dd>
             <dt>Debug Mode:</dt>
