@@ -150,10 +150,14 @@ final class TierObservabilityTest extends TestCase
             $this->pageSrc,
             'Tier 1 status row must explain priority means "used first" (addresses Ask 3)'
         );
-        $this->assertStringContainsString(
-            'overflow only',
-            $this->pageSrc,
-            'Tier 2 status row must explain priority means "overflow only" (addresses Ask 3)'
+        // "overflow only" must appear at least twice: once in the active-
+        // tier branch and once in the empty-state / inactive copy. Single
+        // occurrence would mean a refactor dropped one of the surfaces and
+        // the user only learns the priority semantics in some screens.
+        $this->assertGreaterThanOrEqual(
+            2,
+            substr_count($this->pageSrc, 'overflow only'),
+            'Tier 2 priority explainer "overflow only" must appear in both the active row and the empty-state copy so users see it regardless of whether they have configured Tier 2 yet'
         );
     }
 }

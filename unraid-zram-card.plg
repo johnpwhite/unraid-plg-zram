@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.05.05.01">
+<!ENTITY version   "2026.05.05.02">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.05.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.05.02" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.05.05.02
+- Fix: tier-observability follow-up (smoke regression in 2026.05.05.01). The new smoke assertion 9 hard-failed on test servers without a Tier 2 swap file configured because "overflow only" was only rendered inside the if-block guarded by ssd_swap_path. Empty-state copy now reads "Runs at priority 10 — overflow only, never used while Tier 1 has room" so the priority explainer surfaces before the user configures anything (better UX, more discoverable, fixes the smoke). PHPUnit guard tightened from substring presence to substr_count &gt;= 2 so a future refactor cannot drop one branch silently — the current 3 occurrences (active row, inactive row, empty-state) all stay.
 ## 2026.05.05.01
 - Feat: tier observability — surface live used bytes per swap tier and address forum-asked questions about per-tier swappiness and priority customisation. Settings page Tier 1 status row now shows "Used: X / Y · algo · priority N — used first" instead of just allocated size. Tier 2 status row shows "Used: X / Y · priority 10 — overflow only" when active, file-only-state when inactive. Swappiness input gains a clarifier line: "Global kernel setting — applies to swap as a whole, not per-tier. Tier order is controlled by priority, not swappiness" — this is the UX answer to "can I have a Tier 2 swappiness?" without building a misleading control (vm.swappiness is system-wide; no per-device knob exists in the kernel). Priority explainers ("used first" / "overflow only") inline in each status row are the UX answer to "can we customise priority?" without exposing an editable control that would break the load-bearing 100/10 ordering. Collector schema gains an "s" field (Tier 2 used in bytes) sampled from `swapon --bytes --show=NAME,USED` filtered to ssd_swap_path; 0 when unconfigured/inactive. Forward-compatible: dashboard JS reads pre-upgrade history entries (no s) the same as new ones. Spec: docs/specs/TIER_OBSERVABILITY.md. Tests: TierObservabilityTest.php (7 assertions on status JSON shape, collector schema, page UX text), zram-card.test.js gains 3 cases for the new s field (kept with s, kept without s for forward-compat, dropped on partial writes), smoke.sh assertion 6 extended with a soft Tier 2 s-field count and new assertion 9 hard-fails if any of the three UX clarifier strings disappear from the rendered settings page. Full suite: 27 PHPUnit tests / 98 assertions, 17 Vitest tests, 9 smoke assertions — all green locally.
 ## 2026.05.04.01

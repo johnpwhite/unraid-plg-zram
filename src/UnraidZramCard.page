@@ -238,6 +238,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 <?php else: ?>
         <p style="font-size:0.9em;opacity:0.7;margin-top:0;">
             When ZRAM fills up, overflow pages go to a disk swap file. Prevents OOM on memory-constrained servers.
+            Runs at priority 10 &mdash; overflow only, never used while Tier 1 has room.
         </p>
         <div id="drive-picker" style="margin-bottom:12px;">
             <div style="font-size:0.85em;color:#aaa;margin-bottom:6px;">Select a drive:</div>
