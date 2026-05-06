@@ -321,8 +321,9 @@ function savePriorities() {
     var zChanged = !isNaN(zOld) && zOld !== z;
     var sChanged = !isNaN(sOld) && sOld !== s;
     if (!zChanged && !sChanged) {
-        // No-op save — nothing to confirm or send. Surface a passive indicator and bail.
-        showSavedIndicator(document.getElementById('btn-save-priorities'), 'No change', 'ok');
+        // No-op save — nothing to confirm or send. Flash the button so the
+        // user has feedback that the click registered, then bail.
+        showSavedOnButton(document.getElementById('btn-save-priorities'), 'NO CHANGE', 'ok', 1200);
         return;
     }
 
@@ -349,8 +350,10 @@ function savePriorities() {
                     } else {
                         addLog(data.message, 'err');
                     }
+                    if (btn) btn.disabled = false;
                 } else {
-                    showSavedIndicator(btn, 'Saved ✓', 'ok');
+                    // showSavedOnButton handles re-enabling the button after the flash.
+                    showSavedOnButton(btn, 'SAVED ✓', 'ok');
                     addLog(data.message, 'cmd');
                 }
                 // Refresh defaultValue so a subsequent edit diffs against the new baseline
@@ -364,8 +367,8 @@ function savePriorities() {
                 } else {
                     addLog('Priority save failed: ' + msg, 'err');
                 }
+                if (btn) btn.disabled = false;
             }
-            if (btn) btn.disabled = false;
         }).fail(function() {
             if (btn) btn.disabled = false;
             addLog('Priority save request failed', 'err');
@@ -525,6 +528,30 @@ function zramAutoSave(key, value, el) {
     }).fail(function() {
         showSavedIndicator(el, 'Save failed', 'err');
     });
+}
+
+// In-button save feedback for action buttons that live in a flex row alongside
+// other buttons (priority SAVE next to RESET TO DEFAULTS). The sibling-span
+// indicator pushes layout around in flex containers; swapping the button's
+// own text for ~1.5s gives the same affordance with no layout shift.
+function showSavedOnButton(btn, text, kind, holdMs) {
+    if (!btn) return;
+    if (!btn.dataset.originalText) {
+        btn.dataset.originalText = btn.textContent;
+    }
+    btn.textContent = text;
+    btn.classList.remove('zram-btn-ok-flash', 'zram-btn-err-flash');
+    btn.classList.add(kind === 'err' ? 'zram-btn-err-flash' : 'zram-btn-ok-flash');
+    btn.disabled = true;
+    var ms = (typeof holdMs === 'number') ? holdMs : 1500;
+    setTimeout(function() {
+        if (btn.dataset.originalText !== undefined) {
+            btn.textContent = btn.dataset.originalText;
+            delete btn.dataset.originalText;
+        }
+        btn.classList.remove('zram-btn-ok-flash', 'zram-btn-err-flash');
+        btn.disabled = false;
+    }, ms);
 }
 
 function showSavedIndicator(el, text, kind) {

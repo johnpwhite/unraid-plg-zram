@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.05.06.13">
+<!ENTITY version   "2026.05.06.14">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.06.13" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.06.14" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.05.06.14
+- UI: priority SAVE feedback now flashes in the button itself instead of inserting a sibling Saved-tick span. Old behaviour pushed buttons around in the flex row (and triggered flex-wrap on narrower viewports, putting Saved ✓ on its own line above the buttons). New helper showSavedOnButton(btn, text, kind, holdMs) saves the button's textContent, swaps it (e.g. SAVE → SAVED ✓ green, or NO CHANGE on no-op save), keeps the button disabled during the hold so you can't double-click, then restores after 1500ms. New CSS classes .zram-btn-ok-flash (green border/text) and .zram-btn-err-flash (red) drive the visual state with transitions for smooth color change. Layout shift eliminated; feedback integrated where the action happened. The original showSavedIndicator helper is unchanged for the auto-save flow on Plugin Settings inputs (where layout shift isn't an issue because each input lives in its own dl/dt/dd grid cell). Test counts: 76 PHPUnit / 467 assertions, 17 Vitest, 9 smoke — all green.
 ## 2026.05.06.13
 - UI: priority buttons right-aligned, RESET TO DEFAULTS first, SAVE last. Mirrors Unraid's own dialog convention (cancel/secondary left, primary action right) and the Web's general default. CSS: justify-content: flex-end on .zram-priority-buttons. Markup: order swapped — destructive/secondary first, primary last. Pure layout polish, no behaviour change. Test counts: 76 PHPUnit / 467 assertions, 17 Vitest, 9 smoke — all green.
 ## 2026.05.06.12

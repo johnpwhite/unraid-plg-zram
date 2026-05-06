@@ -134,6 +134,9 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 .zram-btn { padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.85em; transition: all 0.2s; background: transparent !important; border: 1px solid #ff8c00 !important; color: #ff8c00 !important; text-transform: uppercase; display: inline-block; }
 .zram-btn:hover { background: #ff8c00 !important; color: #fff !important; }
 .zram-btn:disabled { opacity: 0.3 !important; cursor: not-allowed; }
+/* Brief in-button save feedback (replaces sibling Saved ✓ span for buttons in flex rows where layout shift is unwanted) */
+.zram-btn.zram-btn-ok-flash  { border-color: #7fba59 !important; color: #7fba59 !important; opacity: 1 !important; transition: border-color 0.2s, color 0.2s; }
+.zram-btn.zram-btn-err-flash { border-color: #cc3333 !important; color: #cc3333 !important; opacity: 1 !important; transition: border-color 0.2s, color 0.2s; }
 .zram-btn-danger { border-color: #cc3333 !important; color: #cc3333 !important; }
 .zram-btn-danger:hover { background: #cc3333 !important; color: #fff !important; }
 /* Activity pane (unified cmd.log + debug.log feed) */
