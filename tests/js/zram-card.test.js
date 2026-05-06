@@ -162,4 +162,35 @@ describe('filterHistory', () => {
     expect(filterHistory(raw)).toHaveLength(1);
     expect(filterHistory(raw)[0].t).toBe('12:00:03');
   });
+
+  // Regression guard for OP #422 (2026.05.06.15): collector schema gained
+  // a `c` field (COMPR — true compressed payload bytes) so the chart's
+  // Compressed dataset can stop sourcing from `u` (which actually held TOTAL
+  // — RAM cost incl. overhead — and produced "Compressed > Uncompressed" at
+  // small data volumes). filterHistory must keep entries with the new field
+  // and tolerate older entries without it (consumer falls back to `u`).
+  it('keeps entries with the new c field {t,o,u,l,c}', () => {
+    const raw = [
+      { t: '12:00:00', o: 8000000, c: 5000000, u: 6500000, l: 5.0, s: 0 },
+      { t: '12:00:03', o: 9000000, c: 5500000, u: 7000000, l: 5.2, s: 0 },
+    ];
+    const filtered = filterHistory(raw);
+    expect(filtered).toHaveLength(2);
+    expect(filtered[0].c).toBe(5000000);
+    expect(filtered[1].c).toBe(5500000);
+  });
+
+  it('keeps entries from a pre-c-field collector (forward-compat read)', () => {
+    // Mid-day upgrade: history.json contains entries from both old (no c)
+    // and new (has c) collectors. Both must render — the dashboard treats
+    // missing c as "fall back to u" (within ~few% of COMPR for typical loads).
+    const raw = [
+      { t: '11:59:00', o: 8000000, u: 6500000, l: 5.0 },                 // old, no c
+      { t: '12:00:00', o: 9000000, c: 5500000, u: 7000000, l: 5.2 },     // new
+    ];
+    const filtered = filterHistory(raw);
+    expect(filtered).toHaveLength(2);
+    expect(filtered[0].c).toBeUndefined();
+    expect(filtered[1].c).toBe(5500000);
+  });
 });

@@ -144,7 +144,7 @@ if (!function_exists('getZramDashboardCard')) {
                     <span style="font-size:0.75em;opacity:0.7;">Uncompressed</span>
                 </div>
                 <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
-                    <span id="zram-compressed" style="font-size:1.1em;font-weight:bold;display:block;color:#7fba59;"><?php echo $fmt($totalUsed); ?></span>
+                    <span id="zram-compressed" style="font-size:1.1em;font-weight:bold;display:block;color:#7fba59;"><?php echo $fmt($totalCompressed); ?></span>
                     <span style="font-size:0.75em;opacity:0.7;">Compressed</span>
                 </div>
                 <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">

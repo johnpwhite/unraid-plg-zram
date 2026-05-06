@@ -61,18 +61,24 @@ while (true) {
         }
 
         $totalOriginal = 0;
+        $totalCompressed = 0;
         $totalUsed = 0;
         $currentTotalTicks = 0;
 
         if ($ourDev && file_exists("/sys/block/$ourDev")) {
-            // Collect stats for our device only
+            // Collect stats for our device only.
+            // DATA = uncompressed payload, COMPR = post-compression payload,
+            // TOTAL = actual RAM occupied (COMPR + per-page metadata + slot rounding).
+            // The chart's "Compressed" dataset wants COMPR; "Uncompressed" wants DATA.
+            // TOTAL is captured for the aggregates JSON (memorySaved calc) only.
             $raw = [];
-            exec("zramctl --bytes --noheadings --raw --output NAME,DATA,TOTAL /dev/$ourDev 2>/dev/null", $raw);
+            exec("zramctl --bytes --noheadings --raw --output NAME,DATA,COMPR,TOTAL /dev/$ourDev 2>/dev/null", $raw);
             foreach ($raw as $line) {
                 $p = preg_split('/\s+/', trim($line));
-                if (count($p) >= 3 && basename($p[0]) === $ourDev) {
-                    $totalOriginal = intval($p[1]);
-                    $totalUsed = intval($p[2]);
+                if (count($p) >= 4 && basename($p[0]) === $ourDev) {
+                    $totalOriginal   = intval($p[1]);
+                    $totalCompressed = intval($p[2]);
+                    $totalUsed       = intval($p[3]);
                     break;
                 }
             }
@@ -117,13 +123,23 @@ while (true) {
             }
         }
 
-        // Append to history. Schema: t=timestamp, o=original uncompressed,
-        // u=used compressed (Tier 1), l=load%, s=Tier 2 used bytes.
-        // The 's' field was added in the tier-observability release; older
-        // collectors omit it and the dashboard treats absent as 0.
+        // Append to history. Schema:
+        //   t = timestamp (HH:MM:SS)
+        //   o = original uncompressed payload bytes (DATA)
+        //   c = compressed payload bytes (COMPR — algorithm output, what the chart shows)
+        //   u = total RAM occupied bytes (COMPR + per-page metadata + slot rounding)
+        //   l = CPU load %
+        //   s = Tier 2 disk swap used bytes
+        //
+        // 'c' was added 2026.05.06.15 — fixes a long-standing bug where 'u' was
+        // labelled "compressed" but actually held the post-overhead RAM cost,
+        // making the chart's Compressed dataset > Uncompressed at small data
+        // volumes. Older entries without 'c' fall back to 'u' on the dashboard
+        // (graceful — values are within the per-page metadata band, ~few%).
         $history[] = [
             't' => date('H:i:s'),
             'o' => $totalOriginal,
+            'c' => $totalCompressed,
             'u' => $totalUsed,
             'l' => round($loadPct, 1),
             's' => $ssdUsed,

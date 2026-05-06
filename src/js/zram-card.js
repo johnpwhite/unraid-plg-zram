@@ -215,7 +215,10 @@ if (typeof module !== 'undefined' && module.exports) {
             // single-tier render modes per DASHBOARD_TIER2_VISIBILITY.md)
             const el = id => document.getElementById(id);
             if (el('zram-uncompressed')) el('zram-uncompressed').textContent = formatBytes(aggs.total_original);
-            if (el('zram-compressed')) el('zram-compressed').textContent = formatBytes(aggs.total_used);
+            // Compressed chip shows COMPR (algorithm output), not TOTAL (RAM cost
+            // incl. overhead). Pre-2026.05.06.15 versions sourced this from total_used
+            // which produced "Compressed > Uncompressed" at small data volumes.
+            if (el('zram-compressed')) el('zram-compressed').textContent = formatBytes(aggs.total_compressed);
             if (el('zram-ratio')) el('zram-ratio').textContent = aggs.compression_ratio + 'x';
             if (el('zram-swappiness')) el('zram-swappiness').textContent = aggs.swappiness;
             // Disk Used chip — only present when Tier 2 is active
@@ -267,7 +270,13 @@ if (typeof module !== 'undefined' && module.exports) {
                 filterHistory(data.history).forEach(item => {
                     historyData.labels.push(item.t);
                     historyData.original.push(item.o);
-                    historyData.used.push(item.u);
+                    // 'c' (COMPR) added in 2026.05.06.15. Older entries had 'u'
+                    // hold the same dataset (mislabelled as compressed but
+                    // actually TOTAL — within ~few% of COMPR for typical
+                    // workloads), so falling back to item.u for old entries
+                    // avoids a render gap during the ~15-min transient until
+                    // the rolling history window aged out.
+                    historyData.used.push(typeof item.c === 'number' ? item.c : item.u);
                     historyData.load.push(item.l);
                     historyData.disk.push(typeof item.s === 'number' ? item.s : 0);
                 });
@@ -275,7 +284,7 @@ if (typeof module !== 'undefined' && module.exports) {
             } else {
                 historyData.labels.push(new Date().toLocaleTimeString());
                 historyData.original.push(aggs.total_original);
-                historyData.used.push(aggs.total_used);
+                historyData.used.push(aggs.total_compressed);
                 historyData.load.push(loadPct);
                 historyData.disk.push(ssdUsedNow);
             }
