@@ -173,6 +173,9 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 .indicator-green { background: #7fba59; }
 .indicator-orange { background: #ff8c00; }
 .indicator-red { background: #cc3333; }
+.zram-saved-indicator { display: inline-block; margin-left: 8px; color: #7fba59; font-size: 0.85em; font-weight: bold; opacity: 1; transition: opacity 0.5s ease-out; vertical-align: middle; }
+.zram-saved-indicator.zram-saved-indicator-err { color: #ff5555; }
+.zram-saved-indicator.fade { opacity: 0; }
 </style>
 
 <div class="zram-layout">
@@ -208,11 +211,11 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
             <dt>Size:</dt>
             <dd>
                 <span class="zram-field-row">
-                    <select name="zram_size_mode" id="zram_size_mode" onchange="toggleSizeMode()" style="width:90px;">
+                    <select name="zram_size_mode" id="zram_size_mode" onchange="toggleSizeMode(); saveZramSize();" style="width:90px;">
                         <option value="auto" <?php echo ($settings['zram_size'] === 'auto') ? 'selected' : ''; ?>>Auto</option>
                         <option value="custom" <?php echo ($settings['zram_size'] !== 'auto') ? 'selected' : ''; ?>>Custom</option>
                     </select>
-                    <input type="text" id="zram_custom_size" value="<?php echo ($settings['zram_size'] !== 'auto') ? htmlspecialchars($settings['zram_size']) : '4G'; ?>" style="width:70px;display:<?php echo ($settings['zram_size'] !== 'auto') ? 'inline' : 'none'; ?>;">
+                    <input type="text" id="zram_custom_size" onblur="saveZramSize()" value="<?php echo ($settings['zram_size'] !== 'auto') ? htmlspecialchars($settings['zram_size']) : '4G'; ?>" style="width:70px;display:<?php echo ($settings['zram_size'] !== 'auto') ? 'inline' : 'none'; ?>;">
                     <span id="zram_auto_info" class="zram-field-info">
                         <?php echo $settings['zram_percent']; ?>% of <?php echo $memTotalGB; ?>GB = <?php echo $autoSizeGB; ?>GB
                     </span>
@@ -221,14 +224,14 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
             <dt>Auto Size (% of RAM):</dt>
             <dd>
                 <span class="zram-field-row">
-                    <input type="range" id="zram_percent_slider" min="25" max="75" value="<?php echo intval($settings['zram_percent']); ?>" oninput="updateAutoSize()" style="width:160px;vertical-align:middle;">
+                    <input type="range" name="zram_percent" id="zram_percent_slider" data-autosave="true" min="25" max="75" value="<?php echo intval($settings['zram_percent']); ?>" oninput="updateAutoSize()" style="width:160px;vertical-align:middle;">
                     <span id="zram_percent_label" class="zram-field-info"><?php echo intval($settings['zram_percent']); ?>%</span>
                 </span>
             </dd>
             <dt>Algorithm:</dt>
             <dd>
                 <span class="zram-field-row">
-                    <select id="zram_algo_select" style="width:100px;">
+                    <select name="zram_algo" id="zram_algo_select" data-autosave="true" style="width:100px;">
                         <?php foreach ($algos as $a): ?>
                         <option value="<?php echo $a; ?>" <?php echo ($settings['zram_algo'] == $a) ? 'selected' : ''; ?>><?php echo $a; ?></option>
                         <?php endforeach; ?>
@@ -288,24 +291,22 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
     </div>
 </div>
 
-<!-- PLUGIN SETTINGS -->
-<form method="post">
+<!-- PLUGIN SETTINGS — auto-saves on blur/change, see docs/specs/SETTINGS_AUTO_SAVE.md.
+     The legacy <form method="post"> + save_settings POST handler at the top of
+     this file is retained as a fallback for any external/scripted POST. -->
 <div class="zram-card">
     <div class="zram-card-header"><span><i class="fa fa-cog"></i> Plugin Settings</span></div>
     <div class="zram-card-body" style="padding-top:10px;">
-        <input type="hidden" name="zram_size" id="form_zram_size" value="<?php echo htmlspecialchars($settings['zram_size']); ?>">
-        <input type="hidden" name="zram_percent" id="form_zram_percent" value="<?php echo htmlspecialchars($settings['zram_percent']); ?>">
-        <input type="hidden" name="zram_algo" id="form_zram_algo" value="<?php echo htmlspecialchars($settings['zram_algo']); ?>">
         <dl>
             <dt>Enable Dashboard:</dt>
-            <dd><select name="enabled"><option value="yes" <?php echo ($settings['enabled']=='yes')?'selected':''; ?>>Yes</option><option value="no" <?php echo ($settings['enabled']=='no')?'selected':''; ?>>No</option></select></dd>
+            <dd><select name="enabled" data-autosave="true"><option value="yes" <?php echo ($settings['enabled']=='yes')?'selected':''; ?>>Yes</option><option value="no" <?php echo ($settings['enabled']=='no')?'selected':''; ?>>No</option></select></dd>
             <dt>Refresh Interval (sec):</dt>
-            <dd><input type="number" name="refresh_interval" value="<?php echo htmlspecialchars(number_format(intval($settings['refresh_interval']) / 1000, 1, '.', '')); ?>" min="1" step="0.5"></dd>
+            <dd><input type="number" name="refresh_interval" data-autosave="true" value="<?php echo htmlspecialchars(number_format(intval($settings['refresh_interval']) / 1000, 1, '.', '')); ?>" min="1" step="0.5"></dd>
             <dt>Collection Interval (sec):</dt>
-            <dd><input type="number" name="collection_interval" value="<?php echo htmlspecialchars($settings['collection_interval']); ?>" min="1" step="1"></dd>
+            <dd><input type="number" name="collection_interval" data-autosave="true" value="<?php echo htmlspecialchars($settings['collection_interval']); ?>" min="1" step="1"></dd>
             <dt class="zram-row-top">Swappiness (0-200):</dt>
             <dd class="zram-row-top">
-                <input type="number" name="swappiness" value="<?php echo htmlspecialchars($settings['swappiness']); ?>" min="0" max="200">
+                <input type="number" name="swappiness" data-autosave="true" value="<?php echo htmlspecialchars($settings['swappiness']); ?>" min="0" max="200">
                 <div style="font-size:0.8em;opacity:0.7;margin-top:4px;line-height:1.4;">
                     <strong>60</strong> kernel default (disk-swap era) &middot;
                     <strong>100</strong> equal weighting &middot;
@@ -319,16 +320,14 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
             </dd>
             <dt>Debug Mode:</dt>
             <dd><label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
-                <input type="checkbox" name="debug" value="yes" <?php echo ($settings['debug']=='yes')?'checked':''; ?>>
+                <input type="checkbox" name="debug" data-autosave="true" value="yes" <?php echo ($settings['debug']=='yes')?'checked':''; ?>>
                 <span style="font-size:0.9em;opacity:0.7;">Enable detailed logging</span>
             </label></dd>
             <dt>Show Console:</dt>
-            <dd><select name="console_visible"><option value="yes" <?php echo ($settings['console_visible']=='yes')?'selected':''; ?>>Yes</option><option value="no" <?php echo ($settings['console_visible']=='no')?'selected':''; ?>>No</option></select></dd>
+            <dd><select name="console_visible" data-autosave="true"><option value="yes" <?php echo ($settings['console_visible']=='yes')?'selected':''; ?>>Yes</option><option value="no" <?php echo ($settings['console_visible']=='no')?'selected':''; ?>>No</option></select></dd>
         </dl>
-        <button type="submit" name="save_settings" class="zram-btn" onclick="syncFormValues()">APPLY &amp; SAVE</button>
     </div>
 </div>
-</form>
 </div>
 
 <!-- CONSOLE PANE -->

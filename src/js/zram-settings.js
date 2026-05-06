@@ -197,6 +197,103 @@ function addLog(msg, type) {
     $.get(window.ZRAM_PAGE.API + '?action=append_cmd_log&msg=' + encodeURIComponent(msg) + '&type=' + encodeURIComponent(type || ''));
 }
 
+// --- Auto-save: every form field with data-autosave="true" persists on blur
+//     (text/number) or change (select/checkbox/range). See spec
+//     docs/specs/SETTINGS_AUTO_SAVE.md. The originalValue dance suppresses
+//     synthetic browser-autofill changes that fire before user interaction. ---
+// Tier 1 size is two coordinated controls (auto/custom dropdown + custom text
+// input) backed by a single settings key (zram_size). Custom save logic so a
+// user picking "auto" commits "auto" immediately, and editing the custom input
+// commits the typed size on blur.
+function saveZramSize() {
+    var modeEl   = document.getElementById('zram_size_mode');
+    var customEl = document.getElementById('zram_custom_size');
+    if (!modeEl) return;
+    var mode = modeEl.value;
+    if (mode === 'auto') {
+        zramAutoSave('zram_size', 'auto', modeEl);
+    } else {
+        var v = (customEl && customEl.value || '').trim();
+        if (/^\d+\s*[GMT]$/i.test(v)) {
+            zramAutoSave('zram_size', v.toUpperCase().replace(/\s+/g,''), customEl);
+        } else if (v) {
+            // Surface the validation error inline so the user knows the save was rejected
+            showSavedIndicator(customEl, '! Use e.g. 16G', 'err');
+        }
+    }
+}
+
+function bootstrapAutoSave() {
+    document.querySelectorAll('[data-autosave]').forEach(function(el) {
+        if (el.type === 'checkbox') {
+            el.dataset.originalValue = el.checked ? 'yes' : 'no';
+        } else {
+            el.dataset.originalValue = el.value;
+        }
+
+        var ev;
+        if (el.type === 'checkbox' || el.tagName === 'SELECT' || el.type === 'range') {
+            ev = 'change';
+        } else {
+            ev = 'blur';
+        }
+
+        el.addEventListener(ev, function() {
+            var key = el.name || el.id;
+            var current = el.type === 'checkbox' ? (el.checked ? 'yes' : 'no') : el.value;
+            if (current === el.dataset.originalValue) return;
+            el.dataset.originalValue = current;
+            zramAutoSave(key, current, el);
+        });
+    });
+}
+
+function zramAutoSave(key, value, el) {
+    var CSRF = window.ZRAM_PAGE.CSRF;
+    var API  = window.ZRAM_PAGE.API;
+    var params = 'action=update_setting&key=' + encodeURIComponent(key) +
+                 '&value=' + encodeURIComponent(value) +
+                 '&csrf_token=' + encodeURIComponent(CSRF);
+
+    $.get(API + '?' + params, function(data) {
+        if (data && data.success) {
+            showSavedIndicator(el, 'Saved ✓', 'ok');
+        } else {
+            showSavedIndicator(el, '! ' + ((data && data.message) || 'Save failed'), 'err');
+        }
+    }).fail(function() {
+        showSavedIndicator(el, 'Save failed', 'err');
+    });
+}
+
+function showSavedIndicator(el, text, kind) {
+    // Anchor to the input itself (or its wrapping label for checkboxes), and
+    // remove any previous indicator for that anchor so we never stack.
+    var anchor = el.closest('label') || el;
+    var anchorId = el.id || el.name;
+    var existing = anchor.parentNode.querySelector(
+        '.zram-saved-indicator[data-anchor="' + CSS.escape(anchorId) + '"]'
+    );
+    if (existing) existing.remove();
+
+    var span = document.createElement('span');
+    span.className = 'zram-saved-indicator' + (kind === 'err' ? ' zram-saved-indicator-err' : '');
+    span.dataset.anchor = anchorId;
+    span.textContent = text;
+    anchor.parentNode.insertBefore(span, anchor.nextSibling);
+
+    var holdMs  = kind === 'err' ? 2500 : 1000;
+    var totalMs = holdMs + 500;
+    setTimeout(function() { span.classList.add('fade'); }, holdMs);
+    setTimeout(function() { if (span.parentNode) span.parentNode.removeChild(span); }, totalMs);
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootstrapAutoSave);
+} else {
+    bootstrapAutoSave();
+}
+
 $(function() {
     $.get(window.ZRAM_PAGE.API + '?action=view_cmd_log&csrf_token=' + encodeURIComponent(window.ZRAM_PAGE.CSRF), function(logs) {
         if (!logs || logs.length === 0) addLog('Console ready.');

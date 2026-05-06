@@ -329,6 +329,87 @@ if ($action === 'remove_disk_swap' || $action === 'remove_ssd_swap') {
 
 // --- SETTINGS ACTIONS ---
 
+// Generic per-key settings update for the auto-save UI. The whitelist gates
+// what keys are writable from the page; per-key validation normalises the
+// value before it lands in settings.ini; targeted side effects fire only
+// when the saved key requires them, so most blurs are a single config write.
+// See docs/specs/SETTINGS_AUTO_SAVE.md.
+if ($action === 'update_setting') {
+    $key = filter_input(INPUT_GET, 'key', FILTER_UNSAFE_RAW) ?: '';
+    $rawValue = filter_input(INPUT_GET, 'value', FILTER_UNSAFE_RAW);
+    if ($rawValue === null) $rawValue = '';
+
+    $allowed = ['enabled','refresh_interval','collection_interval','swappiness',
+                'debug','console_visible','zram_size','zram_percent','zram_algo'];
+    if (!in_array($key, $allowed, true)) {
+        echo json_encode(['success' => false, 'message' => 'Invalid setting key', 'logs' => $logs]);
+        exit;
+    }
+
+    // Per-key validation
+    switch ($key) {
+        case 'enabled':
+        case 'debug':
+        case 'console_visible':
+            $value = ($rawValue === 'yes' || $rawValue === 'true' || $rawValue === '1' || $rawValue === 'on') ? 'yes' : 'no';
+            break;
+        case 'refresh_interval':
+            // Form sends seconds; storage in ms. Legacy raw ms (>= 100) accepted as-is.
+            $f = floatval($rawValue);
+            $ms = $f >= 100 ? intval($f) : intval(round($f * 1000));
+            $value = max(1000, $ms);
+            break;
+        case 'collection_interval':
+            $value = max(1, intval($rawValue));
+            break;
+        case 'swappiness':
+            $value = max(0, min(200, intval($rawValue)));
+            break;
+        case 'zram_percent':
+            $value = max(25, min(75, intval($rawValue)));
+            break;
+        case 'zram_size':
+            if ($rawValue === 'auto' || preg_match('/^\d+\s*[GMT]$/i', $rawValue)) {
+                $value = $rawValue === 'auto' ? 'auto' : strtoupper(preg_replace('/\s+/', '', $rawValue));
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Invalid size — use "auto" or e.g. 16G', 'logs' => $logs]);
+                exit;
+            }
+            break;
+        case 'zram_algo':
+            $algos = ['zstd', 'lz4', 'lzo', 'deflate'];
+            if (!in_array($rawValue, $algos, true)) {
+                echo json_encode(['success' => false, 'message' => 'Invalid algorithm', 'logs' => $logs]);
+                exit;
+            }
+            $value = $rawValue;
+            break;
+        default:
+            echo json_encode(['success' => false, 'message' => 'Validation missing for key', 'logs' => $logs]);
+            exit;
+    }
+
+    zram_config_write([$key => $value]);
+
+    // Targeted side effects — only fire for keys that need immediate kernel/daemon impact.
+    if ($key === 'swappiness') {
+        zram_run("sysctl -q vm.swappiness=" . escapeshellarg((string)$value), $logs);
+    }
+    if ($key === 'debug') {
+        zram_debug_reset();
+    }
+    if ($key === 'collection_interval' || $key === 'debug') {
+        $docroot = $_SERVER['DOCUMENT_ROOT'] ?: '/usr/local/emhttp';
+        $initScript = "$docroot/plugins/unraid-zram-card/zram_init.sh";
+        if (file_exists($initScript)) {
+            zram_run("nohup $initScript > /dev/null 2>&1 & disown", $logs);
+        }
+    }
+
+    echo json_encode(['success' => true, 'message' => "Saved $key", 'key' => $key, 'value' => $value, 'logs' => $logs]);
+    exit;
+}
+
 if ($action === 'update_swappiness') {
     $val = filter_input(INPUT_GET, 'val', FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 200]]);
     if ($val === false || $val === null) $val = 150;
