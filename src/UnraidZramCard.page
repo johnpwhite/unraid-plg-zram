@@ -207,6 +207,11 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 <?php endif; ?>
             </div>
         </div>
+<?php if (!$devActive): ?>
+        <!-- Tier 1 controls — only visible when no ZRAM device is active.
+             Once active, size/percent/algo cannot change without a REMOVE+CREATE
+             cycle, so showing them is just noise. Mirrors the Tier 2 pattern
+             which hides its create form once a disk swap is in use. -->
         <dl>
             <dt>Size:</dt>
             <dd>
@@ -239,6 +244,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
                 </span>
             </dd>
         </dl>
+<?php endif; ?>
     </div>
 </div>
 

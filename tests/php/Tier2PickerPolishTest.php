@@ -277,6 +277,43 @@ final class Tier2PickerPolishTest extends TestCase
         );
     }
 
+    public function testTier1ControlsHiddenWhenZramActive(): void
+    {
+        // Once a ZRAM device is live, size/percent/algo can't change without a
+        // REMOVE+CREATE cycle, so the controls are pure noise. Mirrors Tier 2
+        // which hides its create form once a disk swap is in use.
+        // Anchor on a unique comment so we know we're looking at the right
+        // block, then verify the conditional shape and the dt labels.
+        $needle = 'Tier 1 controls — only visible when no ZRAM device is active';
+        $this->assertStringContainsString(
+            $needle,
+            $this->pageSrc,
+            'page must contain the Tier 1-controls comment marking the conditional block'
+        );
+
+        // Find the position of the Size dt and assert there's an
+        // "if (!$devActive)" between the unique comment and that dt.
+        $commentPos = strpos($this->pageSrc, $needle);
+        $sizeDtPos  = strpos($this->pageSrc, '<dt>Size:</dt>', $commentPos);
+        $this->assertGreaterThan(0, $sizeDtPos, '<dt>Size:</dt> must follow the marker comment');
+        $window = substr($this->pageSrc, $commentPos - 80, $sizeDtPos - $commentPos + 80);
+        $this->assertMatchesRegularExpression(
+            '/if\s*\(\s*!\$devActive\s*\)/',
+            $window,
+            'Tier 1 size/percent/algo dl must be guarded by "if (!$devActive)"'
+        );
+
+        // And there must be an endif between the </dl> and the next major card boundary.
+        $algoDtPos = strpos($this->pageSrc, '<dt>Algorithm:</dt>', $sizeDtPos);
+        $this->assertGreaterThan(0, $algoDtPos, '<dt>Algorithm:</dt> must come after Size');
+        $tail = substr($this->pageSrc, $algoDtPos, 600);
+        $this->assertMatchesRegularExpression(
+            '/<\/dl>\s*<\?php\s+endif;\s*\?>/',
+            $tail,
+            'closing endif; must follow the </dl> that closes Tier 1 controls'
+        );
+    }
+
     public function testRowSpacingIsTighter(): void
     {
         // Was: line-height 2.2 with floated dt (broke vertical alignment).

@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.05.06.05">
+<!ENTITY version   "2026.05.06.06">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.06.05" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.06.06" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.05.06.06
+- UI: hide Tier 1 size/auto-size/algorithm controls when a ZRAM device is active. Once a device is live those settings can not change without a REMOVE+CREATE cycle, so the controls were pure noise — same mirror of Tier 2's existing pattern (its create form is hidden once a disk swap is in use). Wrap the Tier 1 dl block in &lt;?php if (!$devActive): ?&gt; ... &lt;?php endif; ?&gt;. Status row + REMOVE button still render so the user always sees what is active. New PHPUnit guard testTier1ControlsHiddenWhenZramActive locks the conditional in place: anchors on the unique comment then asserts the if-shape between the comment and &lt;dt&gt;Size:&lt;/dt&gt; and the endif between &lt;/dl&gt; and the next card. Full suite: 47 PHPUnit tests / 265 assertions, 17 Vitest tests, 9 smoke assertions — all green locally.
 ## 2026.05.06.05
 - Feat: settings auto-save (Option A). Plugin Settings card no longer needs APPLY &amp; SAVE — every field auto-saves on blur (text/number) or change (select/checkbox/range) and shows an inline 'Saved ✓' indicator that fades after ~1.5s. New PHP action update_setting (zram_actions.php) accepts a single key + value, runs through a whitelist (enabled, refresh_interval, collection_interval, swappiness, debug, console_visible, zram_size, zram_percent, zram_algo) and a per-key validator (clamp swappiness 0-200, percent 25-75; convert refresh_interval seconds→ms; restrict zram_algo to the kernel allowlist; accept zram_size as 'auto' or N[GMT]). Side effects are gated by key — sysctl vm.swappiness only fires on the swappiness branch, the collector restart only fires on collection_interval/debug. Most blurs become a single config write, far cheaper than the old POST handler which restarted the collector unconditionally. Frontend: every settings input gets data-autosave='true', a single bootstrap walks them all on DOMContentLoaded and attaches blur/change listeners, originalValue dataset captured at bootstrap so synthetic browser-autofill events do not trigger phantom saves. Tier 1 size dropdown + custom-size input share one settings key (zram_size) so they get a coordinator (saveZramSize) instead of the generic data-autosave path: 'auto' commits immediately, 'custom' validates the typed size against /^\d+\s*[GMT]$/ and surfaces inline errors on the custom input itself. APPLY &amp; SAVE button removed; legacy POST handler at the top of UnraidZramCard.page retained as a deprecated fallback for any external/scripted POST. Hidden form_zram_size/percent/algo bridge fields removed (no longer needed). Spec: docs/specs/SETTINGS_AUTO_SAVE.md. Tests: new tests/php/SettingsAutoSaveTest.php (8 textual contracts on whitelist, validation per key, side-effect gating, button removal, data-autosave coverage, indicator CSS, JS bootstrap shape, originalValue guard). Full suite: 46 PHPUnit tests / 255 assertions, 17 Vitest tests, 9 smoke assertions — all green locally.
 ## 2026.05.06.04
