@@ -201,6 +201,82 @@ final class Tier2PickerPolishTest extends TestCase
         );
     }
 
+    public function testCreateDiskButtonIdMatchesJsLookup(): void
+    {
+        // Regression guard for 2026.05.06.03: rename pass changed the id in
+        // JS (getElementById('btn-create-disk')) and the function name
+        // (createDiskSwap) but missed the button declaration in the .page —
+        // user reported the CREATE button stayed disabled because selectDrive()
+        // was looking up an id that no longer existed.
+        $this->assertStringContainsString(
+            'id="btn-create-disk"',
+            $this->pageSrc,
+            'page button id must match the JS lookup ("btn-create-disk")'
+        );
+        $this->assertStringContainsString(
+            'onclick="createDiskSwap()"',
+            $this->pageSrc,
+            'page button onclick must call the renamed createDiskSwap() function'
+        );
+        $this->assertStringNotContainsString(
+            'id="btn-create-ssd"',
+            $this->pageSrc,
+            'legacy button id must not survive — JS no longer looks for it'
+        );
+        $this->assertStringNotContainsString(
+            'createSsdSwap',
+            $this->pageSrc,
+            'legacy onclick handler must not survive — function was renamed'
+        );
+        // Belt-and-braces: every getElementById('btn-create-...') in JS has a
+        // matching id="..." attribute somewhere in the page source.
+        if (preg_match_all("/getElementById\('(btn-[^']+)'\)/", $this->settingsJsSrc, $m)) {
+            foreach (array_unique($m[1]) as $id) {
+                $this->assertStringContainsString(
+                    'id="' . $id . '"',
+                    $this->pageSrc,
+                    "JS references getElementById('$id') but no element with that id in the page"
+                );
+            }
+        }
+    }
+
+    public function testIntervalsBothExpressedInSeconds(): void
+    {
+        // Refresh + Collection were "(ms)" and "(sec)" respectively; user
+        // asked for one unit. Both labels now say "(sec)". Refresh storage
+        // stays in ms internally (consumed by JS setInterval) — conversion
+        // happens at the form boundary so existing user configs do not need
+        // a migration.
+        $this->assertStringContainsString(
+            'Refresh Interval (sec)',
+            $this->pageSrc,
+            'Refresh Interval label must show seconds (was "(ms)")'
+        );
+        $this->assertStringNotContainsString(
+            'Refresh Interval (ms)',
+            $this->pageSrc,
+            'no remaining (ms) label on Refresh Interval'
+        );
+        // Form input divides storage value by 1000 for display
+        $this->assertMatchesRegularExpression(
+            "/refresh_interval[^>]*value=\"<\?php\s+echo\s+htmlspecialchars\(number_format\(intval\(\\\$settings\['refresh_interval'\]\)\s*\/\s*1000/",
+            $this->pageSrc,
+            'refresh_interval input must render storage value (ms) divided by 1000'
+        );
+        // POST handler scales seconds back to ms; legacy ms values still accepted (>=100 means ms already)
+        $this->assertMatchesRegularExpression(
+            '/intval\(round\(\$f\s*\*\s*1000\)\)/',
+            $this->pageSrc,
+            'POST handler must multiply seconds-input by 1000 to store ms'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\$f\s*>=\s*100\s*\?\s*intval\(\$f\)/',
+            $this->pageSrc,
+            'POST handler must accept legacy ms values (>=100 means already in ms) for in-flight forms'
+        );
+    }
+
     public function testRowSpacingIsTighter(): void
     {
         // Was: line-height 2.2 with floated dt (broke vertical alignment).

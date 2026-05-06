@@ -17,7 +17,18 @@ require_once "$docroot/plugins/unraid-zram-card/zram_config.php";
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
     $updates = [
         'enabled'             => ($_POST['enabled'] ?? 'yes') === 'yes' ? 'yes' : 'no',
-        'refresh_interval'    => max(1000, intval($_POST['refresh_interval'] ?? 3000)),
+        // Refresh interval is stored in ms (consumed by JS setInterval) but
+        // the form expresses it in seconds. Multiply on save.
+        // Backward-compat: a legacy POST with refresh_interval >= 100 is
+        // assumed to already be in ms (covers an in-flight pre-upgrade form
+        // submission), so we accept it as-is. New values arrive as float
+        // seconds (e.g. 1.5) and get scaled.
+        'refresh_interval'    => (function() {
+            $raw = $_POST['refresh_interval'] ?? '3';
+            $f   = floatval($raw);
+            $ms  = $f >= 100 ? intval($f) : intval(round($f * 1000));
+            return max(1000, $ms);
+        })(),
         'collection_interval' => max(1, intval($_POST['collection_interval'] ?? 3)),
         'swappiness'          => max(0, min(200, intval($_POST['swappiness'] ?? 150))),
         'debug'               => ($_POST['debug'] ?? '') === 'yes' ? 'yes' : 'no',
@@ -267,7 +278,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
         <div style="display:flex;align-items:center;gap:12px;margin-top:8px;">
             <span style="font-size:0.9em;color:#aaa;">Size:</span>
             <input type="text" id="ssd_swap_size" value="<?php echo htmlspecialchars($settings['ssd_swap_size'] ?: '16G'); ?>" style="width:70px;text-align:center;">
-            <button type="button" class="zram-btn" id="btn-create-ssd" onclick="createSsdSwap()" disabled>CREATE SWAP FILE</button>
+            <button type="button" class="zram-btn" id="btn-create-disk" onclick="createDiskSwap()" disabled>CREATE SWAP FILE</button>
         </div>
 <?php endif; ?>
     </div>
@@ -284,8 +295,8 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
         <dl>
             <dt>Enable Dashboard:</dt>
             <dd><select name="enabled"><option value="yes" <?php echo ($settings['enabled']=='yes')?'selected':''; ?>>Yes</option><option value="no" <?php echo ($settings['enabled']=='no')?'selected':''; ?>>No</option></select></dd>
-            <dt>Refresh Interval (ms):</dt>
-            <dd><input type="number" name="refresh_interval" value="<?php echo htmlspecialchars($settings['refresh_interval']); ?>" min="1000" step="500"></dd>
+            <dt>Refresh Interval (sec):</dt>
+            <dd><input type="number" name="refresh_interval" value="<?php echo htmlspecialchars(number_format(intval($settings['refresh_interval']) / 1000, 1, '.', '')); ?>" min="1" step="0.5"></dd>
             <dt>Collection Interval (sec):</dt>
             <dd><input type="number" name="collection_interval" value="<?php echo htmlspecialchars($settings['collection_interval']); ?>" min="1" step="1"></dd>
             <dt>Swappiness (0-200):</dt>
