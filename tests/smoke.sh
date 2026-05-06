@@ -221,11 +221,14 @@ if [ "$MAGIC" != "89504e47" ]; then
 fi
 echo "  [7/9] Icon file valid ($ICON_SIZE bytes, PNG magic ok)"
 
-# ---- Assertion 8: Dashboard renders gracefully in "no ZRAM device" state ----
-# Forces the inactive path via PHP CLI with stubbed constants so the plugin's
-# device-lookup returns empty without touching the real kernel zram device.
-# The render must: (a) emit no PHP notices, (b) contain the graceful
-# "No ZRAM devices active" fallback text, (c) leak no undefined/NaN/null.
+# ---- Assertion 8: Dashboard renders gracefully when ZRAM is inactive ----
+# Forces the Tier-1-inactive path via PHP CLI with stubbed constants so
+# zram_get_our_device() returns empty without touching the real kernel device.
+# Two valid render outcomes (per DASHBOARD_TIER2_VISIBILITY.md):
+#   1. Test server has Tier 2 active → Tier-2-only chip mode (Disk + Swappiness)
+#   2. Test server has neither tier → "No ZRAM devices active" fallback copy
+# The load-bearing checks are: (a) no PHP errors, (b) no undefined/NaN/null leaks,
+# (c) the render contains *something* recognisable from one of the two modes.
 INACTIVE_ERR=$(mktemp)
 INACTIVE_HTML=$(php -d display_errors=0 -r "
     define('ZRAM_LABEL', 'ZRAM_CARD_SMOKE_NO_SUCH_LABEL');
@@ -242,18 +245,20 @@ if grep -qiE '(PHP (Fatal|Warning|Notice|Deprecated)|Parse error|Uncaught)' "$IN
     rm -f "$INACTIVE_ERR"
     fail 9 "Inactive-state render emitted PHP errors"
 fi
-if ! echo "$INACTIVE_HTML" | grep -qE 'No ZRAM devices active'; then
+# Accept either render mode: the no-tiers fallback OR the Tier-2-only chip set.
+# Each mode has a unique stable string we can anchor on.
+if ! echo "$INACTIVE_HTML" | grep -qE '(No ZRAM devices active|zram-disk)'; then
     echo "--- inactive render output (first 40 lines) ---" >&2
     echo "$INACTIVE_HTML" | head -40 >&2
     rm -f "$INACTIVE_ERR"
-    fail 9 "Inactive-state render did not show 'No ZRAM devices active' fallback"
+    fail 9 "Inactive-state render contained neither the 'No ZRAM devices active' fallback nor the Tier-2-only Disk chip — page may be broken"
 fi
 if echo "$INACTIVE_HTML" | grep -Eq '>(undefined|NaN|null)[[:space:]]*<'; then
     rm -f "$INACTIVE_ERR"
     fail 9 "Inactive-state render leaked sentinel values (undefined/NaN/null)"
 fi
 rm -f "$INACTIVE_ERR"
-echo "  [8/9] Inactive-state renders gracefully (fallback visible, no errors, no sentinel leaks)"
+echo "  [8/9] Inactive-state renders gracefully (fallback OR Tier-2 chip mode visible, no errors, no sentinel leaks)"
 
 # ---- Assertion 9: Settings page UX clarifiers present (TIER_OBSERVABILITY) ----
 # Three text strings must survive a render of UnraidZramCard.page:
