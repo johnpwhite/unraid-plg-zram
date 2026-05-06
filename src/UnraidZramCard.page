@@ -194,7 +194,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 .zram-advanced-warning em { color: #ff8c00; font-style: normal; font-weight: bold; }
 .zram-advanced dl input[type="number"] { width: 80px; }
 .zram-advanced dl input[type="number"]:disabled { opacity: 0.5; cursor: not-allowed; }
-.zram-priority-buttons { display: inline-flex; gap: 10px; flex-wrap: wrap; }
+.zram-priority-buttons { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
 .zram-saved-indicator { display: inline-block; margin-left: 8px; color: #7fba59; font-size: 0.85em; font-weight: bold; opacity: 1; transition: opacity 0.5s ease-out; vertical-align: middle; }
 .zram-saved-indicator.zram-saved-indicator-err { color: #ff5555; }
 .zram-saved-indicator.fade { opacity: 0; }
@@ -372,14 +372,14 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
                     <dd><input type="number" id="zram_priority_input" min="1" max="32767" value="<?php echo intval($settings['zram_priority'] ?? 100); ?>" disabled></dd>
                     <dt>Tier 2 (Disk) priority:</dt>
                     <dd><input type="number" id="ssd_priority_input" min="0" max="32767" value="<?php echo intval($settings['ssd_swap_priority'] ?? 10); ?>" disabled></dd>
-                    <dt></dt>
-                    <dd>
-                        <span class="zram-priority-buttons">
-                            <button type="button" class="zram-btn" id="btn-save-priorities" onclick="savePriorities()" disabled>SAVE</button>
-                            <button type="button" class="zram-btn" onclick="resetPriorities()">RESET TO DEFAULTS</button>
-                        </span>
-                    </dd>
                 </dl>
+                <!-- Buttons live outside the dl so they aren't trapped inside
+                     the dt/dd grid. Empty dt collapses under Unraid site CSS
+                     and pulls the dd into column 1, breaking inline-flex. -->
+                <div class="zram-priority-buttons">
+                    <button type="button" class="zram-btn" id="btn-save-priorities" onclick="savePriorities()" disabled>SAVE</button>
+                    <button type="button" class="zram-btn" onclick="resetPriorities()">RESET TO DEFAULTS</button>
+                </div>
             </div>
         </details>
     </div>
