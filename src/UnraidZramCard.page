@@ -184,6 +184,16 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 .indicator-green { background: #7fba59; }
 .indicator-orange { background: #ff8c00; }
 .indicator-red { background: #cc3333; }
+.zram-advanced { margin-top: 12px; padding: 10px 12px; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; }
+.zram-advanced > summary { cursor: pointer; color: #aaa; font-size: 0.9em; font-weight: bold; user-select: none; padding: 4px 0; outline: none; }
+.zram-advanced > summary:hover { color: #ff8c00; }
+.zram-advanced[open] > summary { color: #ff8c00; margin-bottom: 8px; }
+.zram-advanced-body { padding-top: 8px; }
+.zram-advanced-warning { background: rgba(204, 51, 51, 0.08); border: 1px solid rgba(204, 51, 51, 0.4); border-radius: 4px; padding: 8px 10px; margin-bottom: 12px; font-size: 0.85em; color: #ddd; line-height: 1.5; }
+.zram-advanced-warning strong { color: #ff5555; }
+.zram-advanced-warning em { color: #ff8c00; font-style: normal; font-weight: bold; }
+.zram-advanced dl input[type="number"] { width: 80px; }
+.zram-advanced dl input[type="number"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .zram-saved-indicator { display: inline-block; margin-left: 8px; color: #7fba59; font-size: 0.85em; font-weight: bold; opacity: 1; transition: opacity 0.5s ease-out; vertical-align: middle; }
 .zram-saved-indicator.zram-saved-indicator-err { color: #ff5555; }
 .zram-saved-indicator.fade { opacity: 0; }
@@ -280,7 +290,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
                     Used: <?php echo $fmtB($ssdUsed); ?> / <?php echo $fmtB($ssdSize); ?>
                     &middot; priority <?php echo htmlspecialchars($ssdPrio); ?> &mdash; overflow only
 <?php else: ?>
-                    <?php echo $fmtB($ssdSize); ?> &middot; priority 10 &mdash; overflow only
+                    <?php echo $fmtB($ssdSize); ?> &middot; priority <?php echo intval($settings['ssd_swap_priority'] ?? 10); ?> &mdash; overflow only
 <?php endif; ?>
                 </div>
                 <div style="font-size:0.8em;opacity:0.5;margin-top:2px;font-family:monospace;">
@@ -291,7 +301,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 <?php else: ?>
         <p style="font-size:0.9em;opacity:0.7;margin-top:0;">
             When ZRAM fills up, overflow pages go to a disk swap file. Prevents OOM on memory-constrained servers.
-            Runs at priority 10 &mdash; overflow only, never used while Tier 1 has room.
+            Runs at priority <?php echo intval($settings['ssd_swap_priority'] ?? 10); ?> &mdash; overflow only, never used while Tier 1 has room.
         </p>
         <div id="drive-picker" style="margin-bottom:12px;">
             <div style="font-size:0.85em;color:#aaa;margin-bottom:6px;">Select a drive:</div>
@@ -332,7 +342,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
                 </div>
                 <div style="font-size:0.8em;opacity:0.6;margin-top:4px;line-height:1.4;font-style:italic;">
                     Global kernel setting &mdash; applies to swap as a whole, not per-tier.
-                    Tier order is controlled by priority (Tier 1 = 100, Tier 2 = 10), not swappiness.
+                    Tier order is controlled by priority (Tier 1 = <?php echo intval($settings['zram_priority'] ?? 100); ?>, Tier 2 = <?php echo intval($settings['ssd_swap_priority'] ?? 10); ?>), not swappiness.
                 </div>
             </dd>
             <dt>Debug Mode:</dt>
@@ -343,6 +353,32 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
             <dt>Show Console:</dt>
             <dd><select name="console_visible" data-autosave="true"><option value="yes" <?php echo ($settings['console_visible']=='yes')?'selected':''; ?>>Yes</option><option value="no" <?php echo ($settings['console_visible']=='no')?'selected':''; ?>>No</option></select></dd>
         </dl>
+
+        <!-- Advanced — per-tier priority overrides. Hidden by default; first
+             expand triggers a swal warning that must be acknowledged before
+             the inputs unlock. See docs/specs/PER_TIER_PRIORITY_OVERRIDE.md. -->
+        <details class="zram-advanced" id="zram-advanced-priorities">
+            <summary><i class="fa fa-flask"></i> Advanced &mdash; override tier priorities</summary>
+            <div class="zram-advanced-body">
+                <div class="zram-advanced-warning">
+                    <strong>Read this first.</strong> Tier ordering depends on these values.
+                    ZRAM (Tier 1) must stay <em>strictly higher</em> than Disk (Tier 2) — if you invert
+                    them, every page goes to disk first and ZRAM is bypassed entirely.
+                    The defaults (100 / 10) are designed for that ordering and are what almost every install should use.
+                </div>
+                <dl>
+                    <dt>Tier 1 (ZRAM) priority:</dt>
+                    <dd><input type="number" id="zram_priority_input" min="1" max="32767" value="<?php echo intval($settings['zram_priority'] ?? 100); ?>" disabled></dd>
+                    <dt>Tier 2 (Disk) priority:</dt>
+                    <dd><input type="number" id="ssd_priority_input" min="0" max="32767" value="<?php echo intval($settings['ssd_swap_priority'] ?? 10); ?>" disabled></dd>
+                    <dt></dt>
+                    <dd>
+                        <button type="button" class="zram-btn" id="btn-save-priorities" onclick="savePriorities()" disabled>SAVE</button>
+                        <button type="button" class="zram-btn" onclick="resetPriorities()">RESET TO DEFAULTS</button>
+                    </dd>
+                </dl>
+            </div>
+        </details>
     </div>
 </div>
 </div>

@@ -269,6 +269,151 @@ if (document.readyState === 'loading') {
     bootstrapActivity();
 }
 
+// --- Per-tier priority overrides (Advanced details panel) ---------------------
+// Inputs start disabled. Expanding the <details> triggers a swal warning;
+// clicking "I understand" sets a per-session unlock flag and enables the
+// inputs + SAVE button. Cancel collapses the details. RESET TO DEFAULTS is
+// always enabled — it writes the safe state (100/10) and can never invert.
+// See docs/specs/PER_TIER_PRIORITY_OVERRIDE.md.
+
+function unlockPriorityInputs() {
+    var z = document.getElementById('zram_priority_input');
+    var s = document.getElementById('ssd_priority_input');
+    var b = document.getElementById('btn-save-priorities');
+    if (z) z.disabled = false;
+    if (s) s.disabled = false;
+    if (b) b.disabled = false;
+}
+
+function lockPriorityInputs() {
+    var z = document.getElementById('zram_priority_input');
+    var s = document.getElementById('ssd_priority_input');
+    var b = document.getElementById('btn-save-priorities');
+    if (z) z.disabled = true;
+    if (s) s.disabled = true;
+    if (b) b.disabled = true;
+}
+
+function savePriorities() {
+    var z = parseInt(document.getElementById('zram_priority_input').value, 10);
+    var s = parseInt(document.getElementById('ssd_priority_input').value, 10);
+    if (isNaN(z) || isNaN(s)) {
+        if (typeof swal === 'function') {
+            swal({ title: "Invalid", text: "Both priorities must be numbers.", type: "error" });
+        }
+        return;
+    }
+    if (z <= s) {
+        if (typeof swal === 'function') {
+            swal({
+                title: "Invalid ordering",
+                text: "Tier 1 (ZRAM) priority must be strictly greater than Tier 2 (Disk). Otherwise pages route to disk first and ZRAM is bypassed.",
+                type: "error"
+            });
+        }
+        return;
+    }
+    var CSRF = window.ZRAM_PAGE.CSRF;
+    var API  = window.ZRAM_PAGE.API;
+    var btn  = document.getElementById('btn-save-priorities');
+    if (btn) btn.disabled = true;
+    var params = 'action=update_priorities' +
+                 '&zram=' + encodeURIComponent(z) +
+                 '&ssd='  + encodeURIComponent(s) +
+                 '&csrf_token=' + encodeURIComponent(CSRF);
+    $.get(API + '?' + params, function(data) {
+        if (data && data.success) {
+            if (data.warnings && data.warnings.length > 0) {
+                if (typeof swal === 'function') {
+                    swal({ title: "Saved with warnings", text: data.message, type: "warning" });
+                } else {
+                    addLog(data.message, 'err');
+                }
+            } else {
+                showSavedIndicator(btn, 'Saved ✓', 'ok');
+                addLog(data.message, 'cmd');
+            }
+            // Refresh activity feed so the swapoff/swapon entries appear
+            fetchActivity();
+        } else {
+            var msg = (data && data.message) || 'Save failed';
+            if (typeof swal === 'function') {
+                swal({ title: "Save rejected", text: msg, type: "error" });
+            } else {
+                addLog('Priority save failed: ' + msg, 'err');
+            }
+        }
+        if (btn) btn.disabled = false;
+    }).fail(function() {
+        if (btn) btn.disabled = false;
+        addLog('Priority save request failed', 'err');
+    });
+}
+
+function resetPriorities() {
+    var z = document.getElementById('zram_priority_input');
+    var s = document.getElementById('ssd_priority_input');
+    if (z) z.value = 100;
+    if (s) s.value = 10;
+    // Reset is always safe — it writes the documented defaults. No swal warning.
+    var CSRF = window.ZRAM_PAGE.CSRF;
+    var API  = window.ZRAM_PAGE.API;
+    var params = 'action=update_priorities&zram=100&ssd=10&csrf_token=' + encodeURIComponent(CSRF);
+    $.get(API + '?' + params, function(data) {
+        if (data && data.success) {
+            addLog('Priorities reset to defaults (100 / 10)', 'cmd');
+            fetchActivity();
+        } else {
+            addLog('Reset failed: ' + ((data && data.message) || 'unknown'), 'err');
+        }
+    });
+}
+
+function bootstrapPriorityOverride() {
+    var details = document.getElementById('zram-advanced-priorities');
+    if (!details) return;
+    details.addEventListener('toggle', function() {
+        if (!details.open) return;
+        if (window.ZRAM_PAGE.priorityUnlocked) {
+            unlockPriorityInputs();
+            return;
+        }
+        if (typeof swal !== 'function') {
+            // No swal available — fall back to native confirm. Better than nothing.
+            if (confirm("Edit tier priorities?\n\nTier ordering depends on these values being in the right relationship — Tier 1 must stay higher than Tier 2. Inverting them will route every page to disk first and bypass ZRAM entirely.\n\nProceed?")) {
+                window.ZRAM_PAGE.priorityUnlocked = true;
+                unlockPriorityInputs();
+            } else {
+                details.open = false;
+            }
+            return;
+        }
+        swal({
+            title: "Edit tier priorities?",
+            text: "Tier ordering depends on these values being in the right relationship — Tier 1 must stay higher than Tier 2. Inverting them will route every page to disk first and bypass ZRAM entirely. Defaults (100 / 10) are correct for almost every install.",
+            type: "warning",
+            showCancelButton: true,
+            confirmButtonText: "I understand — let me edit",
+            cancelButtonText: "Cancel",
+            closeOnConfirm: true,
+            closeOnCancel: true
+        }, function(confirmed) {
+            if (confirmed) {
+                window.ZRAM_PAGE.priorityUnlocked = true;
+                unlockPriorityInputs();
+            } else {
+                details.open = false;
+            }
+        });
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootstrapPriorityOverride);
+} else {
+    bootstrapPriorityOverride();
+}
+
 // --- Auto-save: every form field with data-autosave="true" persists on blur
 //     (text/number) or change (select/checkbox/range). See spec
 //     docs/specs/SETTINGS_AUTO_SAVE.md. The originalValue dance suppresses

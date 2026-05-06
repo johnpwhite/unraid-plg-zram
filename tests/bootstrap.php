@@ -42,6 +42,8 @@ define('ZRAM_DEFAULTS', [
     'ssd_swap_path'       => '',
     'ssd_swap_size'       => '16G',
     'ssd_swap_mount'      => '',
+    'zram_priority'       => '100',
+    'ssd_swap_priority'   => '10',
 ]);
 
 define('ZRAM_TEST_TMP', $tmp);

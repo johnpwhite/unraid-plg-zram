@@ -114,14 +114,20 @@ else
     ZRAM_ALGO=$(cfg_val "zram_algo")
     if [ -z "$ZRAM_ALGO" ]; then ZRAM_ALGO="zstd"; fi
 
-    zlog "Creating ZRAM: size=$ZRAM_SIZE, algo=$ZRAM_ALGO" "INFO"
+    ZRAM_PRIO=$(cfg_val "zram_priority"); [ -z "$ZRAM_PRIO" ] && ZRAM_PRIO="100"
+    # Clamp to kernel range; default if non-numeric
+    case "$ZRAM_PRIO" in (*[!0-9]*|"") ZRAM_PRIO="100" ;; esac
+    [ "$ZRAM_PRIO" -lt 1 ] 2>/dev/null && ZRAM_PRIO="100"
+    [ "$ZRAM_PRIO" -gt 32767 ] 2>/dev/null && ZRAM_PRIO="100"
+
+    zlog "Creating ZRAM: size=$ZRAM_SIZE, algo=$ZRAM_ALGO, priority=$ZRAM_PRIO" "INFO"
     modprobe zram 2>/dev/null
 
     DEV=$($ZRAMCTL --find --size "$ZRAM_SIZE" --algorithm "$ZRAM_ALGO" 2>&1)
     if [ $? -eq 0 ] && [ -n "$DEV" ]; then
         zlog "Allocated $DEV, formatting with label $ZRAM_LABEL" "INFO"
         $MKSWAP -L "$ZRAM_LABEL" "$DEV" > /dev/null 2>&1
-        $SWAPON "$DEV" -p 100
+        $SWAPON "$DEV" -p "$ZRAM_PRIO"
         echo "$(basename "$DEV")" > "$DEVICE_FILE"
         zlog "Tier 1 active: $DEV" "INFO"
     else
@@ -150,8 +156,11 @@ if [ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ]; then
                     fi
                 fi
             fi
-            zlog "Activating disk swap: $SSD_PATH" "INFO"
-            $SWAPON "$SSD_PATH" -p 10 2>&1 || zlog "Failed to activate disk swap" "ERROR"
+            SSD_PRIO=$(cfg_val "ssd_swap_priority"); [ -z "$SSD_PRIO" ] && SSD_PRIO="10"
+            case "$SSD_PRIO" in (*[!0-9]*|"") SSD_PRIO="10" ;; esac
+            [ "$SSD_PRIO" -gt 32767 ] 2>/dev/null && SSD_PRIO="10"
+            zlog "Activating disk swap: $SSD_PATH (priority=$SSD_PRIO)" "INFO"
+            $SWAPON "$SSD_PATH" -p "$SSD_PRIO" 2>&1 || zlog "Failed to activate disk swap" "ERROR"
         fi
     else
         SSD_MOUNT=$(cfg_val "ssd_swap_mount")

@@ -135,7 +135,9 @@ if ($action === 'create_zram') {
         exit;
     }
 
-    if (zram_run("swapon " . escapeshellarg($dev) . " -p 100", $logs) !== 0) {
+    $cfgPrio = zram_config_read();
+    $zramPrio = max(1, min(32767, intval($cfgPrio['zram_priority'] ?? 100)));
+    if (zram_run("swapon " . escapeshellarg($dev) . " -p " . $zramPrio, $logs) !== 0) {
         echo json_encode(['success' => false, 'message' => 'swapon failed', 'logs' => $logs]);
         exit;
     }
@@ -276,7 +278,9 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
         exit;
     }
 
-    if (zram_run("swapon " . escapeshellarg($swapFile) . " -p 10", $logs) !== 0) {
+    $cfgPrio = zram_config_read();
+    $ssdPrio = max(0, min(32767, intval($cfgPrio['ssd_swap_priority'] ?? 10)));
+    if (zram_run("swapon " . escapeshellarg($swapFile) . " -p " . $ssdPrio, $logs) !== 0) {
         @unlink($swapFile);
         @rmdir(dirname($swapFile)); // Clean up empty .swap dir
         $hint = $isBtrfs ? ' (btrfs RAID or compressed mount may not support swap files)' : '';
@@ -407,6 +411,92 @@ if ($action === 'update_setting') {
     }
 
     echo json_encode(['success' => true, 'message' => "Saved $key", 'key' => $key, 'value' => $value, 'logs' => $logs]);
+    exit;
+}
+
+// Per-tier priority override (gated, paired-key endpoint). The single-key
+// update_setting action intentionally does NOT accept zram_priority /
+// ssd_swap_priority — they have to come through here so the comparison rule
+// (Tier 1 strictly greater than Tier 2) is enforced atomically. Inverting
+// or equalising would route every page to disk first and bypass ZRAM. See
+// docs/specs/PER_TIER_PRIORITY_OVERRIDE.md.
+if ($action === 'update_priorities') {
+    $z = filter_input(INPUT_GET, 'zram', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 32767]]);
+    $s = filter_input(INPUT_GET, 'ssd',  FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 32767]]);
+    if ($z === false || $z === null) {
+        echo json_encode(['success' => false, 'message' => 'Tier 1 priority must be 1-32767', 'logs' => $logs]);
+        exit;
+    }
+    if ($s === false || $s === null) {
+        echo json_encode(['success' => false, 'message' => 'Tier 2 priority must be 0-32767', 'logs' => $logs]);
+        exit;
+    }
+    if ($z <= $s) {
+        echo json_encode(['success' => false, 'message' => 'Tier 1 priority must be strictly greater than Tier 2 — otherwise pages route to disk first and ZRAM is bypassed.', 'logs' => $logs]);
+        exit;
+    }
+
+    // Persist atomically (config-write is the always-succeeds part; live swapoff/swapon below is best-effort).
+    zram_config_write([
+        'zram_priority'     => (string)$z,
+        'ssd_swap_priority' => (string)$s,
+    ]);
+
+    $warnings = [];
+
+    // Best-effort live re-prioritisation for Tier 1 if the device is currently active
+    $ourDev = zram_get_our_device();
+    if ($ourDev && file_exists("/sys/block/$ourDev")) {
+        $devPath = "/dev/$ourDev";
+        $swaps = @file_get_contents('/proc/swaps') ?: '';
+        if (strpos($swaps, $devPath) !== false) {
+            $safety = zram_evacuation_safe($devPath, $logs);
+            if (!$safety['safe']) {
+                $warnings[] = 'Tier 1 priority not applied live: ' . ($safety['error'] ?? 'safety check failed');
+            } else {
+                if (zram_run('swapoff ' . escapeshellarg($devPath), $logs) === 0) {
+                    if (zram_run('swapon ' . escapeshellarg($devPath) . ' -p ' . intval($z), $logs) !== 0) {
+                        $warnings[] = 'Tier 1 swapon failed — try CREATE';
+                    }
+                } else {
+                    $warnings[] = 'Tier 1 swapoff failed — priority will apply on next CREATE';
+                }
+            }
+        }
+    }
+
+    // Tier 2 disk swap
+    $cfgNow = zram_config_read();
+    $ssdPath = $cfgNow['ssd_swap_path'] ?? '';
+    if ($ssdPath && file_exists($ssdPath)) {
+        $swaps = @file_get_contents('/proc/swaps') ?: '';
+        if (strpos($swaps, $ssdPath) !== false) {
+            $safety = zram_evacuation_safe('', $logs);
+            if (!$safety['safe']) {
+                $warnings[] = 'Tier 2 priority not applied live: ' . ($safety['error'] ?? 'safety check failed');
+            } else {
+                if (zram_run('swapoff ' . escapeshellarg($ssdPath), $logs) === 0) {
+                    if (zram_run('swapon ' . escapeshellarg($ssdPath) . ' -p ' . intval($s), $logs) !== 0) {
+                        $warnings[] = 'Tier 2 swapon failed — try CREATE';
+                    }
+                } else {
+                    $warnings[] = 'Tier 2 swapoff failed — priority will apply on next CREATE';
+                }
+            }
+        }
+    }
+
+    $msg = empty($warnings)
+        ? "Priorities saved (Tier 1=$z, Tier 2=$s)"
+        : 'Saved with warnings: ' . implode('; ', $warnings);
+    echo json_encode([
+        'success' => true,
+        'message' => $msg,
+        'zram_priority' => $z,
+        'ssd_swap_priority' => $s,
+        'warnings' => $warnings,
+        'logs' => $logs,
+    ]);
     exit;
 }
 
