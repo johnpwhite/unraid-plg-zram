@@ -49,7 +49,10 @@ if (typeof module !== 'undefined' && module.exports) {
     }
     let chartInstance = null;
     const historyLimit = 300;
-    const historyData = { labels: [], original: [], used: [], load: [] };
+    // 'disk' is the Tier 2 used-bytes series, sourced from history.s on load
+    // and from data.ssd_swap.used on each live tick. See spec
+    // docs/specs/DASHBOARD_TIER2_VISIBILITY.md.
+    const historyData = { labels: [], original: [], used: [], load: [], disk: [] };
     let lastTotalTicks = null;
     let lastTime = null;
 
@@ -123,6 +126,12 @@ if (typeof module !== 'undefined' && module.exports) {
     function initChart() {
         const canvas = document.getElementById('zramChart');
         if (!canvas || typeof Chart === 'undefined') return;
+        // Tier visibility flags from PHP render. Datasets matching an inactive
+        // tier are present in the data array (so tooltip-index math stays
+        // consistent across configurations) but hidden from the canvas.
+        const cfg = window.ZRAM_CONFIG || {};
+        const tier1 = cfg.tier1Active !== false;  // default true if undefined (legacy)
+        const tier2 = cfg.tier2Active === true;
         chartInstance = new Chart(canvas.getContext('2d'), {
             type: 'line',
             data: {
@@ -133,14 +142,21 @@ if (typeof module !== 'undefined' && module.exports) {
                         label: 'Uncompressed', data: historyData.original,
                         borderColor: '#c46b36', backgroundColor: 'rgba(196,107,54,0.32)',
                         borderWidth: 1.2, fill: true, tension: 0.4, pointRadius: 0,
-                        yAxisID: 'y', order: 3
+                        yAxisID: 'y', order: 3, hidden: !tier1
                     },
-                    // Front layer: compressed size (actual RAM occupied)
+                    // Mid layer: compressed size (actual RAM occupied)
                     {
                         label: 'Compressed', data: historyData.used,
-                        borderColor: '#7fba59', backgroundColor: 'rgba(127,186,89,0.35)',
+                        borderColor: '#7fba59', backgroundColor: 'rgba(127,186,89,0.45)',
                         borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 0,
-                        yAxisID: 'y', order: 2
+                        yAxisID: 'y', order: 2, hidden: !tier1
+                    },
+                    // Front layer: Tier 2 disk used — cyan, reads as "storage" against the warm RAM palette
+                    {
+                        label: 'Disk', data: historyData.disk,
+                        borderColor: '#00a4d8', backgroundColor: 'rgba(0,164,216,0.50)',
+                        borderWidth: 1.4, fill: true, tension: 0.4, pointRadius: 0,
+                        yAxisID: 'y', order: 2, hidden: !tier2
                     },
                     // CPU load: line on top, right axis
                     {
@@ -195,12 +211,16 @@ if (typeof module !== 'undefined' && module.exports) {
             const data = await resp.json();
             const aggs = data.aggregates;
 
-            // Update stat elements
+            // Update stat elements (each guarded — chip may be absent in
+            // single-tier render modes per DASHBOARD_TIER2_VISIBILITY.md)
             const el = id => document.getElementById(id);
             if (el('zram-uncompressed')) el('zram-uncompressed').textContent = formatBytes(aggs.total_original);
             if (el('zram-compressed')) el('zram-compressed').textContent = formatBytes(aggs.total_used);
             if (el('zram-ratio')) el('zram-ratio').textContent = aggs.compression_ratio + 'x';
             if (el('zram-swappiness')) el('zram-swappiness').textContent = aggs.swappiness;
+            // Disk Used chip — only present when Tier 2 is active
+            const ssdUsedNow = (data.ssd_swap && typeof data.ssd_swap.used === 'number') ? data.ssd_swap.used : 0;
+            if (el('zram-disk')) el('zram-disk').textContent = formatBytes(ssdUsedNow);
 
             // CPU load from ticks
             let currentTicks = 0;
@@ -239,13 +259,17 @@ if (typeof module !== 'undefined' && module.exports) {
                 }
             }
 
-            // Chart data — initial backfill, filtering out legacy entries missing o/u
+            // Chart data — initial backfill, filtering out legacy entries missing o/u.
+            // entry.s (Tier 2 used) is forward/backward compatible: pre-2026.05.05.01
+            // entries don't have it, so we coerce to 0 — those entries plot a flat
+            // disk series until newer entries take over.
             if (!historyLoaded && data.history && data.history.length > 0) {
                 filterHistory(data.history).forEach(item => {
                     historyData.labels.push(item.t);
                     historyData.original.push(item.o);
                     historyData.used.push(item.u);
                     historyData.load.push(item.l);
+                    historyData.disk.push(typeof item.s === 'number' ? item.s : 0);
                 });
                 historyLoaded = true;
             } else {
@@ -253,6 +277,7 @@ if (typeof module !== 'undefined' && module.exports) {
                 historyData.original.push(aggs.total_original);
                 historyData.used.push(aggs.total_used);
                 historyData.load.push(loadPct);
+                historyData.disk.push(ssdUsedNow);
             }
 
             while (historyData.labels.length > historyLimit) {
@@ -260,6 +285,7 @@ if (typeof module !== 'undefined' && module.exports) {
                 historyData.original.shift();
                 historyData.used.shift();
                 historyData.load.shift();
+                historyData.disk.shift();
             }
 
             if (chartInstance) chartInstance.update();

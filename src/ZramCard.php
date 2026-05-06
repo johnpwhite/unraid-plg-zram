@@ -48,13 +48,30 @@ if (!function_exists('getZramDashboardCard')) {
             $ratio = ($totalCompressed > 0) ? round($totalOriginal / $totalCompressed, 2) : 0;
             $swappiness = trim(@file_get_contents('/proc/sys/vm/swappiness') ?: '60');
 
-            // SSD swap info
-            $ssdInfo = '';
+            // SSD swap info — capture used + size when active so the chip and
+            // chart can render real values in Tier-2-only mode.
             $ssdPath = $cfg['ssd_swap_path'] ?? '';
             $ssdActive = false;
+            $ssdSize = 0;
+            $ssdUsed = 0;
+            $ssdPrio = '-';
             if ($ssdPath && file_exists($ssdPath)) {
                 $swaps = @file_get_contents('/proc/swaps') ?: '';
                 $ssdActive = strpos($swaps, $ssdPath) !== false;
+                if ($ssdActive) {
+                    exec('swapon --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssdRows);
+                    foreach ($ssdRows as $row) {
+                        $rp = preg_split('/\s+/', trim($row));
+                        if (count($rp) >= 4 && $rp[0] === $ssdPath) {
+                            $ssdSize = intval($rp[1]);
+                            $ssdUsed = intval($rp[2]);
+                            $ssdPrio = $rp[3];
+                            break;
+                        }
+                    }
+                } else {
+                    $ssdSize = filesize($ssdPath) ?: 0;
+                }
             }
 
             // Priority
@@ -111,7 +128,17 @@ if (!function_exists('getZramDashboardCard')) {
     </td></tr>
     <tr><td>
         <div class="zram-content" style="padding:0 8px;">
+<?php
+            // Three render modes for the chip strip + chart, driven by which
+            // tiers are actually live. tier1 = ZRAM device exists; tier2 =
+            // disk swap configured AND active in /proc/swaps. See
+            // docs/specs/DASHBOARD_TIER2_VISIBILITY.md.
+            $tier1 = ($devCount > 0);
+            $tier2 = ($ssdActive === true);
+?>
+<?php if ($tier1 || $tier2): ?>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:6px;margin:5px 0 8px;">
+<?php if ($tier1): ?>
                 <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
                     <span id="zram-uncompressed" style="font-size:1.1em;font-weight:bold;display:block;color:#d49373;"><?php echo $fmt($totalOriginal); ?></span>
                     <span style="font-size:0.75em;opacity:0.7;">Uncompressed</span>
@@ -128,6 +155,13 @@ if (!function_exists('getZramDashboardCard')) {
                     <span id="zram-load" style="font-size:1.1em;font-weight:bold;display:block;color:#e57373;">0%</span>
                     <span style="font-size:0.75em;opacity:0.7;">Load</span>
                 </div>
+<?php endif; ?>
+<?php if ($tier2): ?>
+                <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
+                    <span id="zram-disk" style="font-size:1.1em;font-weight:bold;display:block;color:#00a4d8;"><?php echo $fmt($ssdUsed); ?></span>
+                    <span style="font-size:0.75em;opacity:0.7;">Disk Used</span>
+                </div>
+<?php endif; ?>
                 <div style="background:rgba(0,0,0,0.1);padding:6px;border-radius:4px;text-align:center;">
                     <span id="zram-swappiness" style="font-size:1.1em;font-weight:bold;display:block;color:#ba7fba;"><?php echo $swappiness; ?></span>
                     <span style="font-size:0.75em;opacity:0.7;">Swappiness</span>
@@ -135,10 +169,10 @@ if (!function_exists('getZramDashboardCard')) {
             </div>
             <div style="height:70px;width:100%;margin-bottom:8px;"><canvas id="zramChart"></canvas></div>
             <div id="zram-device-list" style="margin-top:3px;border-top:1px solid rgba(255,255,255,0.05);padding-top:2px;">
-<?php if ($ourDev): ?>
                 <div style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr 1fr;gap:4px;opacity:0.5;font-size:0.75em;margin-bottom:1px;border-bottom:1px solid rgba(255,255,255,0.05);">
                     <div>Tier</div><div style="text-align:right;">Dev</div><div style="text-align:right;">Size</div><div style="text-align:right;">Prio</div><div style="text-align:right;">Algo</div>
                 </div>
+<?php if ($ourDev): ?>
                 <div style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr 1fr;gap:4px;font-size:0.8em;padding:1px 0;">
                     <div style="color:#7fba59;">ZRAM</div>
                     <div style="text-align:right;font-weight:bold;"><?php echo htmlspecialchars($ourDev); ?></div>
@@ -146,24 +180,30 @@ if (!function_exists('getZramDashboardCard')) {
                     <div style="text-align:right;opacity:0.7;"><?php echo $prio; ?></div>
                     <div style="text-align:right;opacity:0.7;"><?php echo htmlspecialchars($algo); ?></div>
                 </div>
+<?php endif; ?>
 <?php if ($ssdPath): ?>
                 <div id="zram-ssd-row" style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr 1fr;gap:4px;font-size:0.8em;padding:1px 0;">
                     <div style="color:<?php echo $ssdActive ? '#00a4d8' : '#666'; ?>;">Disk<?php if (!$ssdActive) echo ' (idle)'; ?></div>
                     <div style="text-align:right;opacity:0.7;" title="<?php echo htmlspecialchars($ssdPath); ?>">swap file</div>
-                    <div style="text-align:right;opacity:0.7;"><?php echo $fmt(filesize($ssdPath), 0); ?></div>
-                    <div style="text-align:right;opacity:0.7;">10</div>
+                    <div style="text-align:right;opacity:0.7;"><?php echo $fmt($ssdSize ?: filesize($ssdPath), 0); ?></div>
+                    <div style="text-align:right;opacity:0.7;"><?php echo htmlspecialchars((string)$ssdPrio); ?></div>
                     <div style="text-align:right;opacity:0.7;">—</div>
                 </div>
 <?php endif; ?>
-<?php else: ?>
-                <div style="text-align:center;opacity:0.5;padding:3px;font-size:0.8em;">No ZRAM devices active.</div>
-<?php endif; ?>
             </div>
+<?php else: ?>
+            <div style="text-align:center;opacity:0.6;padding:14px 8px;font-size:0.85em;">
+                <i class="fa fa-info-circle" style="opacity:0.5;margin-right:6px;"></i>
+                No ZRAM devices active. No swap configured &mdash; see <a href="/Dashboard/Settings/UnraidZramCard" style="color:#ff8c00;">ZRAM Settings</a> to set one up.
+            </div>
+<?php endif; ?>
         </div>
         <script>
             window.ZRAM_CONFIG = {
                 url: '/plugins/unraid-zram-card/zram_status.php',
-                pollInterval: <?php echo $pollInterval; ?>
+                pollInterval: <?php echo $pollInterval; ?>,
+                tier1Active: <?php echo $tier1 ? 'true' : 'false'; ?>,
+                tier2Active: <?php echo $tier2 ? 'true' : 'false'; ?>
             };
         </script>
         <script src="/plugins/unraid-zram-card/js/chart.min.js?v=<?php echo $chartMtime; ?>"></script>
