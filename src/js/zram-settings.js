@@ -8,10 +8,10 @@ function toggleSizeMode() {
 
 function updateAutoSize() {
     var pct = document.getElementById('zram_percent_slider').value;
-    var mb = Math.round(window.ZRAM_PAGE.MEM_KB * pct / 100 / 1024);
-    var gb = (window.ZRAM_PAGE.MEM_KB / 1048576).toFixed(1);
+    var totalGb = (window.ZRAM_PAGE.MEM_KB / 1048576).toFixed(1);
+    var autoGb  = (window.ZRAM_PAGE.MEM_KB * pct / 100 / 1048576).toFixed(1);
     document.getElementById('zram_percent_label').textContent = pct + '%';
-    document.getElementById('zram_auto_info').textContent = pct + '% of ' + gb + 'GB = ' + mb + 'MB';
+    document.getElementById('zram_auto_info').textContent = pct + '% of ' + totalGb + 'GB = ' + autoGb + 'GB';
 }
 
 function syncFormValues() {
@@ -82,16 +82,30 @@ function loadDrives() {
         }
         var html = '';
         data.drives.forEach(function(d) {
-            var cls = d.classify === 'recommended' ? 'indicator-green' : d.classify === 'warn' ? 'indicator-orange' : 'indicator-green';
-            var badge = d.classify === 'recommended' ? ' <span style="color:#7fba59;font-size:0.75em;">[Recommended]</span>' : '';
-            if (d.classify === 'warn') badge = ' <span style="color:#ff8c00;font-size:0.75em;">[Not Recommended]</span>';
+            var cls;
+            if (d.classify === 'recommended')      cls = 'indicator-green';
+            else if (d.classify === 'warn')        cls = 'indicator-orange';
+            else if (d.classify === 'blocked')     cls = 'indicator-red';
+            else                                   cls = 'indicator-green';
+
+            var badge = '';
+            if (d.classify === 'recommended')      badge = ' <span style="color:#7fba59;font-size:0.75em;">[Recommended]</span>';
+            else if (d.classify === 'warn')        badge = ' <span style="color:#ff8c00;font-size:0.75em;">[Not Recommended]</span>';
+            else if (d.classify === 'blocked')     badge = ' <span style="color:#cc3333;font-size:0.75em;">[Not Supported]</span>';
+
             var free = formatDriveSize(d.free_bytes);
-            html += '<div class="zram-drive-row" onclick="selectDrive(this,\'' + d.mount.replace(/'/g, "\\'") + '\')">';
+            var rowCls = 'zram-drive-row' + (d.clickable === false ? ' zram-drive-row-blocked' : '');
+            var clickAttr = d.clickable === false
+                ? ''
+                : ' onclick="selectDrive(this,\'' + d.mount.replace(/'/g, "\\'") + '\')"';
+            var warnColor = d.classify === 'blocked' ? '#cc3333' : '#ff8c00';
+
+            html += '<div class="' + rowCls + '"' + clickAttr + '>';
             html += '<div class="indicator ' + cls + '"></div>';
             html += '<div style="flex:1;">';
             html += '<div style="font-weight:bold;font-size:0.9em;">' + d.mount + badge + '</div>';
             html += '<div style="font-size:0.8em;opacity:0.6;">' + d.model + ' &middot; ' + d.transport.toUpperCase() + ' &middot; ' + free + ' free</div>';
-            if (d.warning) html += '<div style="font-size:0.8em;color:#ff8c00;margin-top:2px;">' + d.warning + '</div>';
+            if (d.warning) html += '<div style="font-size:0.8em;color:' + warnColor + ';margin-top:2px;">' + d.warning + '</div>';
             html += '</div></div>';
         });
         list.innerHTML = html;
@@ -99,6 +113,7 @@ function loadDrives() {
 }
 
 function selectDrive(el, mount) {
+    if (el.classList.contains('zram-drive-row-blocked')) return;
     document.querySelectorAll('.zram-drive-row').forEach(function(r) { r.classList.remove('selected'); });
     el.classList.add('selected');
     window.ZRAM_PAGE.selectedMount = mount;

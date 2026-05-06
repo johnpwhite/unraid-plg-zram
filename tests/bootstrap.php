@@ -17,7 +17,8 @@ register_shutdown_function(function() use ($tmp) {
 });
 
 define('ZRAM_LABEL', 'ZRAM_CARD');
-define('ZRAM_SSD_LABEL', 'ZRAM_CARD_SSD');
+define('ZRAM_SSD_LABEL', 'ZRAM_CARD_DISK');
+define('ZRAM_LEGACY_SSD_LABEL', 'ZRAM_CARD_SSD');
 define('ZRAM_CONFIG_FILE', "$tmp/settings.ini");
 define('ZRAM_LOG_DIR', $tmp);
 define('ZRAM_DEBUG_LOG', "$tmp/debug.log");

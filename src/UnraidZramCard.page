@@ -68,7 +68,7 @@ if ($ourDev && file_exists("/sys/block/$ourDev")) {
 $memKb = 0;
 $meminfo = @file_get_contents('/proc/meminfo') ?: '';
 if (preg_match('/MemTotal:\s+(\d+)/', $meminfo, $mm)) $memKb = intval($mm[1]);
-$autoSizeMB = intval($memKb * intval($settings['zram_percent']) / 100 / 1024);
+$autoSizeGB = round($memKb * intval($settings['zram_percent']) / 100 / 1048576, 1);
 $memTotalGB = round($memKb / 1048576, 1);
 
 // Supported algorithms
@@ -131,8 +131,10 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 .zram-tab.active { background: #1a1a1a; color: #ff8c00; border-bottom: 1px solid #ff8c00; }
 .zram-card-body input, .zram-card-body select { background: #111 !important; border: 1px solid #444 !important; color: #eee !important; padding: 4px 8px !important; border-radius: 3px; font-size: 0.95em; }
 .zram-card-body input:focus, .zram-card-body select:focus { border-color: #ff8c00 !important; outline: none; }
-.zram-card-body dl dt { color: #aaa; font-weight: normal; font-size: 0.9em; width: 180px; line-height: 2.2; }
-.zram-card-body dl dd { margin-bottom: 4px; color: #eee; }
+.zram-card-body dl dt { color: #aaa; font-weight: normal; font-size: 0.9em; width: 180px; line-height: 1.6; }
+.zram-card-body dl dd { margin-bottom: 2px; color: #eee; line-height: 1.6; }
+.zram-field-row { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.zram-field-row .zram-field-info { font-size: 0.9em; opacity: 0.7; white-space: nowrap; }
 #console-log, #debug-log-view { flex: 1; overflow-y: auto; padding: 15px; color: #00ff00; font-family: 'Courier New', monospace; font-size: 0.9em; line-height: 1.4; }
 #debug-log-view { color: #aaa; background: #0d0d0d; display: none; white-space: pre-wrap; }
 .log-entry { margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px solid #222; font-family: 'Courier New', monospace; }
@@ -145,9 +147,12 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 .zram-drive-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; border: 1px solid #333; margin-bottom: 4px; cursor: pointer; transition: border-color 0.2s; }
 .zram-drive-row:hover { border-color: #ff8c00; }
 .zram-drive-row.selected { border-color: #ff8c00; background: rgba(255,140,0,0.05); }
+.zram-drive-row-blocked { cursor: not-allowed; opacity: 0.55; }
+.zram-drive-row-blocked:hover { border-color: #333; }
 .zram-drive-row .indicator { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .indicator-green { background: #7fba59; }
 .indicator-orange { background: #ff8c00; }
+.indicator-red { background: #cc3333; }
 </style>
 
 <div class="zram-layout">
@@ -182,26 +187,34 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
         <dl>
             <dt>Size:</dt>
             <dd>
-                <select name="zram_size_mode" id="zram_size_mode" onchange="toggleSizeMode()" style="width:90px;">
-                    <option value="auto" <?php echo ($settings['zram_size'] === 'auto') ? 'selected' : ''; ?>>Auto</option>
-                    <option value="custom" <?php echo ($settings['zram_size'] !== 'auto') ? 'selected' : ''; ?>>Custom</option>
-                </select>
-                <span id="zram_auto_info" style="margin-left:8px;font-size:0.9em;opacity:0.7;">
-                    <?php echo $settings['zram_percent']; ?>% of <?php echo $memTotalGB; ?>GB = <?php echo $autoSizeMB; ?>MB
+                <span class="zram-field-row">
+                    <select name="zram_size_mode" id="zram_size_mode" onchange="toggleSizeMode()" style="width:90px;">
+                        <option value="auto" <?php echo ($settings['zram_size'] === 'auto') ? 'selected' : ''; ?>>Auto</option>
+                        <option value="custom" <?php echo ($settings['zram_size'] !== 'auto') ? 'selected' : ''; ?>>Custom</option>
+                    </select>
+                    <input type="text" id="zram_custom_size" value="<?php echo ($settings['zram_size'] !== 'auto') ? htmlspecialchars($settings['zram_size']) : '4G'; ?>" style="width:70px;display:<?php echo ($settings['zram_size'] !== 'auto') ? 'inline' : 'none'; ?>;">
+                    <span id="zram_auto_info" class="zram-field-info">
+                        <?php echo $settings['zram_percent']; ?>% of <?php echo $memTotalGB; ?>GB = <?php echo $autoSizeGB; ?>GB
+                    </span>
                 </span>
-                <input type="text" id="zram_custom_size" value="<?php echo ($settings['zram_size'] !== 'auto') ? htmlspecialchars($settings['zram_size']) : '4G'; ?>" style="width:70px;display:<?php echo ($settings['zram_size'] !== 'auto') ? 'inline' : 'none'; ?>;">
             </dd>
             <dt>Auto Size (% of RAM):</dt>
             <dd>
-                <input type="range" id="zram_percent_slider" min="25" max="75" value="<?php echo intval($settings['zram_percent']); ?>" oninput="updateAutoSize()" style="width:160px;vertical-align:middle;">
-                <span id="zram_percent_label"><?php echo intval($settings['zram_percent']); ?>%</span>
+                <span class="zram-field-row">
+                    <input type="range" id="zram_percent_slider" min="25" max="75" value="<?php echo intval($settings['zram_percent']); ?>" oninput="updateAutoSize()" style="width:160px;vertical-align:middle;">
+                    <span id="zram_percent_label" class="zram-field-info"><?php echo intval($settings['zram_percent']); ?>%</span>
+                </span>
             </dd>
             <dt>Algorithm:</dt>
-            <dd><select id="zram_algo_select" style="width:100px;">
-                <?php foreach ($algos as $a): ?>
-                <option value="<?php echo $a; ?>" <?php echo ($settings['zram_algo'] == $a) ? 'selected' : ''; ?>><?php echo $a; ?></option>
-                <?php endforeach; ?>
-            </select></dd>
+            <dd>
+                <span class="zram-field-row">
+                    <select id="zram_algo_select" style="width:100px;">
+                        <?php foreach ($algos as $a): ?>
+                        <option value="<?php echo $a; ?>" <?php echo ($settings['zram_algo'] == $a) ? 'selected' : ''; ?>><?php echo $a; ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </span>
+            </dd>
         </dl>
     </div>
 </div>

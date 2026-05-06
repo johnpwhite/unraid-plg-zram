@@ -9,7 +9,8 @@
  */
 
 defined('ZRAM_LABEL')        || define('ZRAM_LABEL', 'ZRAM_CARD');
-defined('ZRAM_SSD_LABEL')    || define('ZRAM_SSD_LABEL', 'ZRAM_CARD_SSD');
+defined('ZRAM_SSD_LABEL')    || define('ZRAM_SSD_LABEL', 'ZRAM_CARD_DISK');
+defined('ZRAM_LEGACY_SSD_LABEL') || define('ZRAM_LEGACY_SSD_LABEL', 'ZRAM_CARD_SSD');
 defined('ZRAM_CONFIG_FILE')  || define('ZRAM_CONFIG_FILE', '/boot/config/plugins/unraid-zram-card/settings.ini');
 defined('ZRAM_LOG_DIR')      || define('ZRAM_LOG_DIR', '/tmp/unraid-zram-card');
 defined('ZRAM_DEBUG_LOG')    || define('ZRAM_DEBUG_LOG', ZRAM_LOG_DIR . '/debug.log');

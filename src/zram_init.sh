@@ -1,6 +1,6 @@
 #!/bin/bash
 # zram_init.sh — Boot initialization for ZRAM Card plugin
-# Creates labeled ZRAM swap, reactivates SSD swap file, launches collector
+# Creates labeled ZRAM swap, reactivates disk swap file, launches collector
 
 LOG_DIR="/tmp/unraid-zram-card"
 mkdir -p "$LOG_DIR"
@@ -9,7 +9,8 @@ DEBUG_LOG="$LOG_DIR/debug.log"
 CONFIG="/boot/config/plugins/unraid-zram-card/settings.ini"
 DEVICE_FILE="$LOG_DIR/device.conf"
 ZRAM_LABEL="ZRAM_CARD"
-SSD_LABEL="ZRAM_CARD_SSD"
+SSD_LABEL="ZRAM_CARD_DISK"
+SSD_LEGACY_LABEL="ZRAM_CARD_SSD"
 
 {
 echo "--- ZRAM BOOT INIT START: $(date) ---"
@@ -128,7 +129,7 @@ else
     fi
 fi
 
-# --- Tier 2: SSD swap file ---
+# --- Tier 2: Disk swap file ---
 SSD_ENABLED=$(cfg_val "ssd_swap_enabled")
 SSD_PATH=$(cfg_val "ssd_swap_path")
 
@@ -138,6 +139,17 @@ if [ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ]; then
         if grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
             zlog "Disk swap already active: $SSD_PATH" "INFO"
         else
+            # Migrate legacy ZRAM_CARD_SSD label to ZRAM_CARD_DISK while
+            # the swap is offline. Keeps existing installs from showing
+            # the old label in syslog after upgrade.
+            if command -v swaplabel >/dev/null 2>&1; then
+                CURRENT_LABEL=$(swaplabel "$SSD_PATH" 2>/dev/null | awk '/LABEL:/{print $2}')
+                if [ "$CURRENT_LABEL" = "$SSD_LEGACY_LABEL" ]; then
+                    if swaplabel -L "$SSD_LABEL" "$SSD_PATH" 2>/dev/null; then
+                        zlog "Relabeled $SSD_PATH from $SSD_LEGACY_LABEL to $SSD_LABEL" "INFO"
+                    fi
+                fi
+            fi
             zlog "Activating disk swap: $SSD_PATH" "INFO"
             $SWAPON "$SSD_PATH" -p 10 2>&1 || zlog "Failed to activate disk swap" "ERROR"
         fi
