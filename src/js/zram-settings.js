@@ -313,41 +313,85 @@ function savePriorities() {
         }
         return;
     }
-    var CSRF = window.ZRAM_PAGE.CSRF;
-    var API  = window.ZRAM_PAGE.API;
-    var btn  = document.getElementById('btn-save-priorities');
-    if (btn) btn.disabled = true;
-    var params = 'action=update_priorities' +
-                 '&zram=' + encodeURIComponent(z) +
-                 '&ssd='  + encodeURIComponent(s) +
-                 '&csrf_token=' + encodeURIComponent(CSRF);
-    $.get(API + '?' + params, function(data) {
-        if (data && data.success) {
-            if (data.warnings && data.warnings.length > 0) {
-                if (typeof swal === 'function') {
-                    swal({ title: "Saved with warnings", text: data.message, type: "warning" });
+
+    // Build the human-readable diff: "Tier 1: 100 → 80, Tier 2: 10 → 10".
+    // Source the "old" values from the inputs' defaultValue (set by PHP on render).
+    var zOld = parseInt(document.getElementById('zram_priority_input').defaultValue, 10);
+    var sOld = parseInt(document.getElementById('ssd_priority_input').defaultValue, 10);
+    var zChanged = !isNaN(zOld) && zOld !== z;
+    var sChanged = !isNaN(sOld) && sOld !== s;
+    if (!zChanged && !sChanged) {
+        // No-op save — nothing to confirm or send. Surface a passive indicator and bail.
+        showSavedIndicator(document.getElementById('btn-save-priorities'), 'No change', 'ok');
+        return;
+    }
+
+    var diffLines = [];
+    if (zChanged) diffLines.push('Tier 1 (ZRAM): ' + zOld + ' → ' + z);
+    else          diffLines.push('Tier 1 (ZRAM): ' + z + ' (unchanged)');
+    if (sChanged) diffLines.push('Tier 2 (Disk): ' + sOld + ' → ' + s);
+    else          diffLines.push('Tier 2 (Disk): ' + s + ' (unchanged)');
+
+    var doSave = function() {
+        var CSRF = window.ZRAM_PAGE.CSRF;
+        var API  = window.ZRAM_PAGE.API;
+        var btn  = document.getElementById('btn-save-priorities');
+        if (btn) btn.disabled = true;
+        var params = 'action=update_priorities' +
+                     '&zram=' + encodeURIComponent(z) +
+                     '&ssd='  + encodeURIComponent(s) +
+                     '&csrf_token=' + encodeURIComponent(CSRF);
+        $.get(API + '?' + params, function(data) {
+            if (data && data.success) {
+                if (data.warnings && data.warnings.length > 0) {
+                    if (typeof swal === 'function') {
+                        swal({ title: "Saved with warnings", text: data.message, type: "warning" });
+                    } else {
+                        addLog(data.message, 'err');
+                    }
                 } else {
-                    addLog(data.message, 'err');
+                    showSavedIndicator(btn, 'Saved ✓', 'ok');
+                    addLog(data.message, 'cmd');
                 }
+                // Refresh defaultValue so a subsequent edit diffs against the new baseline
+                document.getElementById('zram_priority_input').defaultValue = String(z);
+                document.getElementById('ssd_priority_input').defaultValue  = String(s);
+                fetchActivity();
             } else {
-                showSavedIndicator(btn, 'Saved ✓', 'ok');
-                addLog(data.message, 'cmd');
+                var msg = (data && data.message) || 'Save failed';
+                if (typeof swal === 'function') {
+                    swal({ title: "Save rejected", text: msg, type: "error" });
+                } else {
+                    addLog('Priority save failed: ' + msg, 'err');
+                }
             }
-            // Refresh activity feed so the swapoff/swapon entries appear
-            fetchActivity();
-        } else {
-            var msg = (data && data.message) || 'Save failed';
-            if (typeof swal === 'function') {
-                swal({ title: "Save rejected", text: msg, type: "error" });
-            } else {
-                addLog('Priority save failed: ' + msg, 'err');
-            }
-        }
-        if (btn) btn.disabled = false;
-    }).fail(function() {
-        if (btn) btn.disabled = false;
-        addLog('Priority save request failed', 'err');
-    });
+            if (btn) btn.disabled = false;
+        }).fail(function() {
+            if (btn) btn.disabled = false;
+            addLog('Priority save request failed', 'err');
+        });
+    };
+
+    // Final-confirm overlay: shows the exact change being applied. Not a
+    // duplicate of the first-expand warning — that warning explained the
+    // /risk/ in general; this one shows the /specific/ change about to land.
+    if (typeof swal === 'function') {
+        swal({
+            title: "Apply priority change?",
+            text: diffLines.join('\n') + '\n\nIf the device is currently active this will swapoff/swapon to re-prioritise. Tier 1 must remain greater than Tier 2.',
+            type: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Apply change",
+            cancelButtonText: "Cancel",
+            closeOnConfirm: true,
+            closeOnCancel: true
+        }, function(confirmed) {
+            if (confirmed) doSave();
+        });
+    } else {
+        // No swal available — fall back to native confirm
+        if (confirm('Apply priority change?\n\n' + diffLines.join('\n'))) doSave();
+    }
 }
 
 function resetPriorities() {

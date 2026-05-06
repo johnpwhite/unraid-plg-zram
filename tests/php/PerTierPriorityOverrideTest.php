@@ -159,10 +159,18 @@ final class PerTierPriorityOverrideTest extends TestCase
             $this->initSrc,
             'init.sh must use $ZRAM_PRIO variable instead of literal 100 on the ZRAM swapon'
         );
+        // The disk swapon now lives inside activate_disk_swap() — the actual
+        // swapon line uses local $path / $prio variables. Pin the shape there
+        // and additionally verify no -p 10 literal survives anywhere in init.sh.
         $this->assertMatchesRegularExpression(
-            '/SWAPON.*"\$SSD_PATH"\s+-p\s+"\$SSD_PRIO"/',
+            '/\$SWAPON\s+"\$path"\s+-p\s+"\$prio"/',
             $this->initSrc,
-            'init.sh must use $SSD_PRIO variable instead of literal 10 on the disk swapon'
+            'activate_disk_swap must call SWAPON with the configured priority variable'
+        );
+        $this->assertStringNotContainsString(
+            '-p 10',
+            $this->initSrc,
+            'no literal "-p 10" must survive in init.sh — disk priority must come from config'
         );
     }
 

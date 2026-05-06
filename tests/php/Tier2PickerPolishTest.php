@@ -103,8 +103,12 @@ final class Tier2PickerPolishTest extends TestCase
             $this->initSrc,
             'init.sh must remember the legacy label name for migration'
         );
+        // Refactor in 2026.05.06.09 moved the relabel block into the
+        // activate_disk_swap function. Anchor on "command -v swaplabel" then
+        // the legacy label comparison then the relabel call — variable name
+        // (CURRENT_LABEL vs cur) intentionally not pinned.
         $this->assertMatchesRegularExpression(
-            '/command -v swaplabel.*?CURRENT_LABEL.*?SSD_LEGACY_LABEL.*?swaplabel -L "\$SSD_LABEL"/s',
+            '/command -v swaplabel[\s\S]+?\$SSD_LEGACY_LABEL[\s\S]+?swaplabel -L "\$SSD_LABEL"/',
             $this->initSrc,
             'init.sh must contain a swaplabel migration block keyed on the legacy label'
         );

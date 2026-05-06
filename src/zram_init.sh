@@ -139,35 +139,69 @@ fi
 SSD_ENABLED=$(cfg_val "ssd_swap_enabled")
 SSD_PATH=$(cfg_val "ssd_swap_path")
 
+# Activate Tier 2 disk swap. Returns 0 on success (or already-active), 1 on
+# missing file, 2 on swapon failure. Used by both the synchronous boot path
+# below and the background retry poller (when the mount is not yet ready at
+# the time init.sh runs). Centralised here so the relabel migration and
+# priority handling stay identical across paths.
+activate_disk_swap() {
+    local path="$1"
+    [ -f "$path" ] || return 1
+    if grep -q "$path" /proc/swaps 2>/dev/null; then
+        return 0  # already active — nothing to do
+    fi
+    # Migrate legacy ZRAM_CARD_SSD label to ZRAM_CARD_DISK while offline.
+    if command -v swaplabel >/dev/null 2>&1; then
+        local cur
+        cur=$(swaplabel "$path" 2>/dev/null | awk '/LABEL:/{print $2}')
+        if [ "$cur" = "$SSD_LEGACY_LABEL" ]; then
+            if swaplabel -L "$SSD_LABEL" "$path" 2>/dev/null; then
+                zlog "Relabeled $path from $SSD_LEGACY_LABEL to $SSD_LABEL" "INFO"
+            fi
+        fi
+    fi
+    local prio
+    prio=$(cfg_val "ssd_swap_priority"); [ -z "$prio" ] && prio="10"
+    case "$prio" in (*[!0-9]*|"") prio="10" ;; esac
+    [ "$prio" -gt 32767 ] 2>/dev/null && prio="10"
+    zlog "Activating disk swap: $path (priority=$prio)" "INFO"
+    $SWAPON "$path" -p "$prio" 2>&1 || return 2
+    return 0
+}
+
 if [ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ]; then
     if [ -f "$SSD_PATH" ]; then
-        # Check if already active
         if grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
             zlog "Disk swap already active: $SSD_PATH" "INFO"
         else
-            # Migrate legacy ZRAM_CARD_SSD label to ZRAM_CARD_DISK while
-            # the swap is offline. Keeps existing installs from showing
-            # the old label in syslog after upgrade.
-            if command -v swaplabel >/dev/null 2>&1; then
-                CURRENT_LABEL=$(swaplabel "$SSD_PATH" 2>/dev/null | awk '/LABEL:/{print $2}')
-                if [ "$CURRENT_LABEL" = "$SSD_LEGACY_LABEL" ]; then
-                    if swaplabel -L "$SSD_LABEL" "$SSD_PATH" 2>/dev/null; then
-                        zlog "Relabeled $SSD_PATH from $SSD_LEGACY_LABEL to $SSD_LABEL" "INFO"
-                    fi
-                fi
-            fi
-            SSD_PRIO=$(cfg_val "ssd_swap_priority"); [ -z "$SSD_PRIO" ] && SSD_PRIO="10"
-            case "$SSD_PRIO" in (*[!0-9]*|"") SSD_PRIO="10" ;; esac
-            [ "$SSD_PRIO" -gt 32767 ] 2>/dev/null && SSD_PRIO="10"
-            zlog "Activating disk swap: $SSD_PATH (priority=$SSD_PRIO)" "INFO"
-            $SWAPON "$SSD_PATH" -p "$SSD_PRIO" 2>&1 || zlog "Failed to activate disk swap" "ERROR"
+            activate_disk_swap "$SSD_PATH" || zlog "Failed to activate disk swap" "ERROR"
         fi
     else
         SSD_MOUNT=$(cfg_val "ssd_swap_mount")
         if mountpoint -q "$SSD_MOUNT" 2>/dev/null; then
             zlog "Disk swap file missing but mount available. File may need recreation." "WARN"
         else
-            zlog "Disk swap mount ($SSD_MOUNT) not available yet. Skipping Tier 2." "WARN"
+            # Boot race: UD / pool mounts come up AFTER plugin start. Spawn a
+            # background poller that retries every 5s for up to 5 minutes.
+            # See docs/specs/TIER2_BOOT_RETRY.md.
+            zlog "Disk swap mount ($SSD_MOUNT) not ready — scheduling background retry (60 x 5s)" "INFO"
+            (
+                for i in $(seq 1 60); do
+                    sleep 5
+                    if [ -f "$SSD_PATH" ]; then
+                        if grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
+                            zlog "Tier 2 active by external trigger after $((i*5))s wait" "INFO"
+                            exit 0
+                        fi
+                        if activate_disk_swap "$SSD_PATH"; then
+                            zlog "Tier 2 activated after $((i*5))s wait" "INFO"
+                            exit 0
+                        fi
+                    fi
+                done
+                zlog "Disk swap mount ($SSD_MOUNT) never appeared after 5 minutes — Tier 2 stays inactive. Check that the mount comes up on boot." "WARN"
+            ) > /dev/null 2>&1 &
+            disown
         fi
     fi
 fi
