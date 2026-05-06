@@ -194,7 +194,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 .zram-advanced-warning em { color: #ff8c00; font-style: normal; font-weight: bold; }
 .zram-advanced dl input[type="number"] { width: 80px; }
 .zram-advanced dl input[type="number"]:disabled { opacity: 0.5; cursor: not-allowed; }
-.zram-priority-buttons { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.zram-priority-buttons { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; justify-content: flex-end; }
 .zram-saved-indicator { display: inline-block; margin-left: 8px; color: #7fba59; font-size: 0.85em; font-weight: bold; opacity: 1; transition: opacity 0.5s ease-out; vertical-align: middle; }
 .zram-saved-indicator.zram-saved-indicator-err { color: #ff5555; }
 .zram-saved-indicator.fade { opacity: 0; }
@@ -375,10 +375,13 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
                 </dl>
                 <!-- Buttons live outside the dl so they aren't trapped inside
                      the dt/dd grid. Empty dt collapses under Unraid site CSS
-                     and pulls the dd into column 1, breaking inline-flex. -->
+                     and pulls the dd into column 1, breaking inline-flex.
+                     Order: destructive/secondary first (RESET), primary action
+                     last (SAVE) — same pattern as Unraid's own dialogs and
+                     Web defaults (Cancel left, OK right). -->
                 <div class="zram-priority-buttons">
-                    <button type="button" class="zram-btn" id="btn-save-priorities" onclick="savePriorities()" disabled>SAVE</button>
                     <button type="button" class="zram-btn" onclick="resetPriorities()">RESET TO DEFAULTS</button>
+                    <button type="button" class="zram-btn" id="btn-save-priorities" onclick="savePriorities()" disabled>SAVE</button>
                 </div>
             </div>
         </details>
