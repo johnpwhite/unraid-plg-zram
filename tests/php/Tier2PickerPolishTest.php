@@ -203,17 +203,28 @@ final class Tier2PickerPolishTest extends TestCase
 
     public function testRowSpacingIsTighter(): void
     {
-        // Old: line-height 2.2. New: 1.6. Catch a future refactor that loosens
-        // the rows back to where they were.
+        // Was: line-height 2.2 with floated dt (broke vertical alignment).
+        // Now: grid layout with align-items:center and line-height 1.4.
+        // Catch a future refactor that loosens the rows or breaks alignment.
         $this->assertMatchesRegularExpression(
-            '/\.zram-card-body\s+dl\s+dt\s*\{[^}]*line-height:\s*1\.6/',
+            '/\.zram-card-body\s+dl\s*\{[^}]*display:\s*grid/',
             $this->pageSrc,
-            'dt line-height must be 1.6 (tightened from 2.2)'
+            'dl must use grid layout so dt+dd line up vertically per row'
         );
         $this->assertMatchesRegularExpression(
-            '/\.zram-card-body\s+dl\s+dd\s*\{[^}]*line-height:\s*1\.6/',
+            '/\.zram-card-body\s+dl\s*\{[^}]*align-items:\s*center/',
             $this->pageSrc,
-            'dd line-height must be 1.6 to match'
+            'dl grid must align items centred so labels sit middle of tall controls (slider)'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.zram-card-body\s+dl\s+dt\s*\{[^}]*line-height:\s*1\.4/',
+            $this->pageSrc,
+            'dt line-height must be 1.4 (tightened from 2.2)'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.zram-card-body\s+dl\s+dd\s*\{[^}]*line-height:\s*1\.4/',
+            $this->pageSrc,
+            'dd line-height must be 1.4 to match'
         );
     }
 }

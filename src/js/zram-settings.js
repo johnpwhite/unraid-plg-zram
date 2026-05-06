@@ -41,6 +41,23 @@ function createZram() {
     zramAction('create_zram', buildCreateZramParams());
 }
 
+// Friendly labels for action identifiers. The wire identifier stays
+// snake_case (matches the PHP handler shape and stays grep-friendly), but the
+// log toast shows a human phrase instead of the raw id.
+var ZRAM_ACTION_LABELS = {
+    create_zram:      'Create ZRAM swap',
+    remove_zram:      'Remove ZRAM swap',
+    create_disk_swap: 'Create disk swap file',
+    remove_disk_swap: 'Remove disk swap file',
+    update_swappiness:'Update swappiness',
+    clear_log:        'Clear log',
+    view_log:         'View log',
+    // Legacy aliases — left in so any in-flight UI session still gets a
+    // friendly label until the next page reload picks up the new JS.
+    create_ssd_swap:  'Create disk swap file',
+    remove_ssd_swap:  'Remove disk swap file'
+};
+
 function zramAction(action, extra) {
     var CSRF = window.ZRAM_PAGE.CSRF;
     var API = window.ZRAM_PAGE.API;
@@ -48,7 +65,8 @@ function zramAction(action, extra) {
     if (extra) params += '&' + extra;
     var btn = event ? event.target : null;
     if (btn) btn.disabled = true;
-    addLog('Running: ' + action + '...', 'cmd');
+    var label = ZRAM_ACTION_LABELS[action] || action;
+    addLog('Running: ' + label + '...', 'cmd');
 
     $.get(API + '?' + params, function(data) {
         if (data.logs) data.logs.forEach(function(l) {
@@ -117,13 +135,13 @@ function selectDrive(el, mount) {
     document.querySelectorAll('.zram-drive-row').forEach(function(r) { r.classList.remove('selected'); });
     el.classList.add('selected');
     window.ZRAM_PAGE.selectedMount = mount;
-    document.getElementById('btn-create-ssd').disabled = false;
+    document.getElementById('btn-create-disk').disabled = false;
 }
 
-function createSsdSwap() {
+function createDiskSwap() {
     if (!window.ZRAM_PAGE.selectedMount) return;
     var size = document.getElementById('ssd_swap_size').value;
-    zramAction('create_ssd_swap', 'mount=' + encodeURIComponent(window.ZRAM_PAGE.selectedMount) + '&size=' + encodeURIComponent(size));
+    zramAction('create_disk_swap', 'mount=' + encodeURIComponent(window.ZRAM_PAGE.selectedMount) + '&size=' + encodeURIComponent(size));
 }
 
 function formatDriveSize(bytes) {

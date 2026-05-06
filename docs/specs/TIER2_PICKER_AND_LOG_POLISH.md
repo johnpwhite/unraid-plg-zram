@@ -53,9 +53,18 @@ Three rough edges on top of `2026.05.05.02`:
 - `loadDrives()` builds the `onclick` attribute conditionally — blocked rows get no handler
 - `selectDrive()` checks `el.classList.contains('zram-drive-row-blocked')` and bails
 
-### Tighter rows
-- `.zram-card-body dl dt { line-height: 1.6 }` (was 2.2)
-- `.zram-card-body dl dd { margin-bottom: 2px; line-height: 1.6 }` (was 4px / default)
+### Tighter rows + vertical alignment (revised in 2026.05.06.02)
+- `.zram-card-body dl { display: grid; grid-template-columns: 180px 1fr; align-items: center; }`
+- `dt` line-height 1.4 (right-aligned, no float)
+- `dd` line-height 1.4, padding 2px 0
+- Why grid: Unraid's site CSS floats `dt` left, which top-aligns the label even when `dd` contains a tall control (the range slider). User saw "Auto Size (% of RAM):" sitting visibly lower than the slider's vertical centre. Grid + `align-items: center` lines up label baseline with control mid-line per row.
+
+### Action identifier rename (added in 2026.05.06.02)
+- `create_ssd_swap` → `create_disk_swap` (PHP handler accepts both)
+- `remove_ssd_swap` → `remove_disk_swap` (PHP handler accepts both)
+- JS function `createSsdSwap` → `createDiskSwap`; button id `btn-create-ssd` → `btn-create-disk`
+- New `ZRAM_ACTION_LABELS` map in zram-settings.js so the toast says "Running: Create disk swap file..." not "Running: create_ssd_swap..."
+- Why: user reported seeing "create_ssd_swap" in the live action log; identifier was leaking through `addLog('Running: ' + action + '...')`. Backward-compat aliases on the PHP side mean any in-flight UI session (cached pre-upgrade JS) keeps working until next reload picks up the cache-busted asset.
 
 ## Settings
 None.

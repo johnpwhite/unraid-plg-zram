@@ -206,9 +206,13 @@ if ($action === 'remove_zram') {
     exit;
 }
 
-// --- SSD SWAP FILE ACTIONS ---
+// --- DISK SWAP FILE ACTIONS ---
+// 'create_ssd_swap' / 'remove_ssd_swap' are accepted as legacy aliases so a
+// settings tab loaded from a pre-upgrade page asset (cached JS) keeps working
+// for one session post-upgrade. The cache-buster on the .page render bumps
+// next time, so subsequent requests use the new identifiers.
 
-if ($action === 'create_ssd_swap') {
+if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
     $mount = filter_input(INPUT_GET, 'mount', FILTER_UNSAFE_RAW) ?: '';
     $sizeStr = filter_input(INPUT_GET, 'size', FILTER_UNSAFE_RAW) ?: '16G';
 
@@ -291,7 +295,7 @@ if ($action === 'create_ssd_swap') {
     exit;
 }
 
-if ($action === 'remove_ssd_swap') {
+if ($action === 'remove_disk_swap' || $action === 'remove_ssd_swap') {
     $cfg = zram_config_read();
     $swapFile = $cfg['ssd_swap_path'] ?? '';
 
