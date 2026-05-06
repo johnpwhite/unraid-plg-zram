@@ -152,49 +152,121 @@ function formatDriveSize(bytes) {
 }
 
 function switchTab(tab) {
-    $('.zram-tab').removeClass('active');
-    $('#tab-' + tab).addClass('active');
-    if (tab === 'cmd') {
-        $('#console-log').show(); $('#debug-log-view').hide();
-        $('#btn-clear-cons').show(); $('#btn-clear-debug, #btn-refresh-debug').hide();
-    } else {
-        $('#console-log').hide(); $('#debug-log-view').show();
-        $('#btn-clear-cons').hide(); $('#btn-clear-debug, #btn-refresh-debug').show();
-        fetchDebugLog();
-    }
+    // Legacy tab function — no-op since the unified activity feed replaced the tabs.
+    // Retained so anyone calling it from a stale tab does not throw.
 }
 
-function fetchDebugLog() {
-    var v = document.getElementById('debug-log-view');
-    v.innerText = 'Loading...';
-    $.get(window.ZRAM_PAGE.API + '?action=view_log&csrf_token=' + encodeURIComponent(window.ZRAM_PAGE.CSRF), function(data) { v.innerText = data; v.scrollTop = v.scrollHeight; });
-}
+// --- Unified activity feed: cmd.log + debug.log merged into a single
+//     chronological view with filter chips. See docs/specs/UNIFIED_ACTIVITY_LOG.md.
+//     Filter map: All=everything · Commands=CMD,OUT · Events=INFO,DEBUG · Errors=ERROR ---
 
-function clearDebugLog() {
-    if (!confirm('Clear the system debug log?')) return;
-    $.get(window.ZRAM_PAGE.API + '?action=clear_log&csrf_token=' + encodeURIComponent(window.ZRAM_PAGE.CSRF), function() { fetchDebugLog(); });
-}
+var ACTIVITY_FILTERS = {
+    all:      null,
+    commands: ['CMD', 'OUT'],
+    events:   ['INFO', 'DEBUG'],
+    errors:   ['ERROR']
+};
+var activityCurrentFilter = 'all';
 
-function clearCmdLog() {
-    $.get(window.ZRAM_PAGE.API + '?action=clear_cmd_log&csrf_token=' + encodeURIComponent(window.ZRAM_PAGE.CSRF), function() {
-        document.getElementById('console-log').innerHTML = '';
-        addLog('Console cleared.');
+function fetchActivity() {
+    var CSRF = window.ZRAM_PAGE.CSRF;
+    var API  = window.ZRAM_PAGE.API;
+    $.get(API + '?action=view_activity&csrf_token=' + encodeURIComponent(CSRF), function(data) {
+        var log = document.getElementById('activity-log');
+        if (!log) return;
+        log.textContent = '';
+        if (!data || !data.entries || data.entries.length === 0) {
+            var empty = document.createElement('div');
+            empty.className = 'activity-empty';
+            empty.textContent = '(no activity yet)';
+            log.appendChild(empty);
+            return;
+        }
+        data.entries.forEach(function(e) { log.appendChild(buildActivityRow(e.ts, e.level, e.msg)); });
+        applyActivityFilter(activityCurrentFilter);
+        log.scrollTop = log.scrollHeight;
     });
 }
 
-function renderLog(entry) {
-    var log = document.getElementById('console-log');
-    if (!log) return;
-    var div = document.createElement('div');
-    div.className = 'log-entry' + (entry.type ? ' log-' + entry.type : '');
-    div.innerText = '[' + entry.time + '] ' + entry.msg;
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;
+function clearActivity() {
+    if (!confirm('Clear the activity log? This wipes both cmd.log and debug.log.')) return;
+    var CSRF = window.ZRAM_PAGE.CSRF;
+    var API  = window.ZRAM_PAGE.API;
+    $.get(API + '?action=clear_activity&csrf_token=' + encodeURIComponent(CSRF), function() {
+        fetchActivity();
+    });
 }
 
+function setActivityFilter(name) {
+    if (!ACTIVITY_FILTERS.hasOwnProperty(name)) return;
+    activityCurrentFilter = name;
+    document.querySelectorAll('.activity-chip').forEach(function(c) {
+        c.classList.toggle('active', c.dataset.filter === name);
+    });
+    applyActivityFilter(name);
+}
+
+function applyActivityFilter(name) {
+    var allowed = ACTIVITY_FILTERS[name];
+    document.querySelectorAll('.activity-row').forEach(function(row) {
+        row.style.display = (allowed === null || allowed.indexOf(row.dataset.level) >= 0) ? '' : 'none';
+    });
+}
+
+function buildActivityRow(ts, level, msg) {
+    var row = document.createElement('div');
+    row.className = 'activity-row';
+    row.dataset.level = level;
+
+    var tsEl = document.createElement('span');
+    tsEl.className = 'activity-ts';
+    tsEl.textContent = ts;
+
+    var badge = document.createElement('span');
+    badge.className = 'activity-badge activity-badge-' + level.toLowerCase();
+    badge.textContent = level;
+
+    var msgEl = document.createElement('span');
+    msgEl.className = 'activity-msg';
+    msgEl.textContent = msg;
+
+    row.appendChild(tsEl);
+    row.appendChild(badge);
+    row.appendChild(msgEl);
+    return row;
+}
+
+// Live action toasts: append a row to the visible feed AND persist to cmd.log
+// so it survives a page reload. Type maps to the activity badge: 'cmd' = CMD,
+// 'err' = ERROR, 'debug' = OUT, anything else = CMD (legacy callers).
 function addLog(msg, type) {
-    renderLog({ time: new Date().toLocaleTimeString(), msg: msg, type: type || '' });
+    var log = document.getElementById('activity-log');
+    if (log) {
+        // Drop the (no activity yet) placeholder if present
+        var empty = log.querySelector('.activity-empty');
+        if (empty) empty.remove();
+        var level = (type === 'err') ? 'ERROR' : (type === 'debug') ? 'OUT' : 'CMD';
+        var ts = new Date().toLocaleTimeString('en-GB', {hour12: false});
+        log.appendChild(buildActivityRow(ts, level, msg));
+        applyActivityFilter(activityCurrentFilter);
+        log.scrollTop = log.scrollHeight;
+    }
+    // Persist to cmd.log so the entry survives a page reload
     $.get(window.ZRAM_PAGE.API + '?action=append_cmd_log&msg=' + encodeURIComponent(msg) + '&type=' + encodeURIComponent(type || ''));
+}
+
+// Bootstrap activity feed on page load + wire chip clicks
+function bootstrapActivity() {
+    document.querySelectorAll('.activity-chip').forEach(function(c) {
+        c.addEventListener('click', function() { setActivityFilter(c.dataset.filter); });
+    });
+    fetchActivity();
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootstrapActivity);
+} else {
+    bootstrapActivity();
 }
 
 // --- Auto-save: every form field with data-autosave="true" persists on blur

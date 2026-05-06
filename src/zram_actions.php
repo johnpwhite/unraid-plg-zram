@@ -459,5 +459,67 @@ if ($action === 'clear_log') {
     exit;
 }
 
+// Unified activity feed — merges cmd.log (operator-friendly JSON lines) and
+// debug.log (timestamped plain text). See docs/specs/UNIFIED_ACTIVITY_LOG.md.
+//
+// Why merge instead of pick: zram_run() writes to both — cmd.log gets
+// "cmd -> Success" (friendly), debug.log gets "CMD: cmd | Status: 0 | Output: ..."
+// (diagnostic). Showing both is duplication, so we drop debug.log's CMD: lines
+// and let cmd.log carry shell-command rows. debug.log carries everything else
+// (INFO events, ERROR conditions, DEBUG when enabled).
+if ($action === 'view_activity') {
+    $entries = [];
+
+    // cmd.log: JSON lines per entry
+    if (file_exists(ZRAM_CMD_LOG)) {
+        $lines = @file(ZRAM_CMD_LOG, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+        foreach ($lines as $line) {
+            $j = json_decode($line, true);
+            if (!is_array($j) || !isset($j['msg'], $j['time'])) continue;
+            $type = $j['type'] ?? '';
+            $level = ($type === 'err') ? 'ERROR' : (($type === 'debug') ? 'OUT' : 'CMD');
+            $entries[] = [
+                'ts'    => $j['time'],
+                'level' => $level,
+                'msg'   => $j['msg'],
+            ];
+        }
+    }
+
+    // debug.log: plain text "[YYYY-MM-DD HH:MM:SS] [LEVEL] msg"
+    if (file_exists(ZRAM_DEBUG_LOG)) {
+        $lines = @file(ZRAM_DEBUG_LOG, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+        foreach ($lines as $line) {
+            if (!preg_match('/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s+\[(\w+)\]\s+(.*)$/', $line, $m)) continue;
+            $msg = $m[3];
+            // Drop "CMD: ..." dupes — already in cmd.log with friendlier formatting
+            if (strpos($msg, 'CMD: ') === 0) continue;
+            $entries[] = [
+                'ts'    => substr($m[1], 11),  // strip date, keep HH:MM:SS for consistency with cmd.log
+                'level' => strtoupper($m[2]),
+                'msg'   => $msg,
+            ];
+        }
+    }
+
+    // Sort chronologically (assumes same-day window — debug.log rotates at 1MB)
+    usort($entries, function($a, $b) { return strcmp($a['ts'], $b['ts']); });
+
+    // Cap at most-recent 500 to keep payload small and the DOM light
+    if (count($entries) > 500) $entries = array_slice($entries, -500);
+
+    echo json_encode(['success' => true, 'entries' => $entries]);
+    exit;
+}
+
+if ($action === 'clear_activity') {
+    @file_put_contents(ZRAM_CMD_LOG, "");
+    @file_put_contents(ZRAM_DEBUG_LOG, "");
+    zram_log("Logs cleared by user.", 'INFO');
+    zram_cmd_log("Activity log cleared.");
+    echo json_encode(['success' => true, 'message' => 'Activity log cleared']);
+    exit;
+}
+
 // Unknown action
 echo json_encode(['success' => false, 'message' => "Unknown action: $action"]);

@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.05.06.06">
+<!ENTITY version   "2026.05.06.07">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.06.06" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.06.07" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.05.06.07
+- Feat: unified Activity log replaces the Command History / System Debug Log tabs. User reported confusion: a swappiness change ran a real command (sysctl) but the two-tab UX hid which log surfaced it (in fact zram_run() writes to both). New /single feed/ on the side console pane. Filter chips at the top — All · Commands · Events · Errors — toggle visibility per row. Each entry rendered as [HH:MM:SS] [BADGE] message with colour-coded badges (CMD blue, INFO grey, ERROR red, DEBUG dim, OUT amber for command stdout). New PHP action view_activity merges cmd.log (JSON lines) and debug.log (plain text), normalises both into {ts, level, msg}, drops 'CMD: ...' dupes from debug.log (already in cmd.log with friendlier formatting), sorts chronologically, caps at most-recent 500. New action clear_activity truncates both files in one shot. Live action toasts (addLog) construct .activity-row directly so live and historical entries share DOM shape, and persist to cmd.log via append_cmd_log so they survive a page reload — fixes a side bug where the console pane started empty on every load even though cmd.log had entries from earlier sessions. Legacy actions view_log/clear_log/clear_cmd_log/append_cmd_log retained for backward compat (smoke.sh uses clear_cmd_log). switchTab kept as a no-op for any caller that hasn't reloaded yet. Spec: docs/specs/UNIFIED_ACTIVITY_LOG.md. Tests: new tests/php/UnifiedActivityLogTest.php (8 textual contracts on action handlers, dedup logic, page chips, css badge classes, JS function shape). Full suite: 54 PHPUnit tests / 328 assertions, 17 Vitest tests, 9 smoke assertions — all green locally.
 ## 2026.05.06.06
 - UI: hide Tier 1 size/auto-size/algorithm controls when a ZRAM device is active. Once a device is live those settings can not change without a REMOVE+CREATE cycle, so the controls were pure noise — same mirror of Tier 2's existing pattern (its create form is hidden once a disk swap is in use). Wrap the Tier 1 dl block in &lt;?php if (!$devActive): ?&gt; ... &lt;?php endif; ?&gt;. Status row + REMOVE button still render so the user always sees what is active. New PHPUnit guard testTier1ControlsHiddenWhenZramActive locks the conditional in place: anchors on the unique comment then asserts the if-shape between the comment and &lt;dt&gt;Size:&lt;/dt&gt; and the endif between &lt;/dl&gt; and the next card. Full suite: 47 PHPUnit tests / 265 assertions, 17 Vitest tests, 9 smoke assertions — all green locally.
 ## 2026.05.06.05
