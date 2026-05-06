@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.05.06.03">
+<!ENTITY version   "2026.05.06.04">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.06.03" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.06.04" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.05.06.04
+- UI: top-align Swappiness label with its input. Default grid align-items:center vertically centred the dt against the whole dd block — including the multi-paragraph help text — so the label drifted down from the input value. Added .zram-row-top utility class (align-self:start + small padding-top) and applied it to the Swappiness dt+dd pair so the label sits next to '150' as the user expected. Did not change global align-items because the slider rows look right centred. Pure CSS + class addition — no behaviour change. Full suite: 38 PHPUnit tests / 191 assertions, 17 Vitest tests, 9 smoke assertions — all green locally.
 ## 2026.05.06.03
 - Fix two issues from 2026.05.06.02 testing. (1) CREATE swap-file button stayed disabled after a remove+reload cycle. Root cause: 2026.05.06.02 renamed the button id (btn-create-ssd → btn-create-disk) and the JS function (createSsdSwap → createDiskSwap) but missed the matching attributes on the &lt;button&gt; declaration in UnraidZramCard.page itself. selectDrive() called getElementById('btn-create-disk') which returned null because the page element was still id='btn-create-ssd' — null.disabled = false threw silently and the button never enabled, so a green clickable drive row could never make the CREATE button respond. Fixed by updating the button declaration to match. New PHPUnit guard testCreateDiskButtonIdMatchesJsLookup walks every getElementById('btn-...') call in the JS and asserts a matching id='...' exists in the page source — catches this class of rename-skew across all current and future buttons. (2) Refresh Interval and Collection Interval used different units in the UI (ms vs sec). User asked to standardise. Both now show '(sec)' — refresh_interval is converted on render (storage_ms / 1000 with one decimal) and on save (input_seconds * 1000 = storage_ms). Storage units stay unchanged so existing user configs do not need a migration; refresh_interval=1500 simply displays as '1.5' instead of '1500'. POST handler also still accepts legacy raw-ms values (&gt;=100 treated as already-ms) so an in-flight pre-upgrade form submission keeps working. New PHPUnit guard testIntervalsBothExpressedInSeconds covers the label rename, the render-side division, the POST-side multiplication, and the legacy ms acceptance branch. Spec: docs/specs/TIER2_PICKER_AND_LOG_POLISH.md (revised). Full suite: 38 PHPUnit tests / 191 assertions, 17 Vitest tests, 9 smoke assertions — all green locally.
 ## 2026.05.06.02

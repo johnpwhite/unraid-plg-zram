@@ -149,6 +149,10 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 .zram-card-body dl { display: grid; grid-template-columns: 180px 1fr; column-gap: 12px; row-gap: 0; align-items: center; margin: 0; }
 .zram-card-body dl dt { color: #aaa; font-weight: normal; font-size: 0.9em; width: auto; line-height: 1.4; text-align: right; float: none; padding: 2px 0; margin: 0; }
 .zram-card-body dl dd { margin: 0; padding: 2px 0; color: #eee; line-height: 1.4; }
+/* For rows where dd contains an input + multi-line help text, anchor dt to
+   the top of the row so the label sits next to the input value (not vertically
+   centred against the whole help block). */
+.zram-card-body dl dt.zram-row-top, .zram-card-body dl dd.zram-row-top { align-self: start; padding-top: 6px; }
 .zram-field-row { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .zram-field-row .zram-field-info { font-size: 0.9em; opacity: 0.7; white-space: nowrap; }
 #console-log, #debug-log-view { flex: 1; overflow-y: auto; padding: 15px; color: #00ff00; font-family: 'Courier New', monospace; font-size: 0.9em; line-height: 1.4; }
@@ -299,8 +303,8 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
             <dd><input type="number" name="refresh_interval" value="<?php echo htmlspecialchars(number_format(intval($settings['refresh_interval']) / 1000, 1, '.', '')); ?>" min="1" step="0.5"></dd>
             <dt>Collection Interval (sec):</dt>
             <dd><input type="number" name="collection_interval" value="<?php echo htmlspecialchars($settings['collection_interval']); ?>" min="1" step="1"></dd>
-            <dt>Swappiness (0-200):</dt>
-            <dd>
+            <dt class="zram-row-top">Swappiness (0-200):</dt>
+            <dd class="zram-row-top">
                 <input type="number" name="swappiness" value="<?php echo htmlspecialchars($settings['swappiness']); ?>" min="0" max="200">
                 <div style="font-size:0.8em;opacity:0.7;margin-top:4px;line-height:1.4;">
                     <strong>60</strong> kernel default (disk-swap era) &middot;
