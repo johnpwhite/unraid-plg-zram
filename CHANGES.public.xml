@@ -1,4 +1,7 @@
 <CHANGES>
+## 2026.05.06.15
+- Fix: Dashboard "Compressed" chip and chart line now use the algorithm's compressed payload size, not total RAM occupied by the zram device. Previously, under light load, per-page metadata + slot rounding overhead could push the "RAM occupied" figure above the uncompressed data size, producing a visible contradiction with the Ratio chip (e.g. "Uncompressed 2.36 MB / Compressed 2.65 MB" while Ratio showed a healthy ratio). The Ratio chip was always correct — now the Compressed numbers and chart line match it.
+
 ## 2026.05.06.14
 - Feat: Plugin Settings auto-save. APPLY &amp; SAVE retired — every field commits on blur (text/number) or change (select/checkbox/slider) with an inline "Saved ✓" confirmation, and side effects are gated by key (sysctl vm.swappiness only when swappiness changed; collector restart only on collection_interval / debug, not every save). Tier 1 size/algorithm controls auto-save too and apply on next CREATE.
 - Feat: Advanced per-tier priority override. Hidden behind a confirmation overlay explaining the load-bearing relationship (Tier 1 must stay strictly higher than Tier 2 — invert and every page goes to disk first, ZRAM is bypassed). Inputs lock until the overlay is acknowledged each session; SAVE shows a final diff confirmation before applying. Defaults remain 100/10. Live re-prioritisation runs swapoff/swapon when a tier is active; falls back to "applies on next CREATE" if the safety check fails.
