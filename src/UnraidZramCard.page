@@ -279,6 +279,12 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
         <span><i class="fa fa-hdd-o"></i> Tier 2: Disk Swap File (Overflow)</span>
 <?php if ($ssdActive): ?>
         <button type="button" class="zram-btn zram-btn-danger" onclick="zramAction('remove_disk_swap')">REMOVE</button>
+<?php elseif ($ssdPath && file_exists($ssdPath)): ?>
+        <!-- File exists but not in /proc/swaps — e.g. the boot-retry poller in
+             zram_init.sh timed out (array/mount came up >5 min after plugin
+             start). One click re-runs swapon on the existing valid swap area;
+             the collector also self-heals this state. See docs/specs/TIER2_RECOVERY.md. -->
+        <button type="button" class="zram-btn" onclick="zramAction('activate_disk_swap')">ACTIVATE</button>
 <?php endif; ?>
     </div>
     <div class="zram-card-body">

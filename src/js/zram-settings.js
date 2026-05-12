@@ -45,17 +45,19 @@ function createZram() {
 // snake_case (matches the PHP handler shape and stays grep-friendly), but the
 // log toast shows a human phrase instead of the raw id.
 var ZRAM_ACTION_LABELS = {
-    create_zram:      'Create ZRAM swap',
-    remove_zram:      'Remove ZRAM swap',
-    create_disk_swap: 'Create disk swap file',
-    remove_disk_swap: 'Remove disk swap file',
-    update_swappiness:'Update swappiness',
-    clear_log:        'Clear log',
-    view_log:         'View log',
+    create_zram:        'Create ZRAM swap',
+    remove_zram:        'Remove ZRAM swap',
+    create_disk_swap:   'Create disk swap file',
+    remove_disk_swap:   'Remove disk swap file',
+    activate_disk_swap: 'Activate disk swap file',
+    update_swappiness:  'Update swappiness',
+    clear_log:          'Clear log',
+    view_log:           'View log',
     // Legacy aliases — left in so any in-flight UI session still gets a
     // friendly label until the next page reload picks up the new JS.
-    create_ssd_swap:  'Create disk swap file',
-    remove_ssd_swap:  'Remove disk swap file'
+    create_ssd_swap:    'Create disk swap file',
+    remove_ssd_swap:    'Remove disk swap file',
+    activate_ssd_swap:  'Activate disk swap file'
 };
 
 function zramAction(action, extra) {

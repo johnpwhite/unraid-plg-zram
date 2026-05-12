@@ -331,6 +331,51 @@ if ($action === 'remove_disk_swap' || $action === 'remove_ssd_swap') {
     exit;
 }
 
+// Re-activate an EXISTING (but inactive) disk swap file — no re-dd / re-mkswap,
+// the file already carries its swap signature. Surfaced as the ACTIVATE button
+// on the Tier 2 card for the "File exists, not active" state, which the boot
+// path can leave behind when the mount came up later than zram_init.sh's
+// 5-minute retry window (long array outage, USB-stick replacement, …). The
+// collector self-heals the same state on its next tick — this is the manual
+// override. Mirrors zram_init.sh's activate_disk_swap(). See docs/specs/TIER2_RECOVERY.md.
+if ($action === 'activate_disk_swap' || $action === 'activate_ssd_swap') {
+    $cfg = zram_config_read();
+    $swapFile = $cfg['ssd_swap_path'] ?? '';
+
+    if (empty($swapFile) || !file_exists($swapFile)) {
+        echo json_encode(['success' => false, 'message' => 'No disk swap file to activate. Create one first.', 'logs' => $logs]);
+        exit;
+    }
+
+    // Already active? Idempotent — just make sure the enabled flag agrees.
+    $swaps = @file_get_contents('/proc/swaps') ?: '';
+    if (strpos($swaps, $swapFile) !== false) {
+        if (($cfg['ssd_swap_enabled'] ?? 'no') !== 'yes') {
+            zram_config_write(['ssd_swap_enabled' => 'yes']);
+        }
+        echo json_encode(['success' => true, 'message' => 'Disk swap is already active', 'logs' => $logs]);
+        exit;
+    }
+
+    // Normalise the on-disk label to ZRAM_SSD_LABEL while the swap is offline —
+    // mirrors zram_init.sh's activate_disk_swap() legacy-label migration. Run
+    // unconditionally: re-labelling to the same value is a no-op, so we skip
+    // reading the current label first. Best-effort — a swaplabel failure (tool
+    // missing, etc.) is non-fatal; swapon works regardless of the label.
+    zram_run('swaplabel -L ' . escapeshellarg(ZRAM_SSD_LABEL) . ' ' . escapeshellarg($swapFile), $logs);
+
+    $prio = max(0, min(32767, intval($cfg['ssd_swap_priority'] ?? 10)));
+    if (zram_run('swapon ' . escapeshellarg($swapFile) . ' -p ' . $prio, $logs) !== 0) {
+        echo json_encode(['success' => false, 'message' => 'swapon failed — see log. The mount may not be ready yet, or the filesystem may not support swap files.', 'logs' => $logs]);
+        exit;
+    }
+
+    zram_config_write(['ssd_swap_enabled' => 'yes']);
+    zram_cmd_log("Activated disk swap file $swapFile (priority $prio)", 'cmd');
+    echo json_encode(['success' => true, 'message' => "Activated disk swap file ($prio priority)", 'logs' => $logs]);
+    exit;
+}
+
 // --- SETTINGS ACTIONS ---
 
 // Generic per-key settings update for the auto-save UI. The whitelist gates

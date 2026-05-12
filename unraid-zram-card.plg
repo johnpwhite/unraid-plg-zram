@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.05.06.15">
+<!ENTITY version   "2026.05.12.01">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.06.15" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.12.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.05.12.01
+- Feat [OP #749]: Tier 2 disk swap recovery — ACTIVATE button + collector self-heal. The settings card now shows an ACTIVATE button when the disk swap file exists but is not active (e.g. zram_init.sh's boot-retry poller timed out because the array/mount came up more than 5 min after plugin start — a long outage or USB-stick replacement); one click re-runs swapon on the existing valid swap area. The background collector also self-heals this state: each tick it checks whether Tier 2 is configured-enabled with its file present but absent from /proc/swaps and, if so, re-activates it — re-reading config fresh first so it can never undo a user REMOVE, with a 60s back-off after a swapon failure. New activate_disk_swap action (alias activate_ssd_swap) routed through zram_run; new zram_reactivate_disk_swap_if_needed() in zram_config.php called from the collector loop; friendly action label in zram-settings.js. The zram_init.sh boot-retry poller is retained unchanged as the fast path. Spec docs/specs/TIER2_RECOVERY.md. Tests: tests/php/Tier2RecoveryTest.php (17 source-inspection contracts).
 ## 2026.05.06.15
 - Fix [OP #422]: dashboard 'Compressed' chip showed TOTAL (RAM occupied incl. per-page metadata + slot rounding overhead) instead of COMPR (true compressed payload bytes from the algorithm). At small data volumes overhead dominates so TOTAL &gt; DATA — produced visible 'Compressed &gt; Uncompressed' contradiction (e.g. Uncompressed 2.36 MB / Compressed 2.65 MB) on the dashboard. Mathematically inconsistent with the Ratio chip which always used DATA/COMPR (algorithm ratio) — the displayed numbers didn't match the displayed ratio. Fix (Option A — smallest blast radius): collector schema gains a 'c' field (COMPR bytes) by extending the zramctl --output query from NAME,DATA,TOTAL to NAME,DATA,COMPR,TOTAL. ZramCard.php Compressed chip now renders $totalCompressed instead of $totalUsed. JS chip reads aggs.total_compressed (was aggs.total_used). JS chart Compressed dataset reads entry.c on backfill, falls back to entry.u for pre-2026.05.06.15 entries — graceful (TOTAL is within ~few% of COMPR for typical loads, so chart stays continuous through the ~15-min transient until the rolling 300-entry window ages out). Live-tick path pushes aggs.total_compressed. $totalUsed (TOTAL) and total_used aggregate retained — they're used for memorySaved calculation in the JSON status. Spec deferred — fix is small and self-contained, captured in OP #422. Tests: new tests/php/CompressedFieldFixTest.php (5 contracts: collector queries COMPR, writes 'c' field, chip renders $totalCompressed and not $totalUsed, JS reads total_compressed, JS backfill falls back to item.u). zram-card.test.js gains 2 cases for the new c field forward/backward compat. Full suite: 81 PHPUnit tests / 490 assertions, 19 Vitest tests, 9 smoke assertions — all green locally.
 ## 2026.05.06.14

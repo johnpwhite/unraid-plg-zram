@@ -32,6 +32,7 @@ file_put_contents(ZRAM_PID_FILE, getmypid());
 
 $lastTotalTicks = null;
 $lastTime = null;
+$selfHealNextTry = 0; // epoch-seconds back-off gate for Tier 2 self-heal (see below)
 
 // Load existing history
 $history = [];
@@ -50,6 +51,15 @@ while (true) {
             $interval = max(1, intval($settings['collection_interval'] ?? 3));
             zram_debug_reset();
         }
+
+        // Tier 2 self-heal: if the disk swap is configured-enabled and its file
+        // exists but isn't in /proc/swaps, re-activate it. Catches the case
+        // where zram_init.sh's boot-retry poller timed out because the mount
+        // came up >5 min after plugin start (long array outage, USB-stick swap).
+        // The function does its own cheap pre-checks, re-reads config fresh
+        // before acting (so it can't undo a user REMOVE), logs its outcome, and
+        // backs off 60s after a failure. See docs/specs/TIER2_RECOVERY.md.
+        zram_reactivate_disk_swap_if_needed($settings, $selfHealNextTry);
 
         // Find our device
         $ourDev = '';

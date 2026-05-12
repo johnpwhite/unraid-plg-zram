@@ -30,6 +30,7 @@ Features (open):
 Bugs — author-found / current arc (open):
 - #422 [Bug] Dashboard Compressed chip shows TOTAL (RAM occupied), not COMPR — label/source mismatch
 - #423 [Bug] (duplicate of #422 — auto-rejected, ignore)
+- #749 [Bug] Tier 2 disk swap: no recovery path when boot-retry poller times out (long array/mount outage) — fix in progress, spec `docs/specs/TIER2_RECOVERY.md` (ACTIVATE button + collector self-heal)
 
 Bugs — retroactive forum reports (open, fixes shipped — close manually in UI):
 - #424 [Bug] Tier 2-only dashboard renders empty — fixed v2026.05.06.11 (DASHBOARD_TIER2_VISIBILITY.md)

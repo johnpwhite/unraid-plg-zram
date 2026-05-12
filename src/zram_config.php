@@ -149,6 +149,57 @@ function zram_get_ssd_swap(): string {
     return '';
 }
 
+/**
+ * Re-activate the Tier 2 disk swap file if it's configured-enabled, present on
+ * disk, but not currently in /proc/swaps. Returns true iff it took action
+ * (success or attempted). $nextTry is an in/out epoch-seconds back-off gate —
+ * set to now+60 after a swapon failure so a genuinely-unswappable file is not
+ * retried on every collector tick; reset to 0 on success.
+ *
+ * Covers the state zram_init.sh's boot-retry poller (60 x 5s) can leave behind
+ * when the swap file's mount comes up later than 5 minutes after plugin start
+ * — a long array outage, a USB-stick replacement, parity-check-then-mount, etc.
+ * Mirrors zram_init.sh's activate_disk_swap(). Called once per collector loop
+ * iteration. See docs/specs/TIER2_RECOVERY.md.
+ *
+ * @param array $cachedCfg The collector's cached config (may be ~60s stale).
+ * @param int   $nextTry   In/out: epoch seconds before which we won't retry.
+ */
+function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): bool {
+    // Cheap pre-checks against the cached config — no flash I/O, no fork. The
+    // /proc/swaps read is a virtual-file read (negligible); file_exists is a stat.
+    if (($cachedCfg['ssd_swap_enabled'] ?? 'no') !== 'yes') return false;
+    $path = $cachedCfg['ssd_swap_path'] ?? '';
+    if ($path === '' || !file_exists($path)) return false;
+    $swaps = @file_get_contents('/proc/swaps') ?: '';
+    if (strpos($swaps, $path) !== false) return false;     // already active — nothing to do
+    $now = time();
+    if ($now < $nextTry) return false;                     // backing off after a recent failure
+
+    // Confirm against fresh config before acting — the cached copy can be up to
+    // ~60s stale, and a user REMOVE in that window would otherwise get undone here.
+    $fresh = @parse_ini_file(ZRAM_CONFIG_FILE) ?: [];
+    if (($fresh['ssd_swap_enabled'] ?? 'no') !== 'yes') return false;
+    $path = $fresh['ssd_swap_path'] ?? $path;
+    if ($path === '' || !file_exists($path)) return false;
+    $swaps = @file_get_contents('/proc/swaps') ?: '';
+    if (strpos($swaps, $path) !== false) return false;     // got activated since the first check
+
+    $logs = [];
+    // Normalise the label (idempotent, best-effort) then bring the swap online.
+    zram_run('swaplabel -L ' . escapeshellarg(ZRAM_SSD_LABEL) . ' ' . escapeshellarg($path), $logs);
+    $prio = max(0, min(32767, intval($fresh['ssd_swap_priority'] ?? 10)));
+    if (zram_run('swapon ' . escapeshellarg($path) . ' -p ' . $prio, $logs) === 0) {
+        zram_log("Tier 2 self-heal: re-activated $path (priority $prio) after it was found inactive", 'INFO');
+        zram_cmd_log("Auto-reactivated disk swap file $path", 'cmd');
+        $nextTry = 0;
+    } else {
+        zram_log("Tier 2 self-heal: swapon $path failed — backing off 60s", 'WARN');
+        $nextTry = $now + 60;
+    }
+    return true;
+}
+
 /** Check if evacuation is safe before swapoff. */
 function zram_evacuation_safe(string $target, array &$logs): array {
     $zram_data = 0;
