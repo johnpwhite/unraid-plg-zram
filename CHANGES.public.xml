@@ -1,4 +1,7 @@
 <CHANGES>
+## 2026.05.12.01
+- Feat: Tier 2 disk swap now recovers on its own. If the disk swap file exists but isn't active — which can happen when its mount comes up more than a few minutes after the plugin starts (a long array outage, a flash-drive swap) and the boot-time retry has given up — the background service re-activates it automatically within a few seconds. The Tier 2 card also gains an ACTIVATE button for that state, so you can bring it back with one click without a reboot or the shell. The auto-recovery re-checks your settings first, so it will never re-enable a swap file you've just removed.
+
 ## 2026.05.06.15
 - Fix: Dashboard "Compressed" chip and chart line now use the algorithm's compressed payload size, not total RAM occupied by the zram device. Previously, under light load, per-page metadata + slot rounding overhead could push the "RAM occupied" figure above the uncompressed data size, producing a visible contradiction with the Ratio chip (e.g. "Uncompressed 2.36 MB / Compressed 2.65 MB" while Ratio showed a healthy ratio). The Ratio chip was always correct — now the Compressed numbers and chart line match it.
 
