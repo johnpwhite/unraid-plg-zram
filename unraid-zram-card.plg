@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.05.14.01">
+<!ENTITY version   "2026.05.14.02">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.14.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.14.02" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.05.14.02
+- Fix: install-perms regression introduced in v2026.05.14.01. The fetch-to-mktemp + mv pattern from .14.01 inadvertently shipped files with mktemp default 0600 mode — readable only by root. PHP-rendered pages worked because php-fpm runs as root, but static assets served by nginx as user nobody (the plugin icon, the dashboard and settings JS, chart.min.js, README) all 404'd. Visible symptom: missing icon on the Unraid Plugins page. Silent symptom: non-functional dashboard chart + auto-save + priority panel until next reinstall. Fix: explicit chmod 0644 in the install loop success branch, after the mv. Combined with the existing chmod +x for scripts, end state is 0644 for non-scripts and 0755 for scripts (was 0600 / 0711). New tests: tests/php/InstallScriptPermissionsTest.php (3 source-inspection contracts including a regression guard that the chmod is on the success branch, not the error branch).
 ## 2026.05.14.01
 - Fix [OP #774]: install-script hardening + non-destructive uninstall. The .plg inline install script now fetches each file to a temp path, validates non-empty, and only mv's into the emhttp dir on success — fixing a 0-byte-stub failure mode where a transient network blip during reinstall (DNS, 404, gitlab unreachable) would silently leave every file empty while Plugin Manager marked the install complete. wget gains --tries=3 --timeout=15 so brief network jitter no longer fails individual files. Per-file failures accumulate in $FAILED and exit 1 after the loop so Plugin Manager flags the install as broken instead of silently green. A final find -size 0 sanity gate catches anything that slips past. The remove script no longer rm's the Tier 2 disk swap file — it is user data (often 16 GB+) and must survive uninstall/reinstall per HYBRID_PERSISTENCE. swapoff stays so the kernel-side deactivation still happens. Spec docs/specs/INSTALL_HARDENING.md. Tests: tests/php/InstallScriptHardeningTest.php (11 source-inspection contracts).
 ## 2026.05.12.01
@@ -362,7 +364,14 @@ for mapping in "${FILES[@]}"; do
         # instead of silently green. See docs/specs/INSTALL_HARDENING.md.
         TMP=$(mktemp)
         if wget -q --tries=3 --timeout=15 -O "$TMP" "$GIT_URL/$SRC" &amp;&amp; [ -s "$TMP" ] &amp;&amp; mv "$TMP" "$EMHTTP_DEST/$DEST"; then
-            :
+            # mktemp creates files mode 0600 and mv preserves that. Without
+            # an explicit re-mode here, static assets that nginx serves
+            # directly (the icon PNG, the JS files, the README) become
+            # unreadable to user `nobody` and 404 in the browser — the
+            # symptom is a broken icon on the Plugins page and a silently
+            # non-functional dashboard. The chmod +x block below makes the
+            # named scripts also executable (0755).
+            chmod 0644 "$EMHTTP_DEST/$DEST"
         else
             SIZE=$(stat -c %s "$TMP" 2>/dev/null || echo 0)
             echo "ERROR: Install failed for $DEST (got $SIZE bytes from $GIT_URL/$SRC)"
