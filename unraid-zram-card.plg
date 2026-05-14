@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.05.12.01">
+<!ENTITY version   "2026.05.14.01">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.12.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.14.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.05.14.01
+- Fix [OP #774]: install-script hardening + non-destructive uninstall. The .plg inline install script now fetches each file to a temp path, validates non-empty, and only mv's into the emhttp dir on success — fixing a 0-byte-stub failure mode where a transient network blip during reinstall (DNS, 404, gitlab unreachable) would silently leave every file empty while Plugin Manager marked the install complete. wget gains --tries=3 --timeout=15 so brief network jitter no longer fails individual files. Per-file failures accumulate in $FAILED and exit 1 after the loop so Plugin Manager flags the install as broken instead of silently green. A final find -size 0 sanity gate catches anything that slips past. The remove script no longer rm's the Tier 2 disk swap file — it is user data (often 16 GB+) and must survive uninstall/reinstall per HYBRID_PERSISTENCE. swapoff stays so the kernel-side deactivation still happens. Spec docs/specs/INSTALL_HARDENING.md. Tests: tests/php/InstallScriptHardeningTest.php (11 source-inspection contracts).
 ## 2026.05.12.01
 - Feat [OP #749]: Tier 2 disk swap recovery — ACTIVATE button + collector self-heal. The settings card now shows an ACTIVATE button when the disk swap file exists but is not active (e.g. zram_init.sh's boot-retry poller timed out because the array/mount came up more than 5 min after plugin start — a long outage or USB-stick replacement); one click re-runs swapon on the existing valid swap area. The background collector also self-heals this state: each tick it checks whether Tier 2 is configured-enabled with its file present but absent from /proc/swaps and, if so, re-activates it — re-reading config fresh first so it can never undo a user REMOVE, with a 60s back-off after a swapon failure. New activate_disk_swap action (alias activate_ssd_swap) routed through zram_run; new zram_reactivate_disk_swap_if_needed() in zram_config.php called from the collector loop; friendly action label in zram-settings.js. The zram_init.sh boot-retry poller is retained unchanged as the fast path. Spec docs/specs/TIER2_RECOVERY.md. Tests: tests/php/Tier2RecoveryTest.php (17 source-inspection contracts).
 ## 2026.05.06.15
@@ -335,6 +337,7 @@ FILES=(
     "js/chart.min.js:src/js/chart.min.js"
 )
 
+FAILED=0
 for mapping in "${FILES[@]}"; do
     DEST="${mapping%%:*}"
     SRC="${mapping##*:}"
@@ -348,8 +351,23 @@ for mapping in "${FILES[@]}"; do
     if [ ! -z "$FOUND" ]; then
         cp "$FOUND" "$EMHTTP_DEST/$DEST"
     else
-        if ! wget -q -O "$EMHTTP_DEST/$DEST" "$GIT_URL/$SRC"; then
-            echo "ERROR: Download failed for $DEST"
+        # Fetch to temp first, validate non-empty, mv on success. wget's -O
+        # flag truncates the destination to 0 bytes BEFORE the fetch starts,
+        # so pointing it at the real path means a transient network failure
+        # (DNS, 404, gitlab unreachable) leaves a 0-byte stub there that
+        # Plugin Manager mistakes for a successful install.
+        # Per-file failures accumulate in $FAILED — the loop continues so
+        # the install log lists every failure for diagnostics, then exit 1
+        # after the loop so Plugin Manager flags the install as broken
+        # instead of silently green. See docs/specs/INSTALL_HARDENING.md.
+        TMP=$(mktemp)
+        if wget -q --tries=3 --timeout=15 -O "$TMP" "$GIT_URL/$SRC" &amp;&amp; [ -s "$TMP" ] &amp;&amp; mv "$TMP" "$EMHTTP_DEST/$DEST"; then
+            :
+        else
+            SIZE=$(stat -c %s "$TMP" 2>/dev/null || echo 0)
+            echo "ERROR: Install failed for $DEST (got $SIZE bytes from $GIT_URL/$SRC)"
+            rm -f "$TMP"
+            FAILED=$((FAILED+1))
         fi
     fi
 done
@@ -359,6 +377,21 @@ chmod +x "$EMHTTP_DEST/zram_actions.php"
 chmod +x "$EMHTTP_DEST/zram_drives.php"
 chmod +x "$EMHTTP_DEST/zram_collector.php"
 chmod +x "$EMHTTP_DEST/zram_init.sh"
+
+if [ "$FAILED" -gt 0 ]; then
+    echo "FATAL: $FAILED file(s) failed to install. Plugin install incomplete — Unraid will flag this."
+    exit 1
+fi
+
+# Belt-and-braces: even if $FAILED accounting somehow misses a 0-byte file
+# (a future chmod against a missing path quietly creating a placeholder, etc.)
+# a final scan catches it before declaring success.
+EMPTY=$(find "$EMHTTP_DEST" -type f -size 0 2>/dev/null)
+if [ -n "$EMPTY" ]; then
+    echo "FATAL: zero-byte files found post-install:"
+    echo "$EMPTY"
+    exit 1
+fi
 
 echo "--- INSTALL COMPLETE ---"
 mkdir -p "/boot/config/plugins/$NAME"
@@ -421,10 +454,10 @@ if [ -f "$CONFIG_DIR/settings.ini" ]; then
         echo "Deactivating SSD swap: $SSD_PATH"
         swapoff "$SSD_PATH" 2>/dev/null
     fi
-    if [ -n "$SSD_PATH" ] &amp;&amp; [ -f "$SSD_PATH" ]; then
-        echo "Removing swap file: $SSD_PATH"
-        rm -f "$SSD_PATH"
-    fi
+    # NOTE: the Tier 2 swap file itself is intentionally preserved on uninstall —
+    # it is user data, often gigabytes, and recreating it requires the dashboard's
+    # CREATE flow. To delete it, REMOVE via the Tier 2 card before uninstalling,
+    # or rm it manually afterwards. See docs/specs/INSTALL_HARDENING.md.
 fi
 
 # Deactivate our labeled ZRAM device

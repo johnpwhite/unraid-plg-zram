@@ -31,6 +31,7 @@ Bugs — author-found / current arc (open):
 - #422 [Bug] Dashboard Compressed chip shows TOTAL (RAM occupied), not COMPR — label/source mismatch
 - #423 [Bug] (duplicate of #422 — auto-rejected, ignore)
 - #749 [Bug] Tier 2 disk swap: no recovery path when boot-retry poller times out (long array/mount outage) — fix in progress, spec `docs/specs/TIER2_RECOVERY.md` (ACTIVATE button + collector self-heal)
+- #774 [Bug] Plugin .plg install leaves 0-byte stubs on partial network failure; uninstall destroys Tier 2 swap file — fix in progress, spec `docs/specs/INSTALL_HARDENING.md` (fetch-to-temp + --tries=3 + abort-on-fail + post-install sanity gate; remove script keeps swap file)
 
 Bugs — retroactive forum reports (open, fixes shipped — close manually in UI):
 - #424 [Bug] Tier 2-only dashboard renders empty — fixed v2026.05.06.11 (DASHBOARD_TIER2_VISIBILITY.md)
