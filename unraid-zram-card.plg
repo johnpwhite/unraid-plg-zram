@@ -2,16 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-zram-card">
 <!ENTITY author    "John White">
-<!ENTITY version   "2026.05.14.02">
+<!ENTITY version   "2026.05.24.01">
 <!ENTITY launch    "Settings/UnraidZramCard">
 <!ENTITY gitURL    "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master">
 <!ENTITY pluginURL "https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg">
 <!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
 ]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.14.02" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.24.01" launch="Settings/UnraidZramCard" pluginURL="https://gitlab.johnpwhite.com/johner/unraid-zram-card/-/raw/master/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.05.24.01
+- Chore: replace plugin icon with vectorized transparent-background variant
 ## 2026.05.14.02
 - Fix: install-perms regression introduced in v2026.05.14.01. The fetch-to-mktemp + mv pattern from .14.01 inadvertently shipped files with mktemp default 0600 mode — readable only by root. PHP-rendered pages worked because php-fpm runs as root, but static assets served by nginx as user nobody (the plugin icon, the dashboard and settings JS, chart.min.js, README) all 404'd. Visible symptom: missing icon on the Unraid Plugins page. Silent symptom: non-functional dashboard chart + auto-save + priority panel until next reinstall. Fix: explicit chmod 0644 in the install loop success branch, after the mv. Combined with the existing chmod +x for scripts, end state is 0644 for non-scripts and 0755 for scripts (was 0600 / 0711). New tests: tests/php/InstallScriptPermissionsTest.php (3 source-inspection contracts including a regression guard that the chmod is on the success branch, not the error branch).
 ## 2026.05.14.01
