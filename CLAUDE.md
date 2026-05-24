@@ -26,6 +26,7 @@ Features (open):
 - #58  [Feature] Expose mem_limit parameter in settings UI
 - #59  [Feature] Option to mount /tmp on ZRAM (compressed tmpfs)
 - #60  [Feature] Option to mount /var/log on ZRAM (compressed log storage)
+- #826 [Feature] L4 visual coverage: visit every plugin-touching page, probe every static asset, gate publish on result — spec `docs/specs/L4_VISUAL_COVERAGE.md` (closes the gap that let the 2026-05-14 icon perm regression slip past smoke)
 
 Bugs — author-found / current arc (open):
 - #422 [Bug] Dashboard Compressed chip shows TOTAL (RAM occupied), not COMPR — label/source mismatch
