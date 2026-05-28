@@ -1,0 +1,420 @@
+Menu="Utilities"
+Title="Unraid ZRAM"
+Icon="unraid-zram-card.png"
+---
+<?php
+/**
+ * <module_context>
+ *   <name>UnraidZramCard</name>
+ *   <description>Settings page for ZRAM Card plugin — tiered swap management UI</description>
+ *   <dependencies>zram_config</dependencies>
+ * </module_context>
+ */
+$docroot = $docroot ?? $_SERVER['DOCUMENT_ROOT'] ?: '/usr/local/emhttp';
+require_once "$docroot/plugins/unraid-zram-card/zram_config.php";
+
+// Handle settings form POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
+    $updates = [
+        'enabled'             => ($_POST['enabled'] ?? 'yes') === 'yes' ? 'yes' : 'no',
+        // Refresh interval is stored in ms (consumed by JS setInterval) but
+        // the form expresses it in seconds. Multiply on save.
+        // Backward-compat: a legacy POST with refresh_interval >= 100 is
+        // assumed to already be in ms (covers an in-flight pre-upgrade form
+        // submission), so we accept it as-is. New values arrive as float
+        // seconds (e.g. 1.5) and get scaled.
+        'refresh_interval'    => (function() {
+            $raw = $_POST['refresh_interval'] ?? '3';
+            $f   = floatval($raw);
+            $ms  = $f >= 100 ? intval($f) : intval(round($f * 1000));
+            return max(1000, $ms);
+        })(),
+        'collection_interval' => max(1, intval($_POST['collection_interval'] ?? 3)),
+        'swappiness'          => max(0, min(200, intval($_POST['swappiness'] ?? 150))),
+        'debug'               => ($_POST['debug'] ?? '') === 'yes' ? 'yes' : 'no',
+        'console_visible'     => ($_POST['console_visible'] ?? 'yes') === 'yes' ? 'yes' : 'no',
+        'zram_size'           => $_POST['zram_size'] ?: 'auto',
+        'zram_percent'        => max(25, min(75, intval($_POST['zram_percent'] ?? 50))),
+        'zram_algo'           => $_POST['zram_algo'] ?: 'zstd',
+    ];
+    zram_config_write($updates);
+    zram_debug_reset();
+    exec("sysctl -q vm.swappiness=" . escapeshellarg($updates['swappiness']));
+
+    // Restart collector to pick up new settings
+    $initScript = "$docroot/plugins/unraid-zram-card/zram_init.sh";
+    if (file_exists($initScript)) exec("nohup $initScript > /dev/null 2>&1 & disown");
+
+    echo "<div class='updated'>Settings Saved</div>";
+}
+
+$settings = zram_config_read();
+$ourDev = zram_get_our_device();
+$csrf = $var['csrf_token'] ?? '';
+
+// Device info — extended to include live used bytes (DATA = uncompressed,
+// TOTAL = compressed actual occupancy) so the status row can answer "how
+// much is actually in this tier right now?" instead of just "what is the
+// allocated size?".
+$devSize = '-'; $devAlgo = '-'; $devPrio = '-'; $devActive = false;
+$devUsedCompressed = 0; $devUsedOriginal = 0;
+if ($ourDev && file_exists("/sys/block/$ourDev")) {
+    $devActive = true;
+    exec("zramctl --bytes --noheadings --raw --output DISKSIZE,ALGORITHM,DATA,TOTAL /dev/$ourDev 2>/dev/null", $di);
+    if (!empty($di)) {
+        $dp = preg_split('/\s+/', trim($di[0]));
+        $devSize = intval($dp[0] ?? 0);
+        $devAlgo = $dp[1] ?? '-';
+        $devUsedOriginal   = intval($dp[2] ?? 0);
+        $devUsedCompressed = intval($dp[3] ?? 0);
+    }
+    exec('swapon --noheadings --show=NAME,PRIO 2>/dev/null', $sp);
+    foreach ($sp as $sl) {
+        $spp = preg_split('/\s+/', trim($sl));
+        if (count($spp) >= 2 && basename($spp[0]) === $ourDev) { $devPrio = $spp[1]; break; }
+    }
+}
+
+// Auto-size calculation for display
+$memKb = 0;
+$meminfo = @file_get_contents('/proc/meminfo') ?: '';
+if (preg_match('/MemTotal:\s+(\d+)/', $meminfo, $mm)) $memKb = intval($mm[1]);
+$autoSizeGB = round($memKb * intval($settings['zram_percent']) / 100 / 1048576, 1);
+$memTotalGB = round($memKb / 1048576, 1);
+
+// Supported algorithms
+$algos = ['zstd', 'lz4', 'lzo', 'deflate'];
+// Try to read from any zram device
+foreach (glob('/sys/block/zram*/comp_algorithm') as $af) {
+    $raw = str_replace(['[', ']'], '', @file_get_contents($af));
+    $algos = preg_split('/\s+/', trim($raw));
+    break;
+}
+
+// SSD swap status — extended to read live "used" bytes from `swapon` so the
+// Tier 2 status row can show how much spillover has actually occurred. A
+// non-zero value here means Tier 1 has been at capacity at least once and
+// pages were demoted to disk.
+$ssdPath = $settings['ssd_swap_path'] ?? '';
+$ssdActive = false;
+$ssdSize   = 0;
+$ssdUsed   = 0;
+$ssdPrio   = '-';
+if ($ssdPath && file_exists($ssdPath)) {
+    $swaps = @file_get_contents('/proc/swaps') ?: '';
+    $ssdActive = strpos($swaps, $ssdPath) !== false;
+    if ($ssdActive) {
+        exec('swapon --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssdRows);
+        foreach ($ssdRows as $row) {
+            $rp = preg_split('/\s+/', trim($row));
+            if (count($rp) >= 4 && $rp[0] === $ssdPath) {
+                $ssdSize = intval($rp[1]);
+                $ssdUsed = intval($rp[2]);
+                $ssdPrio = $rp[3];
+                break;
+            }
+        }
+    } else {
+        $ssdSize = filesize($ssdPath) ?: 0;
+    }
+}
+
+$fmtB = function($b) { $u = ['B','KB','MB','GB','TB']; if ($b < 1) return '0 B'; $p = min(floor(log(max($b,1))/log(1024)), 4); return round($b/pow(1024,$p), 1).' '.$u[$p]; };
+echo "<script>window.ZRAM_PAGE={CSRF:'".addslashes($csrf)."',API:'/plugins/unraid-zram-card/zram_actions.php',MEM_KB:$memKb,selectedMount:''};</script>";
+echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"></script>';
+?>
+
+<style>
+.zram-layout { display: flex; gap: 20px; align-items: flex-start; width: 100%; margin-top: 10px; }
+.zram-cards { flex: 0 0 520px; }
+.zram-card { background: #1e1e1e; border-radius: 8px; border: 1px solid #333; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); overflow: hidden; }
+.zram-card-header { background: #2a2a2a; padding: 10px 15px; border-bottom: 1px solid #333; font-weight: bold; font-size: 1.05em; color: #eee; display: flex; justify-content: space-between; align-items: center; }
+.zram-card-body { padding: 15px; color: #ccc; }
+.zram-console-pane { flex: 1; background: #1a1a1a; border-radius: 8px; border: 1px solid #333; min-width: 300px; height: 650px; display: <?php echo ($settings['console_visible'] == 'yes') ? 'flex' : 'none'; ?>; flex-direction: column; overflow: hidden; }
+.zram-btn { padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.85em; transition: all 0.2s; background: transparent !important; border: 1px solid #ff8c00 !important; color: #ff8c00 !important; text-transform: uppercase; display: inline-block; }
+.zram-btn:hover { background: #ff8c00 !important; color: #fff !important; }
+.zram-btn:disabled { opacity: 0.3 !important; cursor: not-allowed; }
+/* Brief in-button save feedback (replaces sibling Saved ✓ span for buttons in flex rows where layout shift is unwanted) */
+.zram-btn.zram-btn-ok-flash  { border-color: #7fba59 !important; color: #7fba59 !important; opacity: 1 !important; transition: border-color 0.2s, color 0.2s; }
+.zram-btn.zram-btn-err-flash { border-color: #cc3333 !important; color: #cc3333 !important; opacity: 1 !important; transition: border-color 0.2s, color 0.2s; }
+.zram-btn-danger { border-color: #cc3333 !important; color: #cc3333 !important; }
+.zram-btn-danger:hover { background: #cc3333 !important; color: #fff !important; }
+/* Activity pane (unified cmd.log + debug.log feed) */
+.zram-activity-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #222; border-bottom: 1px solid #333; gap: 12px; flex-wrap: wrap; }
+.zram-activity-title { color: #ccc; font-size: 0.85em; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; }
+.zram-activity-chips { display: flex; gap: 4px; }
+.activity-chip { padding: 4px 10px; cursor: pointer; color: #888; font-size: 0.75em; text-transform: uppercase; font-weight: bold; background: transparent; border: 1px solid #333; border-radius: 3px; transition: all 0.15s; }
+.activity-chip:hover { color: #ccc; border-color: #555; }
+.activity-chip.active { color: #ff8c00; border-color: #ff8c00; background: rgba(255, 140, 0, 0.08); }
+.zram-activity-footer { background: #222; padding: 5px 15px; border-top: 1px solid #333; display: flex; justify-content: flex-end; gap: 10px; }
+.activity-empty { color: #666; font-style: italic; padding: 20px; text-align: center; }
+.activity-row { display: flex; gap: 10px; padding: 4px 12px; align-items: baseline; border-bottom: 1px solid #1a1a1a; font-family: 'Courier New', monospace; font-size: 0.85em; line-height: 1.4; }
+.activity-row:hover { background: #1a1a1a; }
+.activity-ts { color: #666; flex-shrink: 0; min-width: 64px; }
+.activity-badge { flex-shrink: 0; padding: 1px 6px; border-radius: 3px; font-size: 0.7em; font-weight: bold; text-transform: uppercase; min-width: 42px; text-align: center; }
+.activity-badge-cmd   { background: #1e3a5f; color: #66aaee; }
+.activity-badge-info  { background: #2a2a2a; color: #aaa; }
+.activity-badge-error { background: #4a1818; color: #ff7777; }
+.activity-badge-debug { background: #1a1a1a; color: #777; }
+.activity-badge-out   { background: #3a2a10; color: #ddaa55; }
+.activity-msg { color: #cfcfcf; word-break: break-word; }
+.activity-row[data-level="ERROR"] .activity-msg { color: #ff8888; }
+.zram-card-body input, .zram-card-body select { background: #111 !important; border: 1px solid #444 !important; color: #eee !important; padding: 4px 8px !important; border-radius: 3px; font-size: 0.95em; }
+.zram-card-body input:focus, .zram-card-body select:focus { border-color: #ff8c00 !important; outline: none; }
+/* Use grid for dl so dt + dd are vertically centred per row.
+   Unraid's site CSS floats dt left, which top-aligns the label against
+   tall dd content (slider) — looked off-centre. Grid with align-items:center
+   plus a fixed dt column gives a clean settings-page row rhythm. */
+.zram-card-body dl { display: grid; grid-template-columns: 180px 1fr; column-gap: 12px; row-gap: 0; align-items: center; margin: 0; }
+.zram-card-body dl dt { color: #aaa; font-weight: normal; font-size: 0.9em; width: auto; line-height: 1.4; text-align: right; float: none; padding: 2px 0; margin: 0; }
+.zram-card-body dl dd { margin: 0; padding: 2px 0; color: #eee; line-height: 1.4; }
+/* For rows where dd contains an input + multi-line help text, anchor dt to
+   the top of the row so the label sits next to the input value (not vertically
+   centred against the whole help block). */
+.zram-card-body dl dt.zram-row-top, .zram-card-body dl dd.zram-row-top { align-self: start; padding-top: 6px; }
+.zram-field-row { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.zram-field-row .zram-field-info { font-size: 0.9em; opacity: 0.7; white-space: nowrap; }
+#activity-log { flex: 1; overflow-y: auto; background: #111; }
+.zram-status-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; }
+.zram-status-active { background: rgba(127,186,89,0.1); border: 1px solid rgba(127,186,89,0.3); }
+.zram-status-inactive { background: rgba(255,255,255,0.03); border: 1px solid #333; }
+.zram-drive-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; border: 1px solid #333; margin-bottom: 4px; cursor: pointer; transition: border-color 0.2s; }
+.zram-drive-row:hover { border-color: #ff8c00; }
+.zram-drive-row.selected { border-color: #ff8c00; background: rgba(255,140,0,0.05); }
+.zram-drive-row-blocked { cursor: not-allowed; opacity: 0.55; }
+.zram-drive-row-blocked:hover { border-color: #333; }
+.zram-drive-row .indicator { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.indicator-green { background: #7fba59; }
+.indicator-orange { background: #ff8c00; }
+.indicator-red { background: #cc3333; }
+.zram-advanced { margin-top: 12px; padding: 10px 12px; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; }
+.zram-advanced > summary { cursor: pointer; color: #aaa; font-size: 0.9em; font-weight: bold; user-select: none; padding: 4px 0; outline: none; }
+.zram-advanced > summary:hover { color: #ff8c00; }
+.zram-advanced[open] > summary { color: #ff8c00; margin-bottom: 8px; }
+.zram-advanced-body { padding-top: 8px; }
+.zram-advanced-warning { background: rgba(204, 51, 51, 0.08); border: 1px solid rgba(204, 51, 51, 0.4); border-radius: 4px; padding: 8px 10px; margin-bottom: 12px; font-size: 0.85em; color: #ddd; line-height: 1.5; }
+.zram-advanced-warning strong { color: #ff5555; }
+.zram-advanced-warning em { color: #ff8c00; font-style: normal; font-weight: bold; }
+.zram-advanced dl input[type="number"] { width: 80px; }
+.zram-advanced dl input[type="number"]:disabled { opacity: 0.5; cursor: not-allowed; }
+.zram-priority-buttons { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; justify-content: flex-end; }
+.zram-saved-indicator { display: inline-block; margin-left: 8px; color: #7fba59; font-size: 0.85em; font-weight: bold; opacity: 1; transition: opacity 0.5s ease-out; vertical-align: middle; }
+.zram-saved-indicator.zram-saved-indicator-err { color: #ff5555; }
+.zram-saved-indicator.fade { opacity: 0; }
+</style>
+
+<div class="zram-layout">
+<div class="zram-cards">
+
+<!-- TIER 1: ZRAM -->
+<div class="zram-card">
+    <div class="zram-card-header">
+        <span><i class="fa fa-bolt"></i> Tier 1: ZRAM Swap (In-Memory)</span>
+<?php if ($devActive): ?>
+        <button type="button" class="zram-btn zram-btn-danger" onclick="zramAction('remove_zram')">REMOVE</button>
+<?php else: ?>
+        <button type="button" class="zram-btn" onclick="createZram()">CREATE</button>
+<?php endif; ?>
+    </div>
+    <div class="zram-card-body">
+        <div class="zram-status-row <?php echo $devActive ? 'zram-status-active' : 'zram-status-inactive'; ?>">
+            <i class="fa fa-fw <?php echo $devActive ? 'fa-check-circle' : 'fa-circle-o'; ?>" style="color:<?php echo $devActive ? '#7fba59' : '#666'; ?>;font-size:1.3em;"></i>
+            <div>
+                <strong style="color:<?php echo $devActive ? '#7fba59' : '#888'; ?>;">
+                    <?php echo $devActive ? "Active: /dev/$ourDev" : 'Inactive'; ?>
+                </strong>
+<?php if ($devActive): ?>
+                <div style="font-size:0.85em;opacity:0.7;margin-top:2px;">
+                    Used: <?php echo $fmtB($devUsedCompressed); ?> / <?php echo $fmtB($devSize); ?>
+                    &middot; <?php echo htmlspecialchars($devAlgo); ?>
+                    &middot; priority <?php echo $devPrio; ?> &mdash; used first
+                </div>
+<?php endif; ?>
+            </div>
+        </div>
+<?php if (!$devActive): ?>
+        <!-- Tier 1 controls — only visible when no ZRAM device is active.
+             Once active, size/percent/algo cannot change without a REMOVE+CREATE
+             cycle, so showing them is just noise. Mirrors the Tier 2 pattern
+             which hides its create form once a disk swap is in use. -->
+        <dl>
+            <dt>Size:</dt>
+            <dd>
+                <span class="zram-field-row">
+                    <select name="zram_size_mode" id="zram_size_mode" onchange="toggleSizeMode(); saveZramSize();" style="width:90px;">
+                        <option value="auto" <?php echo ($settings['zram_size'] === 'auto') ? 'selected' : ''; ?>>Auto</option>
+                        <option value="custom" <?php echo ($settings['zram_size'] !== 'auto') ? 'selected' : ''; ?>>Custom</option>
+                    </select>
+                    <input type="text" id="zram_custom_size" onblur="saveZramSize()" value="<?php echo ($settings['zram_size'] !== 'auto') ? htmlspecialchars($settings['zram_size']) : '4G'; ?>" style="width:70px;display:<?php echo ($settings['zram_size'] !== 'auto') ? 'inline' : 'none'; ?>;">
+                    <span id="zram_auto_info" class="zram-field-info">
+                        <?php echo $settings['zram_percent']; ?>% of <?php echo $memTotalGB; ?>GB = <?php echo $autoSizeGB; ?>GB
+                    </span>
+                </span>
+            </dd>
+            <dt>Auto Size (% of RAM):</dt>
+            <dd>
+                <span class="zram-field-row">
+                    <input type="range" name="zram_percent" id="zram_percent_slider" data-autosave="true" min="25" max="75" value="<?php echo intval($settings['zram_percent']); ?>" oninput="updateAutoSize()" style="width:160px;vertical-align:middle;">
+                    <span id="zram_percent_label" class="zram-field-info"><?php echo intval($settings['zram_percent']); ?>%</span>
+                </span>
+            </dd>
+            <dt>Algorithm:</dt>
+            <dd>
+                <span class="zram-field-row">
+                    <select name="zram_algo" id="zram_algo_select" data-autosave="true" style="width:100px;">
+                        <?php foreach ($algos as $a): ?>
+                        <option value="<?php echo $a; ?>" <?php echo ($settings['zram_algo'] == $a) ? 'selected' : ''; ?>><?php echo $a; ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </span>
+            </dd>
+        </dl>
+<?php endif; ?>
+    </div>
+</div>
+
+<!-- TIER 2: SSD SWAP -->
+<div class="zram-card">
+    <div class="zram-card-header">
+        <span><i class="fa fa-hdd-o"></i> Tier 2: Disk Swap File (Overflow)</span>
+<?php if ($ssdActive): ?>
+        <button type="button" class="zram-btn zram-btn-danger" onclick="zramAction('remove_disk_swap')">REMOVE</button>
+<?php elseif ($ssdPath && file_exists($ssdPath)): ?>
+        <!-- File exists but not in /proc/swaps — e.g. the boot-retry poller in
+             zram_init.sh timed out (array/mount came up >5 min after plugin
+             start). One click re-runs swapon on the existing valid swap area;
+             the collector also self-heals this state. See docs/specs/TIER2_RECOVERY.md. -->
+        <button type="button" class="zram-btn" onclick="zramAction('activate_disk_swap')">ACTIVATE</button>
+<?php endif; ?>
+    </div>
+    <div class="zram-card-body">
+<?php if ($ssdPath && file_exists($ssdPath)): ?>
+        <div class="zram-status-row <?php echo $ssdActive ? 'zram-status-active' : 'zram-status-inactive'; ?>">
+            <i class="fa fa-fw <?php echo $ssdActive ? 'fa-check-circle' : 'fa-pause-circle'; ?>" style="color:<?php echo $ssdActive ? '#00a4d8' : '#666'; ?>;font-size:1.3em;"></i>
+            <div>
+                <strong style="color:<?php echo $ssdActive ? '#00a4d8' : '#888'; ?>;">
+                    <?php echo $ssdActive ? 'Active' : 'File exists, not active'; ?>
+                </strong>
+                <div style="font-size:0.85em;opacity:0.7;margin-top:2px;">
+<?php if ($ssdActive): ?>
+                    Used: <?php echo $fmtB($ssdUsed); ?> / <?php echo $fmtB($ssdSize); ?>
+                    &middot; priority <?php echo htmlspecialchars($ssdPrio); ?> &mdash; overflow only
+<?php else: ?>
+                    <?php echo $fmtB($ssdSize); ?> &middot; priority <?php echo intval($settings['ssd_swap_priority'] ?? 10); ?> &mdash; overflow only
+<?php endif; ?>
+                </div>
+                <div style="font-size:0.8em;opacity:0.5;margin-top:2px;font-family:monospace;">
+                    <?php echo htmlspecialchars($ssdPath); ?>
+                </div>
+            </div>
+        </div>
+<?php else: ?>
+        <p style="font-size:0.9em;opacity:0.7;margin-top:0;">
+            When ZRAM fills up, overflow pages go to a disk swap file. Prevents OOM on memory-constrained servers.
+            Runs at priority <?php echo intval($settings['ssd_swap_priority'] ?? 10); ?> &mdash; overflow only, never used while Tier 1 has room.
+        </p>
+        <div id="drive-picker" style="margin-bottom:12px;">
+            <div style="font-size:0.85em;color:#aaa;margin-bottom:6px;">Select a drive:</div>
+            <div id="drive-list" style="max-height:200px;overflow-y:auto;">
+                <div style="opacity:0.5;font-size:0.9em;">Loading drives...</div>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:8px;">
+            <span style="font-size:0.9em;color:#aaa;">Size:</span>
+            <input type="text" id="ssd_swap_size" value="<?php echo htmlspecialchars($settings['ssd_swap_size'] ?: '16G'); ?>" style="width:70px;text-align:center;">
+            <button type="button" class="zram-btn" id="btn-create-disk" onclick="createDiskSwap()" disabled>CREATE SWAP FILE</button>
+        </div>
+<?php endif; ?>
+    </div>
+</div>
+
+<!-- PLUGIN SETTINGS — auto-saves on blur/change, see docs/specs/SETTINGS_AUTO_SAVE.md.
+     The legacy <form method="post"> + save_settings POST handler at the top of
+     this file is retained as a fallback for any external/scripted POST. -->
+<div class="zram-card">
+    <div class="zram-card-header"><span><i class="fa fa-cog"></i> Plugin Settings</span></div>
+    <div class="zram-card-body" style="padding-top:10px;">
+        <dl>
+            <dt>Enable Dashboard:</dt>
+            <dd><select name="enabled" data-autosave="true"><option value="yes" <?php echo ($settings['enabled']=='yes')?'selected':''; ?>>Yes</option><option value="no" <?php echo ($settings['enabled']=='no')?'selected':''; ?>>No</option></select></dd>
+            <dt>Refresh Interval (sec):</dt>
+            <dd><input type="number" name="refresh_interval" data-autosave="true" value="<?php echo htmlspecialchars(number_format(intval($settings['refresh_interval']) / 1000, 1, '.', '')); ?>" min="1" step="0.5"></dd>
+            <dt>Collection Interval (sec):</dt>
+            <dd><input type="number" name="collection_interval" data-autosave="true" value="<?php echo htmlspecialchars($settings['collection_interval']); ?>" min="1" step="1"></dd>
+            <dt class="zram-row-top">Swappiness (0-200):</dt>
+            <dd class="zram-row-top">
+                <input type="number" name="swappiness" data-autosave="true" value="<?php echo htmlspecialchars($settings['swappiness']); ?>" min="0" max="200">
+                <div style="font-size:0.8em;opacity:0.7;margin-top:4px;line-height:1.4;">
+                    <strong>60</strong> kernel default (disk-swap era) &middot;
+                    <strong>100</strong> equal weighting &middot;
+                    <strong>150</strong> recommended for zram &middot;
+                    <strong>180+</strong> aggressive (best with disk swap as fallback)
+                </div>
+                <div style="font-size:0.8em;opacity:0.6;margin-top:4px;line-height:1.4;font-style:italic;">
+                    Global kernel setting &mdash; applies to swap as a whole, not per-tier.
+                    Tier order is controlled by priority (Tier 1 = <?php echo intval($settings['zram_priority'] ?? 100); ?>, Tier 2 = <?php echo intval($settings['ssd_swap_priority'] ?? 10); ?>), not swappiness.
+                </div>
+            </dd>
+            <dt>Debug Mode:</dt>
+            <dd><label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
+                <input type="checkbox" name="debug" data-autosave="true" value="yes" <?php echo ($settings['debug']=='yes')?'checked':''; ?>>
+                <span style="font-size:0.9em;opacity:0.7;">Enable detailed logging</span>
+            </label></dd>
+            <dt>Show Console:</dt>
+            <dd><select name="console_visible" data-autosave="true"><option value="yes" <?php echo ($settings['console_visible']=='yes')?'selected':''; ?>>Yes</option><option value="no" <?php echo ($settings['console_visible']=='no')?'selected':''; ?>>No</option></select></dd>
+        </dl>
+
+        <!-- Advanced — per-tier priority overrides. Hidden by default; first
+             expand triggers a swal warning that must be acknowledged before
+             the inputs unlock. See docs/specs/PER_TIER_PRIORITY_OVERRIDE.md. -->
+        <details class="zram-advanced" id="zram-advanced-priorities">
+            <summary><i class="fa fa-flask"></i> Advanced &mdash; override tier priorities</summary>
+            <div class="zram-advanced-body">
+                <div class="zram-advanced-warning">
+                    <strong>Read this first.</strong> Tier ordering depends on these values.
+                    ZRAM (Tier 1) must stay <em>strictly higher</em> than Disk (Tier 2) — if you invert
+                    them, every page goes to disk first and ZRAM is bypassed entirely.
+                    The defaults (100 / 10) are designed for that ordering and are what almost every install should use.
+                </div>
+                <dl>
+                    <dt>Tier 1 (ZRAM) priority:</dt>
+                    <dd><input type="number" id="zram_priority_input" min="1" max="32767" value="<?php echo intval($settings['zram_priority'] ?? 100); ?>" disabled></dd>
+                    <dt>Tier 2 (Disk) priority:</dt>
+                    <dd><input type="number" id="ssd_priority_input" min="0" max="32767" value="<?php echo intval($settings['ssd_swap_priority'] ?? 10); ?>" disabled></dd>
+                </dl>
+                <!-- Buttons live outside the dl so they aren't trapped inside
+                     the dt/dd grid. Empty dt collapses under Unraid site CSS
+                     and pulls the dd into column 1, breaking inline-flex.
+                     Order: destructive/secondary first (RESET), primary action
+                     last (SAVE) — same pattern as Unraid's own dialogs and
+                     Web defaults (Cancel left, OK right). -->
+                <div class="zram-priority-buttons">
+                    <button type="button" class="zram-btn" onclick="resetPriorities()">RESET TO DEFAULTS</button>
+                    <button type="button" class="zram-btn" id="btn-save-priorities" onclick="savePriorities()" disabled>SAVE</button>
+                </div>
+            </div>
+        </details>
+    </div>
+</div>
+</div>
+
+<!-- ACTIVITY PANE — unified feed of cmd.log + debug.log with filter chips.
+     Replaces the old two-tab "Command History / System Debug Log" UI.
+     See docs/specs/UNIFIED_ACTIVITY_LOG.md. -->
+<div class="zram-console-pane" id="zram-console-pane">
+    <div class="zram-activity-header">
+        <div class="zram-activity-title"><i class="fa fa-list-alt"></i> Activity</div>
+        <div class="zram-activity-chips">
+            <button type="button" class="activity-chip active" data-filter="all">All</button>
+            <button type="button" class="activity-chip" data-filter="commands">Commands</button>
+            <button type="button" class="activity-chip" data-filter="events">Events</button>
+            <button type="button" class="activity-chip" data-filter="errors">Errors</button>
+        </div>
+    </div>
+    <div id="activity-log"></div>
+    <div class="zram-activity-footer">
+        <button type="button" class="zram-btn" onclick="fetchActivity()"><i class="fa fa-refresh"></i> REFRESH</button>
+        <button type="button" class="zram-btn zram-btn-danger" onclick="clearActivity()"><i class="fa fa-trash"></i> CLEAR</button>
+    </div>
+</div>
+</div>

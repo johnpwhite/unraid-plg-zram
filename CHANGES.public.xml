@@ -1,0 +1,100 @@
+<CHANGES>
+## 2026.05.28.03
+- Security: CSRF token validation hardened — tokens are now verified against the server-issued value rather than just checked for presence. Tier 2 swap mount point restricted to /mnt/* paths, preventing path traversal.
+## 2026.05.28.02
+- Improve: plugin icon recoloured to Unraid brand orange — now readable on all four Unraid themes.
+## 2026.05.28.01
+- Fix: Tier 2 disk swap file no longer causes the array to hang on stop/shutdown. If the swap file lives on a pool share or an Unassigned Devices disk, the kernel held an open reference to it when the pool unmounted — causing a permanent hang. A new array-stop hook now releases the swap file before any disk unmounts begin, covering all storage types including the Unraid 7.3.0 boot-pool partition.
+
+## 2026.05.12.01
+- Feat: Tier 2 disk swap now recovers on its own. If the disk swap file exists but isn't active — which can happen when its mount comes up more than a few minutes after the plugin starts (a long array outage, a flash-drive swap) and the boot-time retry has given up — the background service re-activates it automatically within a few seconds. The Tier 2 card also gains an ACTIVATE button for that state, so you can bring it back with one click without a reboot or the shell. The auto-recovery re-checks your settings first, so it will never re-enable a swap file you've just removed.
+
+## 2026.05.06.15
+- Fix: Dashboard "Compressed" chip and chart line now use the algorithm's compressed payload size, not total RAM occupied by the zram device. Previously, under light load, per-page metadata + slot rounding overhead could push the "RAM occupied" figure above the uncompressed data size, producing a visible contradiction with the Ratio chip (e.g. "Uncompressed 2.36 MB / Compressed 2.65 MB" while Ratio showed a healthy ratio). The Ratio chip was always correct — now the Compressed numbers and chart line match it.
+
+## 2026.05.06.14
+- Feat: Plugin Settings auto-save. APPLY &amp; SAVE retired — every field commits on blur (text/number) or change (select/checkbox/slider) with an inline "Saved ✓" confirmation, and side effects are gated by key (sysctl vm.swappiness only when swappiness changed; collector restart only on collection_interval / debug, not every save). Tier 1 size/algorithm controls auto-save too and apply on next CREATE.
+- Feat: Advanced per-tier priority override. Hidden behind a confirmation overlay explaining the load-bearing relationship (Tier 1 must stay strictly higher than Tier 2 — invert and every page goes to disk first, ZRAM is bypassed). Inputs lock until the overlay is acknowledged each session; SAVE shows a final diff confirmation before applying. Defaults remain 100/10. Live re-prioritisation runs swapoff/swapon when a tier is active; falls back to "applies on next CREATE" if the safety check fails.
+- Feat: Dashboard rework — Tier 2-only mode now usable. Forum report: running with only the Disk Tier left the dashboard empty. Three render modes (both tiers / Tier 1 only / Tier 2 only) drive which chips and chart series appear. New cyan Disk Used chip and Disk dataset on the chart, sourced from live swap usage rather than file allocation size. "No swap configured" copy with a settings link covers the both-off case.
+- Feat: Unified Activity log. Command History and System Debug Log tabs replaced with a single chronological feed with filter chips (All / Commands / Events / Errors) and colour-coded badges per entry. Single CLEAR truncates both source files. Live action toasts now persist across reloads — the console pane no longer starts empty after refresh.
+- Feat: Live tier observability on the Settings page. Each tier's status row shows current used bytes vs allocated size plus its priority and the inline explainer "used first" / "overflow only". Swappiness input gains a clarifier line that it's a global kernel setting (not per-tier) — direct response to forum questions about per-tier swappiness/priority.
+- Improve: Tier 2 drive picker. ZFS pools now appear in the list (were silently filtered out). Multi-device btrfs (Unraid RAID cache pools) and ZFS pools are clearly classified "Not Supported" with red indicator and unclickable rows — the kernel rejects swap files on those filesystems, so the previous "clickable, fail at CREATE time" UX was confusing. HDD warning rephrased to be honest about random-IO impact.
+- Improve: Plugin Settings polish — units standardised to seconds (Refresh and Collection Interval both show "(sec)" with backward-compatible storage); auto-size readout now GB on both sides ("50% of 62.6GB = 31.3GB" instead of mixed MB/GB); tighter row spacing; Tier 1 controls hide once a ZRAM device is active to mirror Tier 2's existing pattern.
+- Improve: Action log entries show friendly phrases ("Create disk swap file", "Update swappiness") instead of raw snake_case identifiers.
+- Improve: Disk swap file label renamed from ZRAM_CARD_SSD to ZRAM_CARD_DISK to complete the SSD → Disk terminology pass started in 2026.04.28.02. Existing installs auto-migrate on next plugin start (swaplabel runs while the swap is offline) — no user action required.
+- Fix: Tier 2 stays inactive after reboot when its mount comes up after plugin start. Forum report: "[WARN] Disk swap mount (/mnt/swap) not available yet. Skipping Tier 2." init.sh now schedules a background poller that retries every 5s for up to 5 minutes once the mount appears — typical Unraid boot has Tier 2 active within 60–120s without user intervention.
+- Fix: REMOVE button state-sync under memory pressure. Forum report: "REMOVE button persists across reloads". Root cause: swapoff and zramctl --reset failures were silently swallowed and the UI reported success regardless. Both commands now check exit codes and report real errors; kernel and UI state stay in sync.
+- Fix: CREATE respects live form values. Forum report: "I cannot set Auto Size to 75% — it always creates 16G; turns out you have to APPLY &amp; SAVE first". CREATE now reads size_mode/percent/algo straight from the form and persists what was actually used, so a slider tweak made before clicking CREATE is no longer silently dropped.
+
+## 2026.04.28.02
+- Feat: Extended swappiness range (0-200, kernel 5.8+ aware). The Swappiness setting now accepts the full kernel range (was 0-100) and the default is raised to 150 — the recommended setting for compressed-RAM swap, where evicting a zram page is cheaper than dropping page cache. Settings page shows tier guidance: 60 kernel default, 100 equal weighting, 150 recommended for zram, 180+ aggressive. Existing users keep their saved value on upgrade.
+- Improve: Inclusive Tier 2 terminology. "SSD Swap File" renamed to "Disk Swap File" across the settings page, dashboard card, action toasts, init logs, and public README. The drive picker has always accepted HDD cache-pool drives (with a warning), but the previous copy implied SSD/NVMe-only.
+- Improve: Honest HDD warning. Rewrote the HDD warning in the Tier 2 drive picker. The previous "may interfere with parity operations" claim was misleading — the picker excludes array drives entirely, so HDD swap on a cache pool cannot directly affect parity calculation. The new wording is honest about random-IO performance impact and acknowledges that a slow swap is still better than running out of memory.
+- Security: CSRF hardening for log-read endpoints. Added CSRF token validation to the view_log and view_cmd_log AJAX actions (previously exempt; could leak diagnostic details to cross-origin requests). Archived the legacy zram_swap.php handler, which had been superseded by zram_actions.php and used REQUEST variables without proper escaping.
+
+## 2026.04.18.07
+- Feat: Dashboard graph Y-axis labels now round to the nearest 5 in their natural unit (MB / GB / etc) for easier reading. Stat cards continue to show precise values.
+- Fix: Chart tooltip no longer clips at the bottom of the graph or overflows into adjacent cards when hovering near the edges.
+- Fix: Uninstalling the plugin no longer wipes your saved settings. Refresh interval, compression algorithm, swappiness, and SSD swap configuration now survive uninstall/reinstall per Unraid convention.
+
+## 2026.04.17.06
+- Feat: Dashboard graph now visualises both uncompressed and compressed memory as stacked filled layers, with CPU load overlaid on top. The visible gap between the two layers is the RAM saved by ZRAM.
+- Feat: Mini stats cards reworked to match the graph: Uncompressed, Compressed, Ratio, Load, Swappiness.
+- Fix: Settings form POST was silently dropped on save. Refresh interval and other settings now persist correctly.
+- Fix: JS/CSS cache-buster now uses filemtime so browsers pick up fresh assets on every plugin upgrade (no more manual hard-refresh after installing a new version).
+
+## 2026.04.16.09
+- Fix: Drive picker only shows mounts under /mnt/. Excludes Docker, libvirt, tmpfs, and zram-backed mounts that are unsuitable for swap files.
+
+## 2026.04.16.08
+- Major Feature: Tiered Swap Manager — ZRAM (in-memory, compressed) plus optional SSD swap file (overflow protection).
+- Feature: Auto-sizes ZRAM to a percentage of system RAM (configurable 25-75%, default 50%).
+- Feature: Drive picker for SSD/NVMe swap file with media detection (recommends NVMe, warns on HDD, blocks USB).
+- Feature: Device labeling — all plugin-managed ZRAM devices tagged with ZRAM_CARD label.
+- Feature: Device isolation — only shows plugin-owned devices; hides ZRAM from other plugins.
+- Feature: Detects btrfs RAID pools and warns that swap files are not supported on multi-device btrfs.
+- Feature: Handles btrfs single-device filesystems with NOCOW attribute for swap file compatibility.
+- Security: CSRF token validation on all actions, escapeshellarg on all shell commands.
+- Security: Swap files created with 600 permissions.
+- Fix: Atomic config writes with file locking prevent corruption from concurrent requests.
+- Fix: Background collector no longer reads config from USB flash every 3 seconds (cached with periodic refresh).
+- Fix: History file writes are atomic (write-to-tmp then rename).
+- Fix: Collector restart uses SIGTERM with SIGKILL fallback instead of sleep-and-hope.
+- Architecture: Single ZRAM device model replaces multi-device (modern kernels parallelize within one device).
+- Architecture: Shared config module eliminates 4x duplicated logging functions.
+- Architecture: All JavaScript moved to external files for Unraid page framework compatibility.
+- Upgrade: Automatic migration from legacy multi-device config to single-device on first boot.
+
+## 2026.02.18.07
+- Feature: Added ZRAM discovery to boot init log for existing devices.
+- Fix: Corrected dashboard logo sizing and removed duplicate expander icon.
+- Style: Finalized Unraid 7.2+ dashboard header compliance.
+
+## 2026.02.18.04
+- Feature: Standardized release labels and improved changelog preservation.
+- Docs: Finalized cumulative changelog and versioning script updates.
+
+## 2026.02.13.13
+- UX: Tightened README layout for better Plugin Manager visibility.
+- Fix: Resolved runaway CPU load calculation in background collector.
+- Feature: Added configurable background collection interval (Default 3s).
+- Feature: Implemented persistent server-side command history.
+- Lifecycle: Improved plugin removal (stops collector and purges all tmp files).
+- Architecture: Flattened source structure and added idempotent initialization.
+- Settings: Diagnostics console now enabled by default on new installs.
+- Bugfix: Resolved background collector logging issues during upgrades.
+- Docs: Added comprehensive Settings and Usage guide for non-technical users.
+
+## 2026.01.30.21
+- New Feature: Persistent Dashboard History. Maintains a 1-hour rolling chart of ZRAM performance even after closing the browser.
+- New Feature: Unified Diagnostics Console. Integrated tabbed console for real-time Command History and System Debug Logs.
+- New Feature: In-Page Debug Viewer. Live-refreshing log viewer with truncation capabilities, bypassing external window issues.
+- Improvement: Standardized Logging. Consistent [LEVEL] prefixes (INFO, DEBUG, WARN, ERROR) across all plugin components.
+- Improvement: Robust Installer. Automatic configuration healing on boot to ensure stability after fresh installs or updates.
+- Improvement: Performance Optimizations. Enhanced CPU Load tracking and precision for ZRAM metrics.
+- Fix: Permission Stability. Standardized world-readable diagnostics logs (0666) for reliable access across web/root users.
+- Fix: UI Synchronization. Resolved issues with swappiness and debug toggle states persisting across refreshes.
+
+## 2026.01.25.66
+- Official Initial Release.
+</CHANGES>

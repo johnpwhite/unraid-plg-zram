@@ -1,0 +1,14 @@
+# Dev-only dependencies — dev tooling only, never ships to users
+node_modules/
+vendor/
+composer.lock
+package-lock.json
+
+# Test artefacts
+.phpunit.result.cache
+coverage/
+.vitest/
+
+# IDE
+.vscode/
+.idea/

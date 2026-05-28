@@ -1,0 +1,178 @@
+<?php
+/**
+ * <module_context>
+ *   <name>zram_collector</name>
+ *   <description>Background daemon collecting rolling ZRAM stats history, filtered to our labeled device</description>
+ *   <dependencies>zram_config</dependencies>
+ *   <consumers>zram_status.php (reads history.json)</consumers>
+ * </module_context>
+ */
+
+require_once dirname(__FILE__) . '/zram_config.php';
+
+$maxPoints = 300;
+
+// Load settings (cached — only re-read periodically)
+$settings = zram_config_read();
+$interval = max(1, intval($settings['collection_interval'] ?? 3));
+$configRefreshCounter = 0;
+$configRefreshEvery = max(1, intval(60 / $interval)); // Re-read config ~once per minute
+
+zram_log("Collector starting (interval={$interval}s)...", 'INFO');
+
+// PID management
+if (file_exists(ZRAM_PID_FILE)) {
+    $oldPid = intval(trim(@file_get_contents(ZRAM_PID_FILE)));
+    if ($oldPid > 0 && posix_kill($oldPid, 0)) {
+        zram_log("Collector already running (PID $oldPid). Exiting.", 'INFO');
+        exit;
+    }
+}
+file_put_contents(ZRAM_PID_FILE, getmypid());
+
+$lastTotalTicks = null;
+$lastTime = null;
+$selfHealNextTry = 0; // epoch-seconds back-off gate for Tier 2 self-heal (see below)
+
+// Load existing history
+$history = [];
+if (file_exists(ZRAM_HISTORY_FILE)) {
+    $h = json_decode(@file_get_contents(ZRAM_HISTORY_FILE), true);
+    if (is_array($h)) $history = $h;
+}
+
+while (true) {
+    try {
+        // Periodically refresh config from disk (not every iteration)
+        $configRefreshCounter++;
+        if ($configRefreshCounter >= $configRefreshEvery) {
+            $configRefreshCounter = 0;
+            $settings = zram_config_read();
+            $interval = max(1, intval($settings['collection_interval'] ?? 3));
+            zram_debug_reset();
+        }
+
+        // Tier 2 self-heal: if the disk swap is configured-enabled and its file
+        // exists but isn't in /proc/swaps, re-activate it. Catches the case
+        // where zram_init.sh's boot-retry poller timed out because the mount
+        // came up >5 min after plugin start (long array outage, USB-stick swap).
+        // The function does its own cheap pre-checks, re-reads config fresh
+        // before acting (so it can't undo a user REMOVE), logs its outcome, and
+        // backs off 60s after a failure. See docs/specs/TIER2_RECOVERY.md.
+        zram_reactivate_disk_swap_if_needed($settings, $selfHealNextTry);
+
+        // Find our device
+        $ourDev = '';
+        if (file_exists(ZRAM_DEVICE_FILE)) {
+            $ourDev = trim(@file_get_contents(ZRAM_DEVICE_FILE));
+        }
+        if (empty($ourDev)) {
+            $ourDev = zram_get_our_device();
+        }
+
+        $totalOriginal = 0;
+        $totalCompressed = 0;
+        $totalUsed = 0;
+        $currentTotalTicks = 0;
+
+        if ($ourDev && file_exists("/sys/block/$ourDev")) {
+            // Collect stats for our device only.
+            // DATA = uncompressed payload, COMPR = post-compression payload,
+            // TOTAL = actual RAM occupied (COMPR + per-page metadata + slot rounding).
+            // The chart's "Compressed" dataset wants COMPR; "Uncompressed" wants DATA.
+            // TOTAL is captured for the aggregates JSON (memorySaved calc) only.
+            $raw = [];
+            exec("zramctl --bytes --noheadings --raw --output NAME,DATA,COMPR,TOTAL /dev/$ourDev 2>/dev/null", $raw);
+            foreach ($raw as $line) {
+                $p = preg_split('/\s+/', trim($line));
+                if (count($p) >= 4 && basename($p[0]) === $ourDev) {
+                    $totalOriginal   = intval($p[1]);
+                    $totalCompressed = intval($p[2]);
+                    $totalUsed       = intval($p[3]);
+                    break;
+                }
+            }
+
+            // IO ticks for our device
+            $statFile = "/sys/block/$ourDev/stat";
+            if (file_exists($statFile)) {
+                $stats = preg_split('/\s+/', trim(@file_get_contents($statFile)));
+                if (count($stats) >= 8) {
+                    $currentTotalTicks = intval($stats[3]) + intval($stats[7]);
+                }
+            }
+        }
+
+        // Calculate load
+        $now = microtime(true) * 1000;
+        $loadPct = 0;
+        if ($lastTotalTicks !== null && $lastTime !== null) {
+            $dt = $now - $lastTime;
+            if ($dt > 0) {
+                $loadPct = max(0, (($currentTotalTicks - $lastTotalTicks) / $dt) * 100);
+            }
+        }
+        $lastTotalTicks = $currentTotalTicks;
+        $lastTime = $now;
+
+        // Sample Tier 2 (SSD swap) used bytes so the dashboard can plot
+        // spillover historically. Sourced from `swapon --bytes` filtered to
+        // our configured ssd_swap_path. 0 when unconfigured, inactive, or
+        // unreadable — the schema treats absent === zero.
+        $ssdUsed = 0;
+        $ssdPath = $settings['ssd_swap_path'] ?? '';
+        if ($ssdPath !== '') {
+            $swapRows = [];
+            exec('swapon --bytes --noheadings --show=NAME,USED 2>/dev/null', $swapRows);
+            foreach ($swapRows as $row) {
+                $parts = preg_split('/\s+/', trim($row));
+                if (count($parts) >= 2 && $parts[0] === $ssdPath) {
+                    $ssdUsed = intval($parts[1]);
+                    break;
+                }
+            }
+        }
+
+        // Append to history. Schema:
+        //   t = timestamp (HH:MM:SS)
+        //   o = original uncompressed payload bytes (DATA)
+        //   c = compressed payload bytes (COMPR — algorithm output, what the chart shows)
+        //   u = total RAM occupied bytes (COMPR + per-page metadata + slot rounding)
+        //   l = CPU load %
+        //   s = Tier 2 disk swap used bytes
+        //
+        // 'c' was added 2026.05.06.15 — fixes a long-standing bug where 'u' was
+        // labelled "compressed" but actually held the post-overhead RAM cost,
+        // making the chart's Compressed dataset > Uncompressed at small data
+        // volumes. Older entries without 'c' fall back to 'u' on the dashboard
+        // (graceful — values are within the per-page metadata band, ~few%).
+        $history[] = [
+            't' => date('H:i:s'),
+            'o' => $totalOriginal,
+            'c' => $totalCompressed,
+            'u' => $totalUsed,
+            'l' => round($loadPct, 1),
+            's' => $ssdUsed,
+        ];
+        if (count($history) > $maxPoints) array_shift($history);
+
+        // Atomic-ish write (write to tmp then rename)
+        $tmp = ZRAM_HISTORY_FILE . '.tmp';
+        if (file_put_contents($tmp, json_encode($history)) !== false) {
+            rename($tmp, ZRAM_HISTORY_FILE);
+        }
+
+        zram_log("Poll: orig=" . round($totalOriginal/1048576) . "MB, used=" . round($totalUsed/1048576) . "MB, load=" . round($loadPct, 1) . "%");
+
+        // Log rotation: truncate if > 1MB
+        if (file_exists(ZRAM_DEBUG_LOG) && filesize(ZRAM_DEBUG_LOG) > 1048576) {
+            zram_log("LOG ROTATED", 'INFO');
+            file_put_contents(ZRAM_DEBUG_LOG, "[LOG ROTATED]\n");
+        }
+
+    } catch (Exception $e) {
+        @file_put_contents(ZRAM_DEBUG_LOG, date('[Y-m-d H:i:s] ') . "[ERROR] Collector: " . $e->getMessage() . "\n", FILE_APPEND);
+    }
+
+    sleep($interval);
+}

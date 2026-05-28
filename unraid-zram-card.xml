@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Containers>
+  <PluginURL>https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg</PluginURL>
+  <PluginAuthor>John White</PluginAuthor>
+  <Beta>False</Beta>
+  <Category>Tools:System</Category>
+  <Name>Unraid ZRAM Card</Name>
+  <Description>Monitor and manage ZRAM swap devices directly from your Unraid dashboard.</Description>
+  <Overview>
+    Unraid ZRAM Card provides a beautiful and functional dashboard card for monitoring and managing ZRAM swap devices.
+    
+    [b]Features:[/b]
+    - Real-time ZRAM usage monitoring with historical charts.
+    - Easy management of ZRAM devices (Create, Resize, Remove).
+    - Global Swappiness control.
+    - Persistent configuration across reboots.
+  </Overview>
+  <Support>https://forums.unraid.net/topic/196763-new-plugin-created-zram/</Support>
+  <Project>https://docs.kernel.org/admin-guide/blockdev/zram.html</Project>
+  <Icon>https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/src/unraid-zram-card.png</Icon>
+</Containers>

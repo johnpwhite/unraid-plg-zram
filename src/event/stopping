@@ -1,0 +1,30 @@
+#!/bin/bash
+# Releases the Tier 2 disk swapfile at the very start of cmdStop — before
+# Unassigned Devices unmounts its disks (stopping_svcs) and before pool shares
+# unmount (unmounting_disks). Covers all storage types: UD disks, cache pools,
+# and the Unraid 7.3.0 boot-pool partition. See OP #1241.
+
+CONFIG="/boot/config/plugins/unraid-zram-card/settings.ini"
+LOG="/tmp/unraid-zram-card/boot_init.log"
+
+mkdir -p "$(dirname "$LOG")"
+
+ts() { date '+%Y-%m-%d %H:%M:%S'; }
+
+[ -f "$CONFIG" ] || exit 0
+
+SSD_ENABLED=$(grep '^ssd_swap_enabled=' "$CONFIG" 2>/dev/null | cut -d'"' -f2)
+SSD_PATH=$(grep '^ssd_swap_path=' "$CONFIG" 2>/dev/null | cut -d'"' -f2)
+
+[ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ] || exit 0
+
+if grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
+    echo "[$(ts)] [INFO] stopping: swapoff $SSD_PATH" >> "$LOG"
+    RC=0
+    swapoff "$SSD_PATH" 2>&1 || RC=$?
+    if [ $RC -eq 0 ]; then
+        echo "[$(ts)] [INFO] stopping: swapoff succeeded" >> "$LOG"
+    else
+        echo "[$(ts)] [WARN] stopping: swapoff failed (rc=$RC) — array stop may hang" >> "$LOG"
+    fi
+fi
