@@ -1,8 +1,10 @@
 <?xml version='1.0' standalone='yes'?>
 
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.06.17.01" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.06.17.02" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.06.17.02
+- Fix: ZRAM swap now activates reliably on every boot. On some systems the swap device failed to create after a reboot — the log showed "failed to reset: Device or resource busy" — even though clicking CREATE in the dashboard worked every time. The cause was a boot-time timing conflict between the plugin and the kernel's automatic device probing. The plugin now creates the swap device a different way that sidesteps that conflict entirely, so Tier 1 comes up cleanly on every reboot. Reported on the forum by martinjuhasz.
 ## 2026.06.17.01
 - Feat: Memory Protection — a new Settings card that decides what your server shuts down first if it ever runs completely out of memory. Give each VM, container, and background service a plain-language priority (from "Sacrifice last" to "Sacrifice first"), with its live memory shown beside it. Protect a VM or container and the services it depends on are protected automatically. A built-in guard refuses settings that would leave the system with nothing safe to shut down, and every change saves on its own.
 - Feat: Tier 2 disk swap now works on multi-device btrfs cache pools and ZFS datasets. These were previously blocked because a swap file cannot sit directly on btrfs-RAID or ZFS; Tier 2 now uses a loop-backed image so any pool can host overflow swap, with the dashboard, status and settings all aware of it.

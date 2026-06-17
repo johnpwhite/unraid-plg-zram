@@ -84,6 +84,61 @@ ZRAMCTL=$(command -v zramctl || echo "/sbin/zramctl")
 MKSWAP=$(command -v mkswap || echo "/sbin/mkswap")
 SWAPON=$(command -v swapon || echo "/sbin/swapon")
 
+# Create + configure a fresh ZRAM device WITHOUT triggering a reset.
+#
+# `zramctl --find --size --algorithm` writes "1" to the chosen device's `reset`
+# sysfs attr as the first step of setup (so it can then set comp_algorithm,
+# which the kernel only accepts on an uninitialised device). At early boot the
+# kernel auto-creates /dev/zram0 (disksize=0) and a udev worker transiently
+# opens it to run blkid; the kernel's reset_store() returns EBUSY whenever the
+# device has ANY open fd, so that race makes boot creation fail with
+# "failed to reset: Device or resource busy". (The dashboard CREATE works
+# because udev is quiescent by then.) See docs/specs/ZRAM_BOOT_RESET_RACE.md.
+#
+# We sidestep reset entirely: allocate a brand-new device id via
+# /sys/class/zram-control/hot_add (always uninitialised) and write
+# comp_algorithm then disksize directly through sysfs. Prints the /dev path on
+# success; on failure prints the last error text and returns non-zero.
+create_zram_device() {
+    local size="$1" algo="$2" id dev i
+
+    if [ -e /sys/class/zram-control/hot_add ]; then
+        id=""
+        for i in 1 2 3; do
+            id=$(cat /sys/class/zram-control/hot_add 2>/dev/null)
+            case "$id" in (''|*[!0-9]*) id="" ; sleep 0.3 ;; (*) break ;; esac
+        done
+        if [ -n "$id" ] && [ -d "/sys/block/zram${id}" ]; then
+            dev="/dev/zram${id}"
+            # comp_algorithm MUST be written before disksize.
+            if [ -n "$algo" ] && ! echo "$algo" > "/sys/block/zram${id}/comp_algorithm" 2>/dev/null; then
+                zlog "Kernel rejected algorithm '$algo' on $dev; using kernel default" "WARN"
+            fi
+            # disksize via sysfs uses memparse(), so "8G"/"512M" are accepted verbatim.
+            if echo "$size" > "/sys/block/zram${id}/disksize" 2>/dev/null; then
+                printf '%s' "$dev"
+                return 0
+            fi
+            zlog "Failed to set disksize=$size on $dev via sysfs; releasing id $id" "WARN"
+            echo "$id" > /sys/class/zram-control/hot_remove 2>/dev/null || true
+        fi
+    fi
+
+    # Fallback: no zram-control (very old kernel) — retry zramctl to ride out
+    # the transient udev-probe EBUSY window rather than failing on attempt 1.
+    dev=""
+    for i in 1 2 3 4 5; do
+        if dev=$($ZRAMCTL --find --size "$size" --algorithm "$algo" 2>&1) \
+           && [ -n "$dev" ] && [ -b "$dev" ]; then
+            printf '%s' "$dev"
+            return 0
+        fi
+        sleep 0.5
+    done
+    printf '%s' "$dev"
+    return 1
+}
+
 # Check if we already have a labeled device active
 EXISTING_DEV=""
 for zdev in /sys/block/zram*; do
@@ -123,8 +178,7 @@ else
     zlog "Creating ZRAM: size=$ZRAM_SIZE, algo=$ZRAM_ALGO, priority=$ZRAM_PRIO" "INFO"
     modprobe zram 2>/dev/null
 
-    DEV=$($ZRAMCTL --find --size "$ZRAM_SIZE" --algorithm "$ZRAM_ALGO" 2>&1)
-    if [ $? -eq 0 ] && [ -n "$DEV" ]; then
+    if DEV=$(create_zram_device "$ZRAM_SIZE" "$ZRAM_ALGO") && [ -n "$DEV" ] && [ -b "$DEV" ]; then
         zlog "Allocated $DEV, formatting with label $ZRAM_LABEL" "INFO"
         $MKSWAP -L "$ZRAM_LABEL" "$DEV" > /dev/null 2>&1
         $SWAPON "$DEV" -p "$ZRAM_PRIO"
