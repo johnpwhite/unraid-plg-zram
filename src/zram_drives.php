@@ -27,6 +27,8 @@ $exclude_fs = ['tmpfs','proc','sysfs','devtmpfs','overlay','squashfs','fuse','de
 
 // Parse /proc/mounts for real filesystems
 $mounts = @file('/proc/mounts', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+$cfg      = zram_config_read();
+$allowZfs = (($cfg['ssd_swap_allow_zfs'] ?? 'no') === 'yes');
 foreach ($mounts as $line) {
     $p = preg_split('/\s+/', $line);
     if (count($p) < 3) continue;
@@ -116,26 +118,58 @@ foreach ($mounts as $line) {
         if (intval($devCount[0] ?? 0) > 1) $btrfsRaid = true;
     }
 
-    // classify: recommended | ok | warn | blocked
-    //   blocked = kernel will reject swap-file creation; row is shown but not clickable
+    // Resolve backing mode: 'file' for filesystems that accept direct swap
+    // files; 'loop' for those that do not. Loop devices interpose a block
+    // device between the image and the swap subsystem, dodging all FS
+    // restrictions. See docs/specs/TIER2_LOOP_DEVICE_SWAP.md.
+    $backing  = 'file';
+    if ($btrfsRaid) {
+        $backing = 'loop';
+    } elseif ($isZfs && $allowZfs) {
+        $backing = 'loop';
+    }
+    // User can force loop backing for any FS by setting ssd_swap_backing=loop in config.
+    // This is an expert override; for most users the auto-detection above is correct.
+    if (($cfg['ssd_swap_backing'] ?? 'auto') === 'loop') {
+        $backing = 'loop';
+    }
+
+    // classify: recommended | ok | warn | blocked | loop
+    //   blocked = kernel will reject swap-file creation; row shown but not clickable
+    //   loop    = kernel restriction bypassed via loop device; clickable with note
     //   warn    = allowed but slow / user should know
     $classify  = 'ok';
     $clickable = true;
     $warning   = '';
 
-    if ($isZfs) {
+    if ($isZfs && !$allowZfs) {
         $classify  = 'blocked';
         $clickable = false;
         $warning   = 'ZFS — kernel does not support swap files on ZFS datasets';
+    } elseif ($isZfs) {
+        // Reached only when allow_zfs=yes (the !$allowZfs case is handled above).
+        $classify  = 'loop';
+        $clickable = true;
+        $warning   = 'ZFS — swap via loop device (opt-in). See caveat in plugin docs.';
     } elseif ($btrfsRaid) {
-        $classify  = 'blocked';
-        $clickable = false;
-        $warning   = 'Btrfs multi-device pool — kernel does not support swap files on multi-device btrfs';
+        $classify  = 'loop';
+        $clickable = true;
+        $warning   = 'Btrfs multi-device pool — swap via loop device (NOCOW image)';
     } elseif ($transport === 'nvme') {
         $classify  = 'recommended';
     } elseif ($transport === 'hdd') {
         $classify  = 'warn';
         $warning   = 'HDD random-IO is slow; expect significant performance impact, but still better than OOM if no faster disk is available';
+    }
+
+    // If loop backing is in effect but the FS-based classification didn't already
+    // mark it loop (e.g. force-loop override on XFS/NVMe), reflect loop in the UI so
+    // the user sees a "via loop device" note. Never override a 'blocked' row — ZFS
+    // without the allow_zfs opt-in stays blocked regardless of a forced backing.
+    if ($backing === 'loop' && $classify !== 'loop' && $classify !== 'blocked') {
+        $classify  = 'loop';
+        $clickable = true;
+        $warning   = ($warning === '') ? 'Forced loop backing — swap via loop device' : $warning;
     }
 
     $drives[] = [
@@ -147,14 +181,15 @@ foreach ($mounts as $line) {
         'classify'   => $classify,
         'clickable'  => $clickable,
         'warning'    => $warning,
+        'backing'    => $backing,
         'free_bytes' => intval($free ?: 0),
         'total_bytes'=> intval($total ?: 0),
     ];
 }
 
-// Sort: recommended → ok → warn → blocked
+// Sort: recommended → ok → loop → warn → blocked
 usort($drives, function($a, $b) {
-    $order = ['recommended' => 0, 'ok' => 1, 'warn' => 2, 'blocked' => 3];
+    $order = ['recommended' => 0, 'ok' => 1, 'loop' => 2, 'warn' => 3, 'blocked' => 4];
     return ($order[$a['classify']] ?? 9) - ($order[$b['classify']] ?? 9);
 });
 

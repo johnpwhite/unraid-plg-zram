@@ -267,11 +267,116 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
 
     if (!is_dir($swapDir)) @mkdir($swapDir, 0700, true);
 
-    // Detect btrfs — swap files need NOCOW attribute
-    $fsType = trim(exec("stat -f -c %T " . escapeshellarg($mount) . " 2>/dev/null"));
+    // Read backing mode from the drive picker's 'backing' field.
+    // 'loop' = NOCOW image + losetup + mkswap/swapon on loop block device.
+    // 'file' (or anything else) = the existing direct-file path.
+    $backing = filter_input(INPUT_GET, 'backing', FILTER_UNSAFE_RAW) ?: 'file';
+    if (!in_array($backing, ['file', 'loop'], true)) $backing = 'file';
+
+    // Detect btrfs on the target mount (used by direct-file path for NOCOW)
+    $fsType  = trim(exec("stat -f -c %T " . escapeshellarg($mount) . " 2>/dev/null"));
     $isBtrfs = ($fsType === 'btrfs');
 
-    // Allocate swap file
+    // Defense-in-depth: the 'backing' param above is the drive picker's echo of
+    // the mode zram_drives.php computed. A stale/buggy client — or a direct API
+    // call — can omit it, silently defaulting to 'file' and falling to the direct
+    // swap-file path. On a multi-device btrfs pool or a ZFS dataset the kernel
+    // REJECTS swap files, so that path is doomed (WP #1387 regression symptom).
+    // Independently re-detect here and UPGRADE to loop when the FS cannot host a
+    // direct swap file. Authoritative server check; never downgrades a loop request.
+    if ($backing !== 'loop') {
+        $forceLoop = false;
+        if ($isBtrfs) {
+            $devCount = [];
+            exec("btrfs filesystem show " . escapeshellarg($mount) . " 2>/dev/null | grep -c 'devid'", $devCount);
+            if (intval($devCount[0] ?? 0) > 1) $forceLoop = true;   // multi-device btrfs (RAID)
+        } else {
+            // Canonical fstype from /proc/mounts (stat -f is unreliable for zfs).
+            foreach (@file('/proc/mounts', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $ln) {
+                $pp = preg_split('/\s+/', $ln);
+                if (($pp[1] ?? '') === $mount && ($pp[2] ?? '') === 'zfs') {
+                    $cfgZfs = zram_config_read();
+                    if (($cfgZfs['ssd_swap_allow_zfs'] ?? 'no') === 'yes') $forceLoop = true;
+                    break;
+                }
+            }
+        }
+        if ($forceLoop) {
+            $backing = 'loop';
+            zram_cmd_log("Filesystem on $mount cannot host a direct swap file — using loop-device backing", 'info');
+        }
+    }
+
+    if ($backing === 'loop') {
+        // ----------------------------------------------------------------
+        // Loop-device path: NOCOW image → losetup → mkswap → swapon loop
+        // The loop block device hides the btrfs-RAID / ZFS restriction from
+        // the swap subsystem, which only sees a plain block device.
+        // ----------------------------------------------------------------
+        zram_cmd_log("Creating {$sizeStr} loop-backed swap image on $mount...", 'cmd');
+
+        // Ensure the loop module is loaded
+        zram_run('modprobe loop', $logs);
+
+        // 1. Create an empty file, mark NOCOW *before* any data is written
+        //    (chattr +C is a no-op on ZFS — harmless), then fallocate to
+        //    pre-allocate all blocks. A sparse image that runs out of space
+        //    mid-page-out can corrupt swap or panic.
+        zram_run("truncate -s 0 " . escapeshellarg($swapFile), $logs);
+        zram_run("chattr +C " . escapeshellarg($swapFile), $logs);
+        $fallocCmd = "fallocate -l {$sizeMB}M " . escapeshellarg($swapFile);
+        if (zram_run($fallocCmd, $logs) !== 0) {
+            @unlink($swapFile);
+            echo json_encode(['success' => false, 'message' => 'Failed to preallocate swap image (fallocate)', 'logs' => $logs]);
+            exit;
+        }
+        @chmod($swapFile, 0600);
+
+        // 2. Attach as a loop block device
+        $losetupOut = [];
+        $losetupRet = 0;
+        exec("losetup -f --show " . escapeshellarg($swapFile) . " 2>&1", $losetupOut, $losetupRet);
+        $loopDev = trim(end($losetupOut) ?: '');
+        $logs[] = ['cmd' => "losetup -f --show $swapFile", 'output' => $loopDev, 'status' => $losetupRet];
+        if ($losetupRet !== 0 || !preg_match('#^/dev/loop\d+$#', $loopDev)) {
+            @unlink($swapFile);
+            echo json_encode(['success' => false, 'message' => 'losetup failed: ' . $loopDev, 'logs' => $logs]);
+            exit;
+        }
+
+        // 3. mkswap + swapon the LOOP device (not the image file)
+        if (zram_run("mkswap -L " . escapeshellarg(ZRAM_SSD_LABEL) . " " . escapeshellarg($loopDev), $logs) !== 0) {
+            exec("losetup -d " . escapeshellarg($loopDev) . " 2>/dev/null");
+            @unlink($swapFile);
+            echo json_encode(['success' => false, 'message' => 'mkswap on loop device failed', 'logs' => $logs]);
+            exit;
+        }
+
+        $cfgPrio = zram_config_read();
+        $ssdPrio = max(0, min(32767, intval($cfgPrio['ssd_swap_priority'] ?? 10)));
+        if (zram_run("swapon " . escapeshellarg($loopDev) . " -p " . $ssdPrio, $logs) !== 0) {
+            exec("losetup -d " . escapeshellarg($loopDev) . " 2>/dev/null");
+            @unlink($swapFile);
+            @rmdir($swapDir);
+            echo json_encode(['success' => false, 'message' => 'swapon loop device failed', 'logs' => $logs]);
+            exit;
+        }
+
+        zram_config_write([
+            'ssd_swap_enabled' => 'yes',
+            'ssd_swap_path'    => $swapFile,   // stable image path, NOT /dev/loopN
+            'ssd_swap_size'    => $sizeStr,
+            'ssd_swap_mount'   => $mount,
+            'ssd_swap_backing' => 'loop',
+        ]);
+
+        echo json_encode(['success' => true, 'message' => "Created {$sizeStr} loop-backed swap on $mount ($loopDev)", 'logs' => $logs]);
+        exit;
+    }
+
+    // ----------------------------------------------------------------
+    // Direct-file path (XFS, single-device btrfs) — unchanged
+    // ----------------------------------------------------------------
     zram_cmd_log("Creating {$sizeStr} swap file on $mount" . ($isBtrfs ? " (btrfs NOCOW)" : "") . "...", 'cmd');
 
     if ($isBtrfs) {
@@ -309,6 +414,7 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
         'ssd_swap_path'    => $swapFile,
         'ssd_swap_size'    => $sizeStr,
         'ssd_swap_mount'   => $mount,
+        'ssd_swap_backing' => 'file',
     ]);
 
     echo json_encode(['success' => true, 'message' => "Created {$sizeStr} swap file on $mount", 'logs' => $logs]);
@@ -316,23 +422,47 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
 }
 
 if ($action === 'remove_disk_swap' || $action === 'remove_ssd_swap') {
-    $cfg = zram_config_read();
+    $cfg      = zram_config_read();
     $swapFile = $cfg['ssd_swap_path'] ?? '';
+    $backing  = $cfg['ssd_swap_backing'] ?? 'file';
 
     if (empty($swapFile) || !file_exists($swapFile)) {
         echo json_encode(['success' => false, 'message' => 'No disk swap file found', 'logs' => $logs]);
         exit;
     }
 
-    // Check if active and safe to remove
-    $swaps = @file_get_contents('/proc/swaps') ?: '';
-    if (strpos($swaps, $swapFile) !== false) {
-        $safety = zram_evacuation_safe('', $logs);
-        if (!$safety['safe']) {
-            echo json_encode(['success' => false, 'message' => $safety['error'], 'logs' => $logs]);
-            exit;
+    $safety = zram_evacuation_safe('', $logs);
+    if (!$safety['safe']) {
+        echo json_encode(['success' => false, 'message' => $safety['error'], 'logs' => $logs]);
+        exit;
+    }
+
+    if ($backing === 'loop') {
+        // Resolve the attached loop device via the stable image path
+        $losetupOut = [];
+        exec("losetup -j " . escapeshellarg($swapFile) . " 2>/dev/null", $losetupOut);
+        $loopDev = '';
+        foreach ($losetupOut as $line) {
+            if (preg_match('#^(/dev/loop\d+):#', $line, $m)) {
+                $loopDev = $m[1];
+                break;
+            }
         }
-        zram_run("swapoff " . escapeshellarg($swapFile), $logs);
+        if ($loopDev !== '') {
+            $swaps = @file_get_contents('/proc/swaps') ?: '';
+            if (preg_match('/^' . preg_quote($loopDev, '/') . '\s/m', $swaps) === 1) {
+                if (zram_run("swapoff " . escapeshellarg($loopDev), $logs) !== 0) {
+                    echo json_encode(['success' => false, 'message' => 'swapoff loop device failed', 'logs' => $logs]);
+                    exit;
+                }
+            }
+            zram_run("losetup -d " . escapeshellarg($loopDev), $logs);
+        }
+    } else {
+        $swaps = @file_get_contents('/proc/swaps') ?: '';
+        if (strpos($swaps, $swapFile) !== false) {
+            zram_run("swapoff " . escapeshellarg($swapFile), $logs);
+        }
     }
 
     @unlink($swapFile);
@@ -341,6 +471,7 @@ if ($action === 'remove_disk_swap' || $action === 'remove_ssd_swap') {
         'ssd_swap_path'    => '',
         'ssd_swap_size'    => $cfg['ssd_swap_size'],
         'ssd_swap_mount'   => '',
+        'ssd_swap_backing' => 'auto',
     ]);
 
     echo json_encode(['success' => true, 'message' => 'Disk swap file removed', 'logs' => $logs]);
@@ -355,15 +486,65 @@ if ($action === 'remove_disk_swap' || $action === 'remove_ssd_swap') {
 // collector self-heals the same state on its next tick — this is the manual
 // override. Mirrors zram_init.sh's activate_disk_swap(). See docs/specs/TIER2_RECOVERY.md.
 if ($action === 'activate_disk_swap' || $action === 'activate_ssd_swap') {
-    $cfg = zram_config_read();
+    $cfg      = zram_config_read();
     $swapFile = $cfg['ssd_swap_path'] ?? '';
+    $backing  = $cfg['ssd_swap_backing'] ?? 'file';
 
     if (empty($swapFile) || !file_exists($swapFile)) {
         echo json_encode(['success' => false, 'message' => 'No disk swap file to activate. Create one first.', 'logs' => $logs]);
         exit;
     }
 
-    // Already active? Idempotent — just make sure the enabled flag agrees.
+    $prio = max(0, min(32767, intval($cfg['ssd_swap_priority'] ?? 10)));
+
+    if ($backing === 'loop') {
+        // Resolve attached loop device for this image (idempotency guard)
+        $losetupJOut = [];
+        exec("losetup -j " . escapeshellarg($swapFile) . " 2>/dev/null", $losetupJOut);
+        $loopDev = '';
+        foreach ($losetupJOut as $line) {
+            if (preg_match('#^(/dev/loop\d+):#', $line, $m)) {
+                $loopDev = $m[1];
+                break;
+            }
+        }
+
+        // Already active (loop attached + in /proc/swaps)?
+        if ($loopDev !== '') {
+            $swaps = @file_get_contents('/proc/swaps') ?: '';
+            if (preg_match('/^' . preg_quote($loopDev, '/') . '\s/m', $swaps) === 1) {
+                if (($cfg['ssd_swap_enabled'] ?? 'no') !== 'yes') {
+                    zram_config_write(['ssd_swap_enabled' => 'yes']);
+                }
+                echo json_encode(['success' => true, 'message' => 'Loop-backed swap is already active', 'logs' => $logs]);
+                exit;
+            }
+            // Loop attached but not in /proc/swaps — stale after crash; re-use it
+        } else {
+            // Loop not attached — attach fresh
+            $losetupOut = [];
+            $losetupRet = 0;
+            exec("losetup -f --show " . escapeshellarg($swapFile) . " 2>&1", $losetupOut, $losetupRet);
+            $loopDev = trim(end($losetupOut) ?: '');
+            $logs[] = ['cmd' => "losetup -f --show $swapFile", 'output' => $loopDev, 'status' => $losetupRet];
+            if ($losetupRet !== 0 || !preg_match('#^/dev/loop\d+$#', $loopDev)) {
+                echo json_encode(['success' => false, 'message' => 'losetup failed: ' . $loopDev, 'logs' => $logs]);
+                exit;
+            }
+        }
+
+        if (zram_run('swapon ' . escapeshellarg($loopDev) . ' -p ' . $prio, $logs) !== 0) {
+            echo json_encode(['success' => false, 'message' => 'swapon loop device failed', 'logs' => $logs]);
+            exit;
+        }
+
+        zram_config_write(['ssd_swap_enabled' => 'yes']);
+        zram_cmd_log("Activated loop-backed swap $swapFile via $loopDev (priority $prio)", 'cmd');
+        echo json_encode(['success' => true, 'message' => "Activated loop-backed swap ($loopDev, priority $prio)", 'logs' => $logs]);
+        exit;
+    }
+
+    // --- Direct-file path (unchanged from existing implementation) ---
     $swaps = @file_get_contents('/proc/swaps') ?: '';
     if (strpos($swaps, $swapFile) !== false) {
         if (($cfg['ssd_swap_enabled'] ?? 'no') !== 'yes') {
@@ -373,14 +554,8 @@ if ($action === 'activate_disk_swap' || $action === 'activate_ssd_swap') {
         exit;
     }
 
-    // Normalise the on-disk label to ZRAM_SSD_LABEL while the swap is offline —
-    // mirrors zram_init.sh's activate_disk_swap() legacy-label migration. Run
-    // unconditionally: re-labelling to the same value is a no-op, so we skip
-    // reading the current label first. Best-effort — a swaplabel failure (tool
-    // missing, etc.) is non-fatal; swapon works regardless of the label.
     zram_run('swaplabel -L ' . escapeshellarg(ZRAM_SSD_LABEL) . ' ' . escapeshellarg($swapFile), $logs);
 
-    $prio = max(0, min(32767, intval($cfg['ssd_swap_priority'] ?? 10)));
     if (zram_run('swapon ' . escapeshellarg($swapFile) . ' -p ' . $prio, $logs) !== 0) {
         echo json_encode(['success' => false, 'message' => 'swapon failed — see log. The mount may not be ready yet, or the filesystem may not support swap files.', 'logs' => $logs]);
         exit;
@@ -529,15 +704,35 @@ if ($action === 'update_priorities') {
     // Tier 2 disk swap
     $cfgNow = zram_config_read();
     $ssdPath = $cfgNow['ssd_swap_path'] ?? '';
+    $backing  = $cfgNow['ssd_swap_backing'] ?? 'file';
     if ($ssdPath && file_exists($ssdPath)) {
+        // Resolve the active swap target (loop-backed images use the loop device)
+        $swapTarget = $ssdPath;
+        if ($backing === 'loop') {
+            $losetupOut = [];
+            exec("losetup -j " . escapeshellarg($ssdPath) . " 2>/dev/null", $losetupOut);
+            $resolvedLoop = '';
+            foreach ($losetupOut as $line) {
+                if (preg_match('#^(/dev/loop\d+):#', $line, $m)) { $resolvedLoop = $m[1]; break; }
+            }
+            if ($resolvedLoop !== '') {
+                $swapTarget = $resolvedLoop;
+            } else {
+                // No loop device found — can't live-reprioritise; config is already persisted above
+                $swapTarget = ''; // signal to skip
+            }
+        }
         $swaps = @file_get_contents('/proc/swaps') ?: '';
-        if (strpos($swaps, $ssdPath) !== false) {
+        $isActive = ($backing === 'loop' && $swapTarget !== '')
+            ? preg_match('/^' . preg_quote($swapTarget, '/') . '\s/m', $swaps) === 1
+            : strpos($swaps, $ssdPath) !== false;
+        if ($swapTarget !== '' && $isActive) {
             $safety = zram_evacuation_safe('', $logs);
             if (!$safety['safe']) {
                 $warnings[] = 'Tier 2 priority not applied live: ' . ($safety['error'] ?? 'safety check failed');
             } else {
-                if (zram_run('swapoff ' . escapeshellarg($ssdPath), $logs) === 0) {
-                    if (zram_run('swapon ' . escapeshellarg($ssdPath) . ' -p ' . intval($s), $logs) !== 0) {
+                if (zram_run('swapoff ' . escapeshellarg($swapTarget), $logs) === 0) {
+                    if (zram_run('swapon ' . escapeshellarg($swapTarget) . ' -p ' . intval($s), $logs) !== 0) {
                         $warnings[] = 'Tier 2 swapon failed — try CREATE';
                     }
                 } else {
@@ -631,6 +826,10 @@ if ($action === 'view_activity') {
             $level = ($type === 'err') ? 'ERROR' : (($type === 'debug') ? 'OUT' : 'CMD');
             $entries[] = [
                 'ts'    => $j['time'],
+                // Full date+time sort key. New entries carry 'dt'; legacy
+                // (pre-fix) entries only have 'time', so assume today — they
+                // age out of the transient /tmp log quickly.
+                'sort'  => $j['dt'] ?? (date('Y-m-d') . ' ' . $j['time']),
                 'level' => $level,
                 'msg'   => $j['msg'],
             ];
@@ -646,18 +845,25 @@ if ($action === 'view_activity') {
             // Drop "CMD: ..." dupes — already in cmd.log with friendlier formatting
             if (strpos($msg, 'CMD: ') === 0) continue;
             $entries[] = [
-                'ts'    => substr($m[1], 11),  // strip date, keep HH:MM:SS for consistency with cmd.log
+                'ts'    => substr($m[1], 11),  // display: strip date, keep HH:MM:SS
+                'sort'  => $m[1],               // sort: full Y-m-d H:i:s (cross-day correct)
                 'level' => strtoupper($m[2]),
                 'msg'   => $msg,
             ];
         }
     }
 
-    // Sort chronologically (assumes same-day window — debug.log rotates at 1MB)
-    usort($entries, function($a, $b) { return strcmp($a['ts'], $b['ts']); });
+    // Sort chronologically by the full date+time key (NOT time-of-day, or
+    // yesterday's 23:xx would sort after today's 09:xx).
+    usort($entries, function($a, $b) { return strcmp($a['sort'], $b['sort']); });
 
     // Cap at most-recent 500 to keep payload small and the DOM light
     if (count($entries) > 500) $entries = array_slice($entries, -500);
+
+    // Drop the internal sort key; the client only needs ts/level/msg.
+    $entries = array_map(function($e) {
+        return ['ts' => $e['ts'], 'level' => $e['level'], 'msg' => $e['msg']];
+    }, $entries);
 
     echo json_encode(['success' => true, 'entries' => $entries]);
     exit;

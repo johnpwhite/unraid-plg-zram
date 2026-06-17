@@ -1,17 +1,12 @@
 <?xml version='1.0' standalone='yes'?>
-<!DOCTYPE PLUGIN [
-<!ENTITY name      "unraid-zram-card">
-<!ENTITY author    "John White">
-<!ENTITY version   "2026.05.28.03">
-<!ENTITY launch    "Settings/UnraidZramCard">
-<!ENTITY gitURL    "https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main">
-<!ENTITY pluginURL "https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg">
-<!ENTITY boot      "/boot/config/plugins/unraid-zram-card">
-<!ENTITY emhttp    "/usr/local/emhttp/plugins/unraid-zram-card">
-]>
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.05.28.03" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.06.17.01" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.06.17.01
+- Feat: Memory Protection — a new Settings card that decides what your server shuts down first if it ever runs completely out of memory. Give each VM, container, and background service a plain-language priority (from "Sacrifice last" to "Sacrifice first"), with its live memory shown beside it. Protect a VM or container and the services it depends on are protected automatically. A built-in guard refuses settings that would leave the system with nothing safe to shut down, and every change saves on its own.
+- Feat: Tier 2 disk swap now works on multi-device btrfs cache pools and ZFS datasets. These were previously blocked because a swap file cannot sit directly on btrfs-RAID or ZFS; Tier 2 now uses a loop-backed image so any pool can host overflow swap, with the dashboard, status and settings all aware of it.
+- Improve: Dashboard device table redesigned for clarity — it reads correctly on both light and dark themes, with aligned figures, per-tier accent dots, and a new "Used" column showing in-use swap to two decimals.
 ## 2026.05.28.03
 - Security: CSRF token validation hardened — tokens are now verified against the server-issued value rather than just checked for presence. Tier 2 swap mount point restricted to /mnt/* paths, preventing path traversal.
 ## 2026.05.28.02
@@ -112,7 +107,8 @@
 - Official Initial Release.
 </CHANGES>
 
-<ICON>&gitURL;/src/unraid-zram-card.png</ICON>
+
+<ICON>https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/src/unraid-zram-card.png</ICON>
 
 <!-- 1. HYBRID INSTALLER SCRIPT -->
 <FILE Run="/bin/bash" Name="/tmp/unraid-zram-card-installer">
@@ -144,6 +140,8 @@ FILES=(
     "js/zram-settings.js:src/js/zram-settings.js"
     "js/chart.min.js:src/js/chart.min.js"
     "event/stopping:src/event/stopping"
+    "zram_oom.php:src/zram_oom.php"
+    "zram_oom_apply.sh:src/zram_oom_apply.sh"
 )
 
 FAILED=0
@@ -194,6 +192,10 @@ chmod +x "$EMHTTP_DEST/zram_drives.php"
 chmod +x "$EMHTTP_DEST/zram_collector.php"
 chmod +x "$EMHTTP_DEST/zram_init.sh"
 chmod +x "$EMHTTP_DEST/event/stopping"
+chmod +x "$EMHTTP_DEST/zram_oom_apply.sh"
+
+# Ensure the loop block-device driver is available for Tier 2 loop-backed swap.
+modprobe loop 2>/dev/null || true
 
 if [ "$FAILED" -gt 0 ]; then
     echo "FATAL: $FAILED file(s) failed to install. Plugin install incomplete — Unraid will flag this."
@@ -228,6 +230,15 @@ ssd_swap_enabled="no"
 ssd_swap_path=""
 ssd_swap_size="16G"
 ssd_swap_mount=""
+ssd_swap_backing="auto"
+ssd_swap_allow_zfs="no"
+oom_protect_enabled="no"
+oom_levels=""
+oom_default_level="normal"
+oom_proc_patterns=""
+oom_auto_deps=""
+oom_oom_group="yes"
+vm_memory_min="no"
 DEFCFG
 fi
 rm /tmp/unraid-zram-card-installer
@@ -264,10 +275,18 @@ if [ -f "/tmp/$NAME/collector.pid" ]; then
     kill "$PID" 2>/dev/null
 fi
 
-# Deactivate SSD swap file if configured
+# Deactivate Tier 2 swap if configured (backing-aware: loop vs. direct file)
 if [ -f "$CONFIG_DIR/settings.ini" ]; then
     SSD_PATH=$(grep "ssd_swap_path=" "$CONFIG_DIR/settings.ini" 2>/dev/null | cut -d'"' -f2)
-    if [ -n "$SSD_PATH" ] &amp;&amp; grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
+    BACKING=$(grep "ssd_swap_backing=" "$CONFIG_DIR/settings.ini" 2>/dev/null | cut -d'"' -f2)
+    if [ "$BACKING" = "loop" ]; then
+        LOOP_DEV=$(losetup -j "$SSD_PATH" 2>/dev/null | awk -F: '{print $1; exit}')
+        if [ -n "$LOOP_DEV" ] &amp;&amp; grep -q "^$LOOP_DEV " /proc/swaps 2>/dev/null; then
+            echo "Deactivating loop-backed swap: $SSD_PATH via $LOOP_DEV"
+            swapoff "$LOOP_DEV" 2>/dev/null
+            losetup -d "$LOOP_DEV" 2>/dev/null
+        fi
+    elif [ -n "$SSD_PATH" ] &amp;&amp; grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
         echo "Deactivating SSD swap: $SSD_PATH"
         swapoff "$SSD_PATH" 2>/dev/null
     fi
@@ -287,6 +306,38 @@ for zdev in /sys/block/zram*; do
         swapoff "/dev/$ZID" 2>/dev/null
         zramctl --reset "/dev/$ZID" 2>/dev/null
     fi
+done
+
+# Remove the plugin's OOM hook block from the libvirt qemu hook (preserve user content)
+HOOK="/etc/libvirt/hooks/qemu"
+if [ -f "$HOOK" ] &amp;&amp; grep -q "# BEGIN zram-oom-protection" "$HOOK" 2>/dev/null; then
+    sed -i '/# BEGIN zram-oom-protection/,/# END zram-oom-protection/d' "$HOOK"
+    echo "Removed OOM hook block from $HOOK"
+    if [ -f "$HOOK" ] &amp;&amp; [ -z "$(sed '/^#!.*/d;/^\s*$/d' "$HOOK" 2&gt;/dev/null)" ]; then
+        rm -f "$HOOK"
+        echo "Libvirt hook removed (was empty after cleanup)"
+    fi
+fi
+
+# Reset oom_score_adj to 0 for any running VMs and containers
+# (best-effort — never fail the uninstall)
+if command -v virsh &gt;/dev/null 2&gt;&amp;1; then
+    while read -r VMNAME; do
+        [ -z "$VMNAME" ] &amp;&amp; continue
+        PIDFILE="/run/libvirt/qemu/${VMNAME}.pid"
+        [ -f "$PIDFILE" ] || continue
+        PID=$(cat "$PIDFILE" 2&gt;/dev/null)
+        [ -z "$PID" ] &amp;&amp; continue
+        echo 0 &gt; "/proc/$PID/oom_score_adj" 2&gt;/dev/null || true
+        echo "Reset oom_score_adj to 0 for VM $VMNAME (pid $PID)"
+    done &lt; &lt;(virsh list --name 2&gt;/dev/null | grep -v '^$')
+fi
+for CGFILE in /sys/fs/cgroup/docker/*/cgroup.procs; do
+    [ -f "$CGFILE" ] || continue
+    while read -r PID; do
+        [ -z "$PID" ] &amp;&amp; continue
+        echo 0 &gt; "/proc/$PID/oom_score_adj" 2&gt;/dev/null || true
+    done &lt; "$CGFILE"
 done
 
 rm -rf "$PLUGIN_DIR"

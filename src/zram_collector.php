@@ -119,14 +119,25 @@ while (true) {
         // spillover historically. Sourced from `swapon --bytes` filtered to
         // our configured ssd_swap_path. 0 when unconfigured, inactive, or
         // unreadable — the schema treats absent === zero.
+        // Loop-aware: loop-backed swap appears in swapon as /dev/loopN, not
+        // as the image file path — resolve via losetup -j before matching.
         $ssdUsed = 0;
         $ssdPath = $settings['ssd_swap_path'] ?? '';
         if ($ssdPath !== '') {
+            $backing = $settings['ssd_swap_backing'] ?? 'file';
+            $swapTarget = $ssdPath;
+            if ($backing === 'loop') {
+                $ljOut = [];
+                exec('losetup -j ' . escapeshellarg($ssdPath) . ' 2>/dev/null', $ljOut);
+                foreach ($ljOut as $ljLine) {
+                    if (preg_match('#^(/dev/loop\d+):#', $ljLine, $m)) { $swapTarget = $m[1]; break; }
+                }
+            }
             $swapRows = [];
             exec('swapon --bytes --noheadings --show=NAME,USED 2>/dev/null', $swapRows);
             foreach ($swapRows as $row) {
                 $parts = preg_split('/\s+/', trim($row));
-                if (count($parts) >= 2 && $parts[0] === $ssdPath) {
+                if (count($parts) >= 2 && $parts[0] === $swapTarget) {
                     $ssdUsed = intval($parts[1]);
                     break;
                 }

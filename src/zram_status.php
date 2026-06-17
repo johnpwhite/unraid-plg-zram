@@ -87,29 +87,51 @@ $ssdSwap = null;
 $cfg = zram_config_read();
 $ssdPath = $cfg['ssd_swap_path'] ?? '';
 if ($ssdPath) {
+    // For loop-backed swap the kernel lists /dev/loopN in /proc/swaps and
+    // swapon --show, not the image path. Resolve the loop device first so
+    // the match below works correctly for both file and loop backing.
+    $ssdBacking = $cfg['ssd_swap_backing'] ?? 'file';
+    $swapTarget = $ssdPath;
+    $loopDevName = 'swap file';
+    if ($ssdBacking === 'loop') {
+        $ljOut = [];
+        exec('losetup -j ' . escapeshellarg($ssdPath) . ' 2>/dev/null', $ljOut);
+        foreach ($ljOut as $ljLine) {
+            if (preg_match('#^(/dev/loop\d+):#', $ljLine, $ljm)) {
+                $swapTarget = $ljm[1];
+                $loopDevName = basename($ljm[1]);
+                break;
+            }
+        }
+    }
+
     exec('swapon --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssd_out);
     foreach ($ssd_out as $line) {
         $p = preg_split('/\s+/', trim($line));
-        if (count($p) >= 4 && $p[0] === $ssdPath) {
+        if (count($p) >= 4 && $p[0] === $swapTarget) {
             $ssdSwap = [
-                'path' => $ssdPath,
-                'mount' => $cfg['ssd_swap_mount'],
-                'size' => intval($p[1]),
-                'used' => intval($p[2]),
-                'prio' => $p[3],
-                'active' => true,
+                'path'    => $ssdPath,
+                'mount'   => $cfg['ssd_swap_mount'],
+                'size'    => intval($p[1]),
+                'used'    => intval($p[2]),
+                'prio'    => $p[3],
+                'active'  => true,
+                'backing' => $ssdBacking,
+                'dev'     => $loopDevName,
             ];
             break;
         }
     }
     if (!$ssdSwap && file_exists($ssdPath)) {
         $ssdSwap = [
-            'path' => $ssdPath,
-            'mount' => $cfg['ssd_swap_mount'],
-            'size' => filesize($ssdPath),
-            'used' => 0,
-            'prio' => '10',
-            'active' => false,
+            'path'    => $ssdPath,
+            'mount'   => $cfg['ssd_swap_mount'],
+            'size'    => filesize($ssdPath),
+            'used'    => 0,
+            'prio'    => '10',
+            'active'  => false,
+            'backing' => $ssdBacking,
+            'dev'     => $loopDevName,
         ];
     }
 }

@@ -50,19 +50,44 @@ if (!function_exists('getZramDashboardCard')) {
 
             // SSD swap info — capture used + size when active so the chip and
             // chart can render real values in Tier-2-only mode.
+            // For loop-backed swap the kernel lists /dev/loopN in /proc/swaps and
+            // swapon --show, not the image path. Resolve the loop device first.
             $ssdPath = $cfg['ssd_swap_path'] ?? '';
+            $ssdBacking = $cfg['ssd_swap_backing'] ?? 'file';
+            // Pool/mount label for the device table. Prefer the stored mount;
+            // fall back to deriving it from the image path (<mount>/.swap/<file>).
+            $ssdMount = $cfg['ssd_swap_mount'] ?? '';
+            if ($ssdMount === '' && $ssdPath !== '') $ssdMount = dirname(dirname($ssdPath));
+            $ssdPool  = $ssdMount !== '' ? basename($ssdMount) : '—';
             $ssdActive = false;
             $ssdSize = 0;
             $ssdUsed = 0;
             $ssdPrio = '-';
+            $ssdDevLabel = 'swap file';
             if ($ssdPath && file_exists($ssdPath)) {
+                // Resolve swap target: loop device for loop-backed, path for file-backed
+                $swapTarget = $ssdPath;
+                if ($ssdBacking === 'loop') {
+                    $ljOut = [];
+                    exec('losetup -j ' . escapeshellarg($ssdPath) . ' 2>/dev/null', $ljOut);
+                    foreach ($ljOut as $ljLine) {
+                        if (preg_match('#^(/dev/loop\d+):#', $ljLine, $ljm)) {
+                            $swapTarget = $ljm[1];
+                            break;
+                        }
+                    }
+                }
                 $swaps = @file_get_contents('/proc/swaps') ?: '';
-                $ssdActive = strpos($swaps, $ssdPath) !== false;
+                $ssdActive = preg_match('/^' . preg_quote($swapTarget, '/') . '\s/m', $swaps) === 1;
                 if ($ssdActive) {
+                    // Show loop device name when loop-backed so it's not mistaken for a plain file
+                    if ($ssdBacking === 'loop' && $swapTarget !== $ssdPath) {
+                        $ssdDevLabel = basename($swapTarget);
+                    }
                     exec('swapon --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssdRows);
                     foreach ($ssdRows as $row) {
                         $rp = preg_split('/\s+/', trim($row));
-                        if (count($rp) >= 4 && $rp[0] === $ssdPath) {
+                        if (count($rp) >= 4 && $rp[0] === $swapTarget) {
                             $ssdSize = intval($rp[1]);
                             $ssdUsed = intval($rp[2]);
                             $ssdPrio = $rp[3];
@@ -105,6 +130,18 @@ if (!function_exists('getZramDashboardCard')) {
 <style>
 @keyframes zram-fade-blink { 0%{opacity:0.3} 50%{opacity:1;color:#7fba59;text-shadow:0 0 2px #7fba59} 100%{opacity:0.3} }
 .zram-pulse { animation: zram-fade-blink 0.6s ease-in-out; }
+/* Device table — theme-neutral so dividers/hierarchy read on both light and dark Dynamix themes
+   (the old rgba(255,255,255,0.05) borders were invisible on the light theme). */
+.zram-devtable{margin-top:6px;}
+.zram-devgrid{display:grid;grid-template-columns:1.1fr 1.3fr 1fr 0.9fr 1fr 0.65fr 0.8fr;gap:8px;align-items:center;}
+.zram-devhead{font-size:0.68em;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;opacity:0.5;padding:2px 2px 4px;border-bottom:1px solid rgba(128,128,128,0.25);}
+.zram-devrow{font-size:0.8em;padding:5px 2px;}
+.zram-devrow + .zram-devrow{border-top:1px solid rgba(128,128,128,0.12);}
+.zram-num{text-align:right;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";}
+.zram-muted{opacity:0.7;}
+.zram-tier{display:flex;align-items:center;gap:6px;font-weight:600;min-width:0;}
+.zram-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;}
+.zram-ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 </style>
 <tbody title='ZRAM Usage'>
     <tr><td>
@@ -168,26 +205,36 @@ if (!function_exists('getZramDashboardCard')) {
                 </div>
             </div>
             <div style="height:70px;width:100%;margin-bottom:8px;"><canvas id="zramChart"></canvas></div>
-            <div id="zram-device-list" style="margin-top:3px;border-top:1px solid rgba(255,255,255,0.05);padding-top:2px;">
-                <div style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr 1fr;gap:4px;opacity:0.5;font-size:0.75em;margin-bottom:1px;border-bottom:1px solid rgba(255,255,255,0.05);">
-                    <div>Tier</div><div style="text-align:right;">Dev</div><div style="text-align:right;">Size</div><div style="text-align:right;">Prio</div><div style="text-align:right;">Algo</div>
+            <div id="zram-device-list" class="zram-devtable">
+                <div class="zram-devgrid zram-devhead">
+                    <div>Tier</div>
+                    <div>Pool</div>
+                    <div>Dev</div>
+                    <div class="zram-num">Size</div>
+                    <div class="zram-num">Used</div>
+                    <div class="zram-num">Prio</div>
+                    <div class="zram-num">Algo</div>
                 </div>
 <?php if ($ourDev): ?>
-                <div style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr 1fr;gap:4px;font-size:0.8em;padding:1px 0;">
-                    <div style="color:#7fba59;">ZRAM</div>
-                    <div style="text-align:right;font-weight:bold;"><?php echo htmlspecialchars($ourDev); ?></div>
-                    <div style="text-align:right;opacity:0.7;"><?php echo $fmt($diskSize, 0); ?></div>
-                    <div style="text-align:right;opacity:0.7;"><?php echo $prio; ?></div>
-                    <div style="text-align:right;opacity:0.7;"><?php echo htmlspecialchars($algo); ?></div>
+                <div class="zram-devgrid zram-devrow">
+                    <div class="zram-tier" style="color:#7fba59;"><span class="zram-dot" style="background:#7fba59;"></span>ZRAM</div>
+                    <div class="zram-muted">RAM</div>
+                    <div class="zram-ell" style="font-weight:bold;"><?php echo htmlspecialchars($ourDev); ?></div>
+                    <div class="zram-num zram-muted"><?php echo $fmt($diskSize, 0); ?></div>
+                    <div class="zram-num zram-muted"><?php echo number_format($totalOriginal / 1073741824, 2); ?> GB</div>
+                    <div class="zram-num zram-muted"><?php echo $prio; ?></div>
+                    <div class="zram-num zram-muted"><?php echo htmlspecialchars($algo); ?></div>
                 </div>
 <?php endif; ?>
 <?php if ($ssdPath): ?>
-                <div id="zram-ssd-row" style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr 1fr;gap:4px;font-size:0.8em;padding:1px 0;">
-                    <div style="color:<?php echo $ssdActive ? '#00a4d8' : '#666'; ?>;">Disk<?php if (!$ssdActive) echo ' (idle)'; ?></div>
-                    <div style="text-align:right;opacity:0.7;" title="<?php echo htmlspecialchars($ssdPath); ?>">swap file</div>
-                    <div style="text-align:right;opacity:0.7;"><?php echo $fmt($ssdSize ?: filesize($ssdPath), 0); ?></div>
-                    <div style="text-align:right;opacity:0.7;"><?php echo htmlspecialchars((string)$ssdPrio); ?></div>
-                    <div style="text-align:right;opacity:0.7;">—</div>
+                <div id="zram-ssd-row" class="zram-devgrid zram-devrow">
+                    <div class="zram-tier" style="<?php echo $ssdActive ? 'color:#00a4d8;' : 'opacity:0.6;'; ?>"><span class="zram-dot" style="background:<?php echo $ssdActive ? '#00a4d8' : '#9aa0a6'; ?>;"></span>Disk<?php if (!$ssdActive) echo ' (idle)'; ?></div>
+                    <div class="zram-muted zram-ell" title="<?php echo htmlspecialchars($ssdMount); ?>"><?php echo htmlspecialchars($ssdPool); ?></div>
+                    <div class="zram-muted zram-ell" title="<?php echo htmlspecialchars($ssdPath); ?>"><?php echo htmlspecialchars($ssdDevLabel); ?></div>
+                    <div class="zram-num zram-muted"><?php echo $fmt($ssdSize ?: filesize($ssdPath), 0); ?></div>
+                    <div class="zram-num zram-muted"><?php echo number_format($ssdUsed / 1073741824, 2); ?> GB</div>
+                    <div class="zram-num zram-muted"><?php echo htmlspecialchars((string)$ssdPrio); ?></div>
+                    <div class="zram-num zram-muted">&mdash;</div>
                 </div>
 <?php endif; ?>
             </div>

@@ -138,15 +138,50 @@ fi
 # --- Tier 2: Disk swap file ---
 SSD_ENABLED=$(cfg_val "ssd_swap_enabled")
 SSD_PATH=$(cfg_val "ssd_swap_path")
+BACKING=$(cfg_val "ssd_swap_backing"); [ -z "$BACKING" ] && BACKING="auto"
 
-# Activate Tier 2 disk swap. Returns 0 on success (or already-active), 1 on
-# missing file, 2 on swapon failure. Used by both the synchronous boot path
-# below and the background retry poller (when the mount is not yet ready at
-# the time init.sh runs). Centralised here so the relabel migration and
-# priority handling stay identical across paths.
+# Ensure loop module available when any backing may be loop
+modprobe loop 2>/dev/null
+
+# Activate Tier 2 disk swap. Returns 0 on success (or already-active),
+# 1 on missing file/device, 2 on swapon failure.
+# Backing-aware: reads BACKING from outer scope (cfg_val above).
+# Used by the synchronous boot path, the background retry poller, and
+# (indirectly) the PHP collector self-heal — loop support lands in all
+# three paths from this single change.
 activate_disk_swap() {
     local path="$1"
     [ -f "$path" ] || return 1
+
+    local prio
+    prio=$(cfg_val "ssd_swap_priority"); [ -z "$prio" ] && prio="10"
+    case "$prio" in (*[!0-9]*|"") prio="10" ;; esac
+    [ "$prio" -gt 32767 ] 2>/dev/null && prio="10"
+
+    local backing="${BACKING}"
+    [ -z "$backing" ] && backing=$(cfg_val "ssd_swap_backing")
+    [ -z "$backing" ] && backing="file"
+
+    if [ "$backing" = "loop" ]; then
+        # Idempotency guard: is this image already attached as a loop device?
+        local LOOP_DEV
+        LOOP_DEV=$(losetup -j "$path" 2>/dev/null | awk -F: '{print $1; exit}')
+        if [ -n "$LOOP_DEV" ]; then
+            # Loop attached — is it already in /proc/swaps?
+            if grep -q "^$LOOP_DEV " /proc/swaps 2>/dev/null; then
+                return 0  # already active
+            fi
+            # Stale attach (crash/recovery): re-use it, just swapon
+        else
+            # Fresh attach
+            LOOP_DEV=$(losetup -f --show "$path" 2>/dev/null) || return 2
+        fi
+        zlog "Activating loop-backed swap: $path via $LOOP_DEV (priority=$prio)" "INFO"
+        $SWAPON "$LOOP_DEV" -p "$prio" 2>&1 || return 2
+        return 0
+    fi
+
+    # --- Direct-file path (single-device btrfs, XFS) ---
     if grep -q "$path" /proc/swaps 2>/dev/null; then
         return 0  # already active — nothing to do
     fi
@@ -160,10 +195,6 @@ activate_disk_swap() {
             fi
         fi
     fi
-    local prio
-    prio=$(cfg_val "ssd_swap_priority"); [ -z "$prio" ] && prio="10"
-    case "$prio" in (*[!0-9]*|"") prio="10" ;; esac
-    [ "$prio" -gt 32767 ] 2>/dev/null && prio="10"
     zlog "Activating disk swap: $path (priority=$prio)" "INFO"
     $SWAPON "$path" -p "$prio" 2>&1 || return 2
     return 0
@@ -171,7 +202,14 @@ activate_disk_swap() {
 
 if [ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ]; then
     if [ -f "$SSD_PATH" ]; then
-        if grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
+        if [ "$BACKING" = "loop" ]; then
+            EXIST_LOOP=$(losetup -j "$SSD_PATH" 2>/dev/null | awk -F: '{print $1; exit}')
+            if [ -n "$EXIST_LOOP" ] && grep -q "^$EXIST_LOOP " /proc/swaps 2>/dev/null; then
+                zlog "Loop-backed swap already active: $SSD_PATH ($EXIST_LOOP)" "INFO"
+            else
+                activate_disk_swap "$SSD_PATH" || zlog "Failed to activate disk swap" "ERROR"
+            fi
+        elif grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
             zlog "Disk swap already active: $SSD_PATH" "INFO"
         else
             activate_disk_swap "$SSD_PATH" || zlog "Failed to activate disk swap" "ERROR"
@@ -189,9 +227,17 @@ if [ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ]; then
                 for i in $(seq 1 60); do
                     sleep 5
                     if [ -f "$SSD_PATH" ]; then
-                        if grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
-                            zlog "Tier 2 active by external trigger after $((i*5))s wait" "INFO"
-                            exit 0
+                        if [ "$BACKING" = "loop" ]; then
+                            EXIST_LOOP=$(losetup -j "$SSD_PATH" 2>/dev/null | awk -F: '{print $1;exit}')
+                            if [ -n "$EXIST_LOOP" ] && grep -q "^$EXIST_LOOP " /proc/swaps 2>/dev/null; then
+                                zlog "Tier 2 active by external trigger after $((i*5))s wait" "INFO"
+                                exit 0
+                            fi
+                        else
+                            if grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
+                                zlog "Tier 2 active by external trigger after $((i*5))s wait" "INFO"
+                                exit 0
+                            fi
                         fi
                         if activate_disk_swap "$SSD_PATH"; then
                             zlog "Tier 2 activated after $((i*5))s wait" "INFO"
@@ -229,6 +275,13 @@ if [ -f "$COLLECTOR" ]; then
     nohup nice -n 19 php "$COLLECTOR" > /dev/null 2>&1 &
     disown
     zlog "Collector launched (PID $!)" "INFO"
+fi
+
+# --- OOM Protection apply ---
+OOM_APPLY="/usr/local/emhttp/plugins/unraid-zram-card/zram_oom_apply.sh"
+if [ -x "$OOM_APPLY" ]; then
+    zlog "Calling zram_oom_apply.sh for boot-time OOM apply" "INFO"
+    "$OOM_APPLY" >> "$LOG" 2>&1
 fi
 
 echo "--- ZRAM BOOT INIT COMPLETE ---"

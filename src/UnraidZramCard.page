@@ -95,19 +95,30 @@ foreach (glob('/sys/block/zram*/comp_algorithm') as $af) {
 // Tier 2 status row can show how much spillover has actually occurred. A
 // non-zero value here means Tier 1 has been at capacity at least once and
 // pages were demoted to disk.
+// Loop-aware: loop-backed swap appears in /proc/swaps and swapon as /dev/loopN,
+// not as the image file path — resolve via losetup -j before matching.
 $ssdPath = $settings['ssd_swap_path'] ?? '';
 $ssdActive = false;
 $ssdSize   = 0;
 $ssdUsed   = 0;
 $ssdPrio   = '-';
 if ($ssdPath && file_exists($ssdPath)) {
+    $backing = $settings['ssd_swap_backing'] ?? 'file';
+    $swapTarget = $ssdPath;
+    if ($backing === 'loop') {
+        $ljOut = [];
+        exec('losetup -j ' . escapeshellarg($ssdPath) . ' 2>/dev/null', $ljOut);
+        foreach ($ljOut as $ljLine) {
+            if (preg_match('#^(/dev/loop\d+):#', $ljLine, $m)) { $swapTarget = $m[1]; break; }
+        }
+    }
     $swaps = @file_get_contents('/proc/swaps') ?: '';
-    $ssdActive = strpos($swaps, $ssdPath) !== false;
+    $ssdActive = preg_match('/^' . preg_quote($swapTarget, '/') . '\s/m', $swaps) === 1;
     if ($ssdActive) {
         exec('swapon --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssdRows);
         foreach ($ssdRows as $row) {
             $rp = preg_split('/\s+/', trim($row));
-            if (count($rp) >= 4 && $rp[0] === $ssdPath) {
+            if (count($rp) >= 4 && $rp[0] === $swapTarget) {
                 $ssdSize = intval($rp[1]);
                 $ssdUsed = intval($rp[2]);
                 $ssdPrio = $rp[3];
@@ -120,17 +131,17 @@ if ($ssdPath && file_exists($ssdPath)) {
 }
 
 $fmtB = function($b) { $u = ['B','KB','MB','GB','TB']; if ($b < 1) return '0 B'; $p = min(floor(log(max($b,1))/log(1024)), 4); return round($b/pow(1024,$p), 1).' '.$u[$p]; };
-echo "<script>window.ZRAM_PAGE={CSRF:'".addslashes($csrf)."',API:'/plugins/unraid-zram-card/zram_actions.php',MEM_KB:$memKb,selectedMount:''};</script>";
+echo "<script>window.ZRAM_PAGE={CSRF:'".addslashes($csrf)."',API:'/plugins/unraid-zram-card/zram_actions.php',MEM_KB:$memKb,selectedMount:'',selectedBacking:'file'};</script>";
 echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"></script>';
 ?>
 
 <style>
 .zram-layout { display: flex; gap: 20px; align-items: flex-start; width: 100%; margin-top: 10px; }
 .zram-cards { flex: 0 0 520px; }
-.zram-card { background: #1e1e1e; border-radius: 8px; border: 1px solid #333; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); overflow: hidden; }
-.zram-card-header { background: #2a2a2a; padding: 10px 15px; border-bottom: 1px solid #333; font-weight: bold; font-size: 1.05em; color: #eee; display: flex; justify-content: space-between; align-items: center; }
-.zram-card-body { padding: 15px; color: #ccc; }
-.zram-console-pane { flex: 1; background: #1a1a1a; border-radius: 8px; border: 1px solid #333; min-width: 300px; height: 650px; display: <?php echo ($settings['console_visible'] == 'yes') ? 'flex' : 'none'; ?>; flex-direction: column; overflow: hidden; }
+.zram-card { background: rgba(128,128,128,0.08); border-radius: 8px; border: 1px solid rgba(128,128,128,0.28); margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: visible; }
+.zram-card-header { background: rgba(128,128,128,0.12); padding: 10px 15px; border-bottom: 1px solid rgba(128,128,128,0.25); border-radius: 8px 8px 0 0; font-weight: bold; font-size: 1.05em; display: flex; justify-content: space-between; align-items: center; }
+.zram-card-body { padding: 15px; }
+.zram-console-pane { flex: 1; background: rgba(128,128,128,0.08); border-radius: 8px; border: 1px solid rgba(128,128,128,0.28); min-width: 300px; height: 650px; display: <?php echo ($settings['console_visible'] == 'yes') ? 'flex' : 'none'; ?>; flex-direction: column; overflow: hidden; }
 .zram-btn { padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.85em; transition: all 0.2s; background: transparent !important; border: 1px solid #ff8c00 !important; color: #ff8c00 !important; text-transform: uppercase; display: inline-block; }
 .zram-btn:hover { background: #ff8c00 !important; color: #fff !important; }
 .zram-btn:disabled { opacity: 0.3 !important; cursor: not-allowed; }
@@ -140,59 +151,59 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 .zram-btn-danger { border-color: #cc3333 !important; color: #cc3333 !important; }
 .zram-btn-danger:hover { background: #cc3333 !important; color: #fff !important; }
 /* Activity pane (unified cmd.log + debug.log feed) */
-.zram-activity-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #222; border-bottom: 1px solid #333; gap: 12px; flex-wrap: wrap; }
-.zram-activity-title { color: #ccc; font-size: 0.85em; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; }
+.zram-activity-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(128,128,128,0.1); border-bottom: 1px solid rgba(128,128,128,0.2); gap: 12px; flex-wrap: wrap; }
+.zram-activity-title { font-size: 0.85em; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; opacity: 0.65; }
 .zram-activity-chips { display: flex; gap: 4px; }
-.activity-chip { padding: 4px 10px; cursor: pointer; color: #888; font-size: 0.75em; text-transform: uppercase; font-weight: bold; background: transparent; border: 1px solid #333; border-radius: 3px; transition: all 0.15s; }
-.activity-chip:hover { color: #ccc; border-color: #555; }
-.activity-chip.active { color: #ff8c00; border-color: #ff8c00; background: rgba(255, 140, 0, 0.08); }
-.zram-activity-footer { background: #222; padding: 5px 15px; border-top: 1px solid #333; display: flex; justify-content: flex-end; gap: 10px; }
-.activity-empty { color: #666; font-style: italic; padding: 20px; text-align: center; }
-.activity-row { display: flex; gap: 10px; padding: 4px 12px; align-items: baseline; border-bottom: 1px solid #1a1a1a; font-family: 'Courier New', monospace; font-size: 0.85em; line-height: 1.4; }
-.activity-row:hover { background: #1a1a1a; }
-.activity-ts { color: #666; flex-shrink: 0; min-width: 64px; }
+.activity-chip { padding: 4px 10px; cursor: pointer; font-size: 0.75em; text-transform: uppercase; font-weight: bold; background: transparent; border: 1px solid rgba(128,128,128,0.3); border-radius: 3px; transition: all 0.15s; opacity: 0.65; }
+.activity-chip:hover { opacity: 1; border-color: rgba(128,128,128,0.6); }
+.activity-chip.active { color: #ff8c00; border-color: #ff8c00; background: rgba(255, 140, 0, 0.08); opacity: 1; }
+.zram-activity-footer { background: rgba(128,128,128,0.1); padding: 5px 15px; border-top: 1px solid rgba(128,128,128,0.2); display: flex; justify-content: flex-end; gap: 10px; }
+.activity-empty { font-style: italic; padding: 20px; text-align: center; opacity: 0.6; }
+.activity-row { display: flex; gap: 10px; padding: 4px 12px; align-items: baseline; border-bottom: 1px solid rgba(128,128,128,0.1); font-family: 'Courier New', monospace; font-size: 0.85em; line-height: 1.4; }
+.activity-row:hover { background: rgba(128,128,128,0.06); }
+.activity-ts { flex-shrink: 0; min-width: 64px; opacity: 0.5; }
 .activity-badge { flex-shrink: 0; padding: 1px 6px; border-radius: 3px; font-size: 0.7em; font-weight: bold; text-transform: uppercase; min-width: 42px; text-align: center; }
 .activity-badge-cmd   { background: #1e3a5f; color: #66aaee; }
-.activity-badge-info  { background: #2a2a2a; color: #aaa; }
+.activity-badge-info  { background: rgba(128,128,128,0.2); opacity: 0.65; }
 .activity-badge-error { background: #4a1818; color: #ff7777; }
-.activity-badge-debug { background: #1a1a1a; color: #777; }
+.activity-badge-debug { background: rgba(128,128,128,0.12); opacity: 0.55; }
 .activity-badge-out   { background: #3a2a10; color: #ddaa55; }
-.activity-msg { color: #cfcfcf; word-break: break-word; }
+.activity-msg { word-break: break-word; }
 .activity-row[data-level="ERROR"] .activity-msg { color: #ff8888; }
-.zram-card-body input, .zram-card-body select { background: #111 !important; border: 1px solid #444 !important; color: #eee !important; padding: 4px 8px !important; border-radius: 3px; font-size: 0.95em; }
+.zram-card-body input, .zram-card-body select { background: rgba(128,128,128,0.12) !important; border: 1px solid rgba(128,128,128,0.4) !important; color: inherit !important; padding: 4px 8px !important; border-radius: 3px; font-size: 0.95em; }
 .zram-card-body input:focus, .zram-card-body select:focus { border-color: #ff8c00 !important; outline: none; }
 /* Use grid for dl so dt + dd are vertically centred per row.
    Unraid's site CSS floats dt left, which top-aligns the label against
    tall dd content (slider) — looked off-centre. Grid with align-items:center
    plus a fixed dt column gives a clean settings-page row rhythm. */
 .zram-card-body dl { display: grid; grid-template-columns: 180px 1fr; column-gap: 12px; row-gap: 0; align-items: center; margin: 0; }
-.zram-card-body dl dt { color: #aaa; font-weight: normal; font-size: 0.9em; width: auto; line-height: 1.4; text-align: right; float: none; padding: 2px 0; margin: 0; }
-.zram-card-body dl dd { margin: 0; padding: 2px 0; color: #eee; line-height: 1.4; }
+.zram-card-body dl dt { font-weight: normal; font-size: 0.9em; width: auto; line-height: 1.4; text-align: right; float: none; padding: 2px 0; margin: 0; opacity: 0.65; }
+.zram-card-body dl dd { margin: 0; padding: 2px 0; line-height: 1.4; }
 /* For rows where dd contains an input + multi-line help text, anchor dt to
    the top of the row so the label sits next to the input value (not vertically
    centred against the whole help block). */
 .zram-card-body dl dt.zram-row-top, .zram-card-body dl dd.zram-row-top { align-self: start; padding-top: 6px; }
 .zram-field-row { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .zram-field-row .zram-field-info { font-size: 0.9em; opacity: 0.7; white-space: nowrap; }
-#activity-log { flex: 1; overflow-y: auto; background: #111; }
+#activity-log { flex: 1; overflow-y: auto; background: rgba(128,128,128,0.06); }
 .zram-status-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; }
 .zram-status-active { background: rgba(127,186,89,0.1); border: 1px solid rgba(127,186,89,0.3); }
-.zram-status-inactive { background: rgba(255,255,255,0.03); border: 1px solid #333; }
-.zram-drive-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; border: 1px solid #333; margin-bottom: 4px; cursor: pointer; transition: border-color 0.2s; }
+.zram-status-inactive { background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.28); }
+.zram-drive-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; border: 1px solid rgba(128,128,128,0.28); margin-bottom: 4px; cursor: pointer; transition: border-color 0.2s; }
 .zram-drive-row:hover { border-color: #ff8c00; }
 .zram-drive-row.selected { border-color: #ff8c00; background: rgba(255,140,0,0.05); }
 .zram-drive-row-blocked { cursor: not-allowed; opacity: 0.55; }
-.zram-drive-row-blocked:hover { border-color: #333; }
+.zram-drive-row-blocked:hover { border-color: rgba(128,128,128,0.28); }
 .zram-drive-row .indicator { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .indicator-green { background: #7fba59; }
 .indicator-orange { background: #ff8c00; }
 .indicator-red { background: #cc3333; }
-.zram-advanced { margin-top: 12px; padding: 10px 12px; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; }
-.zram-advanced > summary { cursor: pointer; color: #aaa; font-size: 0.9em; font-weight: bold; user-select: none; padding: 4px 0; outline: none; }
-.zram-advanced > summary:hover { color: #ff8c00; }
-.zram-advanced[open] > summary { color: #ff8c00; margin-bottom: 8px; }
+.zram-advanced { margin-top: 12px; padding: 10px 12px; background: rgba(128,128,128,0.08); border: 1px solid rgba(128,128,128,0.2); border-radius: 6px; }
+.zram-advanced > summary { cursor: pointer; font-size: 0.9em; font-weight: bold; user-select: none; padding: 4px 0; outline: none; opacity: 0.65; }
+.zram-advanced > summary:hover { color: #ff8c00; opacity: 1; }
+.zram-advanced[open] > summary { color: #ff8c00; margin-bottom: 8px; opacity: 1; }
 .zram-advanced-body { padding-top: 8px; }
-.zram-advanced-warning { background: rgba(204, 51, 51, 0.08); border: 1px solid rgba(204, 51, 51, 0.4); border-radius: 4px; padding: 8px 10px; margin-bottom: 12px; font-size: 0.85em; color: #ddd; line-height: 1.5; }
+.zram-advanced-warning { background: rgba(204, 51, 51, 0.08); border: 1px solid rgba(204, 51, 51, 0.4); border-radius: 4px; padding: 8px 10px; margin-bottom: 12px; font-size: 0.85em; line-height: 1.5; }
 .zram-advanced-warning strong { color: #ff5555; }
 .zram-advanced-warning em { color: #ff8c00; font-style: normal; font-weight: bold; }
 .zram-advanced dl input[type="number"] { width: 80px; }
@@ -201,6 +212,74 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 .zram-saved-indicator { display: inline-block; margin-left: 8px; color: #7fba59; font-size: 0.85em; font-weight: bold; opacity: 1; transition: opacity 0.5s ease-out; vertical-align: middle; }
 .zram-saved-indicator.zram-saved-indicator-err { color: #ff5555; }
 .zram-saved-indicator.fade { opacity: 0; }
+/* While a settings save is in flight, lock the whole settings area. Form
+   controls get a real `disabled` (greyed) from JS; this blocks the non-form
+   clickables (sortable headers, the Default-section toggle row, preset links,
+   <details> summaries) and signals "busy" with the progress cursor + a subtle dim. */
+.zram-cards.zram-settings-locked { cursor: progress; }
+.zram-cards.zram-settings-locked th[onclick],
+.zram-cards.zram-settings-locked tr[onclick],
+.zram-cards.zram-settings-locked summary,
+.zram-cards.zram-settings-locked .zram-preset-menu a { pointer-events: none; opacity: 0.55; }
+/* CSS hover tooltips — dark box reads on both light and dark Unraid themes */
+.zram-tip { position: relative; cursor: help; opacity: 0.6; }
+.zram-tip:hover { opacity: 1; }
+.zram-tip-box { display: none; position: absolute; z-index: 10010; width: max-content; max-width: 260px; left: 0; top: 140%; background: #1e1e1e; color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 6px 9px; font-size: 0.8em; font-weight: normal; line-height: 1.4; white-space: normal; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+.zram-tip:hover .zram-tip-box { display: block; }
+/* Right-edge tooltips open leftward so they don't run off the card edge. */
+.zram-tip-right .zram-tip-box { left: auto; right: 0; }
+/* Presets dropdown (native <details>) — self-contained dark popover, theme-agnostic. */
+.zram-preset-dd { position: relative; display: inline-block; }
+.zram-preset-dd > summary { list-style: none; }
+.zram-preset-dd > summary::-webkit-details-marker { display: none; }
+.zram-preset-menu { position: absolute; right: 0; top: 110%; z-index: 10010; background: rgba(35,35,35,0.98); border: 1px solid rgba(255,255,255,0.18); border-radius: 5px; min-width: 230px; box-shadow: 0 3px 10px rgba(0,0,0,0.45); overflow: hidden; }
+.zram-preset-menu a { display: block; padding: 9px 13px; cursor: pointer; font-size: 0.9em; color: #fff; white-space: nowrap; }
+.zram-preset-menu a:hover { background: rgba(255,140,0,0.25); }
+/* Sortable column headers must never wrap when the ▲/▼ sort arrow is added. */
+#zram-oom-table thead th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zram-oom-level-select:focus { border-color:#ff8c00; outline:none; }
+.zram-oom-row-absent { opacity:0.45; }
+.zram-oom-row-absent td { font-style:italic; }
+.zram-oom-badge { display:inline-block; padding:1px 5px; border-radius:10px; font-size:0.75em; text-transform:uppercase; font-weight:bold; letter-spacing:0.03em; }
+.zram-oom-badge-vm     { background:rgba(127,186,89,0.15); color:#7fba59; }
+.zram-oom-badge-docker { background:rgba(0,164,216,0.15); color:#00a4d8; }
+.zram-oom-badge-proc   { background:rgba(255,140,0,0.15); color:#ff8c00; }
+.zram-oom-mem-cfg  { font-size:0.78em;margin-left:3px;font-style:normal;opacity:0.6; }
+.zram-oom-mem-muted { font-style:italic;opacity:0.6; }
+/* Service picker chip widget */
+.zram-svc-picker { position: relative; display: inline-block; min-width: 280px; max-width: 480px; width: 100%; }
+/* Chips live in their OWN box BELOW the filter input, so adding chips never shrinks the input. Hidden until something is staged. */
+.zram-svc-chip-box { display: none; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.zram-svc-chip { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 3px; background: rgba(128,128,128,0.2); border: 1px solid rgba(128,128,128,0.35); font-size: 0.82em; line-height: 1.4; white-space: nowrap; }
+.zram-svc-chip.zram-svc-chip-crit { border-color: rgba(255,140,0,0.5); background: rgba(255,140,0,0.1); }
+.zram-svc-chip-mem { font-size: 0.78em; opacity: 0.6; }
+/* Must override Unraid's default <button> chrome (border/padding/min-width) — same !important approach as .zram-btn. */
+.zram-svc-chip-x { background: none !important; border: none !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 2px !important; margin: 0 0 0 1px !important; min-width: 0 !important; width: auto !important; height: auto !important; line-height: 1 !important; font-size: 1.05em !important; font-weight: bold; text-transform: none !important; cursor: pointer; color: inherit; opacity: 0.55; }
+.zram-svc-chip-x:hover { opacity: 1; color: #ff8c00 !important; background: none !important; }
+.zram-svc-search { width: 100%; box-sizing: border-box; padding: 6px 9px; background: rgba(128,128,128,0.12); border: 1px solid rgba(128,128,128,0.4); border-radius: 4px; outline: none; color: inherit; font-size: 0.9em; }
+.zram-svc-search:focus { border-color: #ff8c00; }
+/* Drop UP (bottom-anchored) so a long list grows toward the top of the page instead of running off the bottom. */
+.zram-svc-dropdown { display: none; position: absolute; left: 0; right: 0; bottom: calc(100% + 3px); top: auto; z-index: 10020; min-width: 100%; max-height: 280px; overflow-y: auto; background: rgba(30,30,30,0.98); color: #eee; border: 1px solid rgba(255,255,255,0.18); border-radius: 5px; box-shadow: 0 -4px 14px rgba(0,0,0,0.5); }
+.zram-svc-dropdown.open { display: block; }
+.zram-svc-dd-group { padding: 5px 10px 2px; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.55; }
+.zram-svc-dd-divider { border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 3px 0; }
+.zram-svc-dd-item { display: flex; align-items: baseline; gap: 6px; padding: 6px 10px; cursor: pointer; font-size: 0.88em; line-height: 1.3; }
+.zram-svc-dd-item:hover, .zram-svc-dd-item.zram-svc-dd-active { background: rgba(255,140,0,0.18); }
+.zram-svc-dd-name { font-weight: bold; flex-shrink: 0; }
+.zram-svc-dd-desc { opacity: 0.6; font-size: 0.88em; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zram-svc-dd-mem { font-size: 0.8em; opacity: 0.55; flex-shrink: 0; }
+.zram-svc-dd-crit { color: #ff8c00; font-size: 0.9em; margin-left: 2px; }
+.zram-svc-dd-empty { padding: 8px 10px; font-style: italic; opacity: 0.55; font-size: 0.88em; }
+.zram-svc-dd-note { padding: 5px 10px; font-size: 0.75em; opacity: 0.45; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 3px; }
+.zram-oom-toggle-row td { padding:6px 8px;font-size:0.85em;opacity:0.7;cursor:pointer;user-select:none; }
+.zram-oom-toggle-row td:hover { opacity:1; color:#ff8c00; }
+.zram-oom-level-select { background:rgba(128,128,128,0.12);border:1px solid rgba(128,128,128,0.4);color:inherit;padding:3px 6px;border-radius:3px;font-size:0.85em; }
+.zram-oom-section-header td { padding:4px 8px;font-size:0.82em;font-weight:bold;opacity:0.6;text-transform:uppercase;letter-spacing:0.05em;border-top:1px solid rgba(128,128,128,0.2);cursor:default; }
+.zram-oom-section-header.zram-oom-section-default td { cursor:pointer; }
+.zram-oom-section-header.zram-oom-section-default td:hover { opacity:1;color:#ff8c00; }
+.zram-oom-sort-indicator { margin-left:4px;color:#ff8c00;font-size:0.85em; }
+#zram-oom-table thead th { cursor:pointer; }
+#zram-oom-table thead th:hover { opacity:1 !important; }
 </style>
 
 <div class="zram-layout">
@@ -396,6 +475,115 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
         </details>
     </div>
 </div>
+<?php
+// --- OOM Protection Card ---
+$oomEnabled     = ($settings['oom_protect_enabled'] ?? 'no') === 'yes';
+$oomLevels      = $settings['oom_levels'] ?? '';
+$oomDefault     = $settings['oom_default_level'] ?? 'normal';
+$oomOomGroup    = ($settings['oom_oom_group'] ?? 'yes') === 'yes';
+$vmMemoryMin    = ($settings['vm_memory_min'] ?? 'no') === 'yes';
+$oomProcPatterns= $settings['oom_proc_patterns'] ?? '';
+$oomAutoDeps    = $settings['oom_auto_deps'] ?? '';
+?>
+<div class="zram-card">
+  <div class="zram-card-header">
+    <span>Memory Protection</span>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <details class="zram-preset-dd">
+        <summary class="zram-btn">Presets &#9662;</summary>
+        <div class="zram-preset-menu">
+          <a onclick="applyOomPreset('protect_vms_sacrifice_containers'); this.closest('details').open=false;">Protect all VMs, sacrifice containers</a>
+          <a onclick="resetOomLevels(); this.closest('details').open=false;">Reset everything to Default</a>
+        </div>
+      </details>
+    </div>
+  </div>
+  <div class="zram-card-body">
+    <p style="font-size:0.9em;opacity:0.75;margin:0 0 10px 0;">
+      If your server runs out of memory, it has to shut something down to keep running. Choose what to protect &mdash; and what it can shut down first.
+    </p>
+    <div id="zram-oom-warning" style="display:none;background:rgba(204,51,51,0.15);border:1px solid #cc3333;border-radius:4px;padding:8px 12px;margin-bottom:10px;color:#ff6666;font-size:0.85em;">
+      &#9888; At least one item must remain killable (not all Protected / High).
+    </div>
+    <!-- Level options template (used by JS buildLevelSelect; referenced by tests) -->
+    <template id="zram-oom-level-options">
+      <option value="protected" title="oom_score_adj &minus;1000">Sacrifice last</option>
+      <option value="high" title="oom_score_adj &minus;500">Prefer to keep</option>
+      <option value="normal" selected title="oom_score_adj 0">Default</option>
+      <option value="low" title="oom_score_adj +500">Sacrifice early</option>
+      <option value="killfirst" title="oom_score_adj +1000">Sacrifice first</option>
+    </template>
+    <div style="margin-bottom:8px;">
+      <input type="text" id="zram-oom-search" placeholder="Filter by name…"
+        aria-label="Filter OOM items by name"
+        oninput="oomSearchInput(this.value)"
+        style="width:200px;padding:3px 8px;border-radius:3px;background:rgba(128,128,128,0.12);border:1px solid rgba(128,128,128,0.4);color:inherit;">
+    </div>
+    <div id="zram-oom-table-wrap" style="overflow:visible;">
+      <table style="width:100%;border-collapse:collapse;font-size:0.9em;table-layout:fixed;" id="zram-oom-table">
+        <colgroup>
+          <col style="width:24%;"><col style="width:13%;"><col style="width:15%;"><col style="width:19%;"><col style="width:29%;">
+        </colgroup>
+        <thead>
+          <tr style="border-bottom:1px solid rgba(128,128,128,0.3);">
+            <th style="text-align:left;padding:5px 8px;color:inherit;opacity:0.6;font-weight:normal;cursor:pointer;" onclick="oomSortBy('name')" title="Sort by Item">Item <span class="zram-tip">&#9432;<span class="zram-tip-box">The VM, container, or service.</span></span></th>
+            <th style="text-align:left;padding:5px 8px;color:inherit;opacity:0.6;font-weight:normal;cursor:pointer;" onclick="oomSortBy('type')" title="Sort by Type">Type <span class="zram-tip">&#9432;<span class="zram-tip-box">Whether it's a virtual machine, Docker container, or system service.</span></span></th>
+            <th style="text-align:left;padding:5px 8px;color:inherit;opacity:0.6;font-weight:normal;cursor:pointer;" onclick="oomSortBy('state')" title="Sort by State">State <span class="zram-tip zram-tip-right">&#9432;<span class="zram-tip-box">Whether it's currently running.</span></span></th>
+            <th style="text-align:right;padding:5px 8px;color:inherit;opacity:0.6;font-weight:normal;cursor:pointer;" onclick="oomSortBy('mem_bytes')" title="Sort by Memory">Memory <span class="zram-tip zram-tip-right">&#9432;<span class="zram-tip-box">Live memory in use when running; the configured allocation when stopped.</span></span></th>
+            <th style="text-align:left;padding:5px 8px;color:inherit;opacity:0.6;font-weight:normal;cursor:pointer;" onclick="oomSortBy('level')" title="Sort by Protection">Protection <span class="zram-tip zram-tip-right">&#9432;<span class="zram-tip-box">What the kernel should do with this if memory runs out &mdash; protect it, or sacrifice it first.</span></span></th>
+          </tr>
+        </thead>
+        <tbody id="zram-oom-tbody">
+          <tr><td colspan="5" style="font-style:italic;padding:12px 8px;opacity:0.6;">Loading items&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <!-- Explains the greyed/disabled auto-managed dependency rows. Populated by updateOomAutoNote(). -->
+    <div id="zram-oom-auto-note" style="margin-top:6px;font-size:0.8em;opacity:0.75;line-height:1.5;display:none;"></div>
+    <div style="margin-top:10px;font-size:0.85em;">
+      <label>
+        <input type="checkbox" id="zram-oom-group-chk" <?php echo $oomOomGroup ? 'checked' : ''; ?>>
+        Kill containers cleanly <span class="zram-tip">&#9432;<span class="zram-tip-box">If the system runs out of memory and must kill a container, this kills the whole container at once instead of one process inside it &mdash; so Docker can restart it clean. It never shuts containers down on its own. Recommended on. (sets memory.oom.group=1)</span></span>
+      </label>
+      &nbsp;&nbsp;
+      <label>
+        <input type="checkbox" id="zram-vm-memory-min-chk" <?php echo $vmMemoryMin ? 'checked' : ''; ?>>
+        Reserve memory for protected VMs <span class="zram-tip zram-tip-right">&#9432;<span class="zram-tip-box">Stops the system from clawing back RAM from protected VMs under pressure. Off (default): the system may reclaim memory from any VM when RAM is tight. On: their memory is reserved &mdash; but reserving too much can starve everything else. (sets memory.min)</span></span>
+      </label>
+    </div>
+    <div style="margin-top:6px;font-size:0.85em;">
+      <div style="margin-bottom:4px;">Protect background programs by name <span class="zram-tip">&#9432;<span class="zram-tip-box">For programs that aren't VMs or containers &mdash; e.g. a plugin's background daemon. Pick from suggested Unraid services or type any process name. Selected names are passed to pgrep for OOM protection.</span></span></div>
+      <!-- Hidden input keeps autoSaveOom() working unchanged — chip widget syncs this value -->
+      <input type="hidden" id="zram-oom-proc-patterns" value="<?php echo htmlspecialchars($oomProcPatterns); ?>">
+      <!-- Hidden input tracks system-auto-added dependency managers (reconcileOomDeps) -->
+      <input type="hidden" id="zram-oom-auto-deps" value="<?php echo htmlspecialchars($oomAutoDeps); ?>">
+      <div class="zram-svc-picker">
+        <input class="zram-svc-search" id="zram-oom-svc-search" type="text"
+          placeholder="Type to search services&hellip;"
+          autocomplete="off">
+        <div class="zram-svc-dropdown" id="zram-svc-dropdown"></div>
+        <div class="zram-svc-chip-box" id="zram-svc-chip-box"></div>
+      </div>
+      <div style="margin-top:6px;">
+        <button type="button" id="zram-svc-commit-btn" class="zram-btn" onclick="commitOomStagingChips()" disabled
+          title="Add staged services to the protection table below">Add to list</button>
+        <span style="font-size:0.8em;opacity:0.55;margin-left:8px;">Stage one or more services above, then click to add them to the table.</span>
+        <div style="margin-top:6px;font-size:0.8em;opacity:0.75;line-height:1.5;"><span style="color:#ff8c00;">⚡</span> = recommended to protect — core Unraid services (user shares, web GUI, Docker, VMs) that break the server if killed. Adding one drops it into the table already set to <strong>Sacrifice last</strong>; you can change it after.</div>
+      </div>
+    </div>
+    <div style="margin-top:8px;font-size:0.82em;opacity:0.55;">Changes save automatically.</div>
+    <div id="zram-oom-feedback" style="margin-top:4px;font-size:0.85em;display:none;"></div>
+  </div>
+</div>
+<?php
+// Inject OOM config for JS
+echo "<script>window.ZRAM_OOM_CONFIG=" . json_encode([
+    'enabled'      => $oomEnabled,
+    'levels'       => $oomLevels,
+    'default_level'=> $oomDefault,
+    'OOM_API'      => '/plugins/unraid-zram-card/zram_oom.php',
+]) . ";</script>";
+?>
 </div>
 
 <!-- ACTIVITY PANE — unified feed of cmd.log + debug.log with filter chips.

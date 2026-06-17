@@ -36,6 +36,15 @@ defined('ZRAM_DEFAULTS') || define('ZRAM_DEFAULTS', [
     'ssd_swap_mount'      => '',
     'zram_priority'       => '100',
     'ssd_swap_priority'   => '10',
+    'ssd_swap_backing'    => 'auto',
+    'ssd_swap_allow_zfs'  => 'no',
+    'oom_protect_enabled' => 'no',
+    'oom_levels'          => '',
+    'oom_default_level'   => 'normal',
+    'oom_proc_patterns'   => '',
+    'oom_auto_deps'       => '',
+    'oom_oom_group'       => 'yes',
+    'vm_memory_min'       => 'no',
 ]);
 
 if (!is_dir(ZRAM_LOG_DIR)) @mkdir(ZRAM_LOG_DIR, 0777, true);
@@ -91,7 +100,10 @@ function zram_debug_reset(): void {
 
 /** Append to command log (JSON-lines format). */
 function zram_cmd_log(string $msg, string $type = ''): void {
-    $entry = ['time' => date('H:i:s'), 'msg' => $msg, 'type' => $type];
+    // 'time' (H:i:s) is the display value; 'dt' (full Y-m-d H:i:s) is the sort
+    // key so the activity feed orders correctly across midnight — without the
+    // date, yesterday's 23:xx sorts after today's 09:xx. See UNIFIED_ACTIVITY_LOG.md.
+    $entry = ['time' => date('H:i:s'), 'dt' => date('Y-m-d H:i:s'), 'msg' => $msg, 'type' => $type];
     @file_put_contents(ZRAM_CMD_LOG, json_encode($entry) . "\n", FILE_APPEND);
 }
 
@@ -138,12 +150,24 @@ function zram_get_our_device(): string {
  */
 function zram_get_ssd_swap(): string {
     $cfg = zram_config_read();
-    $path = $cfg['ssd_swap_path'] ?? '';
+    $path    = $cfg['ssd_swap_path'] ?? '';
+    $backing = $cfg['ssd_swap_backing'] ?? 'file';
     if ($path && file_exists($path)) {
-        // Check if active in /proc/swaps
         $swaps = @file_get_contents('/proc/swaps') ?: '';
-        if (strpos($swaps, $path) !== false) {
-            return $path;
+        if ($backing === 'loop') {
+            $ljOut = [];
+            exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut);
+            $loopDev = '';
+            foreach ($ljOut as $line) {
+                if (preg_match('#^(/dev/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
+            }
+            if ($loopDev !== '' && preg_match('/^' . preg_quote($loopDev, '/') . '\s/m', $swaps) === 1) {
+                return $path;
+            }
+        } else {
+            if (strpos($swaps, $path) !== false) {
+                return $path;
+            }
         }
     }
     return '';
@@ -166,29 +190,79 @@ function zram_get_ssd_swap(): string {
  * @param int   $nextTry   In/out: epoch seconds before which we won't retry.
  */
 function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): bool {
-    // Cheap pre-checks against the cached config — no flash I/O, no fork. The
-    // /proc/swaps read is a virtual-file read (negligible); file_exists is a stat.
+    // Cheap pre-checks against the cached config — no flash I/O, no fork.
     if (($cachedCfg['ssd_swap_enabled'] ?? 'no') !== 'yes') return false;
     $path = $cachedCfg['ssd_swap_path'] ?? '';
     if ($path === '' || !file_exists($path)) return false;
-    $swaps = @file_get_contents('/proc/swaps') ?: '';
-    if (strpos($swaps, $path) !== false) return false;     // already active — nothing to do
-    $now = time();
-    if ($now < $nextTry) return false;                     // backing off after a recent failure
 
-    // Confirm against fresh config before acting — the cached copy can be up to
-    // ~60s stale, and a user REMOVE in that window would otherwise get undone here.
+    $backing = $cachedCfg['ssd_swap_backing'] ?? 'file';
+
+    // For loop-backed swap, /proc/swaps lists /dev/loopN — not the image path.
+    if ($backing === 'loop') {
+        exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut);
+        $loopDev = '';
+        foreach ($ljOut as $line) {
+            if (preg_match('#^(/dev/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
+        }
+        if ($loopDev !== '') {
+            $swaps = @file_get_contents('/proc/swaps') ?: '';
+            if (preg_match('/^' . preg_quote($loopDev, '/') . '\s/m', $swaps) === 1) return false; // already active
+        }
+    } else {
+        $swaps = @file_get_contents('/proc/swaps') ?: '';
+        if (strpos($swaps, $path) !== false) return false;     // already active
+    }
+
+    $now = time();
+    if ($now < $nextTry) return false;                         // backing off after recent failure
+
+    // Re-read config fresh before acting (stale cache could undo a user REMOVE).
     $fresh = @parse_ini_file(ZRAM_CONFIG_FILE) ?: [];
     if (($fresh['ssd_swap_enabled'] ?? 'no') !== 'yes') return false;
-    $path = $fresh['ssd_swap_path'] ?? $path;
+    $path    = $fresh['ssd_swap_path'] ?? $path;
+    $backing = $fresh['ssd_swap_backing'] ?? 'file';
     if ($path === '' || !file_exists($path)) return false;
-    $swaps = @file_get_contents('/proc/swaps') ?: '';
-    if (strpos($swaps, $path) !== false) return false;     // got activated since the first check
 
     $logs = [];
+    $prio = max(0, min(32767, intval($fresh['ssd_swap_priority'] ?? 10)));
+
+    if ($backing === 'loop') {
+        // Resolve or attach loop device
+        $ljOut2 = [];
+        exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut2);
+        $loopDev = '';
+        foreach ($ljOut2 as $line) {
+            if (preg_match('#^(/dev/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
+        }
+        if ($loopDev === '') {
+            exec('modprobe loop 2>/dev/null');
+            $lfOut = [];
+            exec("losetup -f --show " . escapeshellarg($path) . " 2>/dev/null", $lfOut);
+            $loopDev = trim(end($lfOut) ?: '');
+        }
+        if (!preg_match('#^/dev/loop\d+$#', $loopDev)) {
+            zram_log("Tier 2 self-heal: losetup failed for $path — backing off 60s", 'WARN');
+            $nextTry = $now + 60;
+            return true;
+        }
+        // Check again in case it got activated between the pre-check and now
+        $swaps = @file_get_contents('/proc/swaps') ?: '';
+        if (preg_match('/^' . preg_quote($loopDev, '/') . '\s/m', $swaps) === 1) return false;
+
+        if (zram_run('swapon ' . escapeshellarg($loopDev) . ' -p ' . $prio, $logs) === 0) {
+            zram_log("Tier 2 self-heal: re-activated $path via $loopDev (priority $prio) after it was found inactive", 'INFO');
+            zram_cmd_log("Auto-reactivated disk swap file $path", 'cmd');
+            $nextTry = 0;
+        } else {
+            zram_log("Tier 2 self-heal: swapon $loopDev failed — backing off 60s", 'WARN');
+            $nextTry = $now + 60;
+        }
+        return true;
+    }
+
+    // --- Direct-file path ---
     // Normalise the label (idempotent, best-effort) then bring the swap online.
     zram_run('swaplabel -L ' . escapeshellarg(ZRAM_SSD_LABEL) . ' ' . escapeshellarg($path), $logs);
-    $prio = max(0, min(32767, intval($fresh['ssd_swap_priority'] ?? 10)));
     if (zram_run('swapon ' . escapeshellarg($path) . ' -p ' . $prio, $logs) === 0) {
         zram_log("Tier 2 self-heal: re-activated $path (priority $prio) after it was found inactive", 'INFO');
         zram_cmd_log("Auto-reactivated disk swap file $path", 'cmd');
