@@ -10,6 +10,8 @@ LOG="/tmp/unraid-zram-card/boot_init.log"
 HOOK_PATH="/etc/libvirt/hooks/qemu"
 HOOK_MARKER_START="# BEGIN zram-oom-protection"
 HOOK_MARKER_END="# END zram-oom-protection"
+PHP_HOOK_MARKER_START="// BEGIN zram-oom-protection"
+PHP_HOOK_MARKER_END="// END zram-oom-protection"
 PROTECTED_CGROUP_ROOT="/sys/fs/cgroup/zram-protected"
 
 mkdir -p "$(dirname "$LOG")"
@@ -143,18 +145,88 @@ protect_proc_pid() {
     apply_memory_min "$cgdir" "$cap" "proc:$label (pid $pid)"
 }
 
+# php_hook_block_text — the PHP-syntax equivalent of the bash HOOK_BLOCK,
+# for hosts whose libvirt hook is a PHP script (see install_hook_block_php).
+php_hook_block_text() {
+    cat << 'PHPHOOKBLOCK'
+// BEGIN zram-oom-protection
+// Installed by unraid-zram-card — do not edit this block manually.
+// Remove by disabling OOM protection in the ZRAM plugin settings.
+if ((isset($argv[2]) ? $argv[2] : null) === 'started') {
+    $applyScript = '/usr/local/emhttp/plugins/unraid-zram-card/zram_oom_apply.sh';
+    if (is_executable($applyScript)) {
+        exec(escapeshellarg($applyScript) . ' ' . escapeshellarg(isset($argv[1]) ? $argv[1] : '') . ' > /dev/null 2>&1 &');
+    }
+}
+// END zram-oom-protection
+PHPHOOKBLOCK
+}
+
+# install_hook_block_php — PHP-syntax counterpart of install_hook_block, for
+# hosts whose /etc/libvirt/hooks/qemu is Unraid's own PHP-based VFIO
+# passthrough hook (#!/usr/bin/env php), not bash (Forgejo #22 — a bash block
+# spliced into a PHP file is neither valid bash nor valid PHP; the previous
+# behavior correctly detected the resulting syntax failure and reverted, but
+# never actually installed anything on such hosts). Strips any existing
+# zram-oom-protection block first (idempotent update), then inserts the PHP
+# block immediately after the FIRST <?php tag — BEFORE any of the hook's own
+# logic, since that logic may itself call exit() early for invocation phases
+# it isn't interested in, and our block must run regardless of what happens
+# next. Syntax-checked with `php -l`; reverts on failure, same safety
+# contract as the bash path.
+install_hook_block_php() {
+    local base tmp blockfile
+    base=$(mktemp)
+    # # delimiter, not /: the marker text itself starts with // (PHP comment
+    # prefix), which collides with sed's default / delimiter.
+    sed "\#$PHP_HOOK_MARKER_START#,\#$PHP_HOOK_MARKER_END#d" "$HOOK_PATH" > "$base"
+
+    if ! grep -q '<?php' "$base"; then
+        rm -f "$base"
+        zlog "OOM: PHP libvirt hook has no <?php tag — leaving unchanged" ERROR
+        return 1
+    fi
+
+    blockfile=$(mktemp)
+    php_hook_block_text > "$blockfile"
+    tmp=$(mktemp)
+    sed "0,/<?php/{
+/<?php/r $blockfile
+}" "$base" > "$tmp"
+    rm -f "$base" "$blockfile"
+
+    if php -l "$tmp" >/dev/null 2>&1; then
+        mv "$tmp" "$HOOK_PATH"
+        chmod +x "$HOOK_PATH"
+        zlog "OOM: PHP libvirt hook installed/updated at $HOOK_PATH" INFO
+        return 0
+    fi
+    rm -f "$tmp"
+    zlog "OOM: PHP libvirt hook install/update syntax check FAILED — hook left unchanged" ERROR
+    return 1
+}
+
 # install_hook_block HOOK_BLOCK — idempotently (re)install our block into
 # $HOOK_PATH. Strips any existing zram-oom-protection block first, then
 # inserts the fresh one BEFORE a trailing bare `exit` statement if the hook
 # ends with one — libvirt qemu hooks conventionally end `exit 0`, and a naive
 # append lands our block after it, where the shell never reaches it (Forgejo
 # #16). If the hook has no trailing exit, appends at the end as before.
+#
+# Language-aware (Forgejo #22): if $HOOK_PATH already exists and its first
+# line names php (Unraid's own VFIO passthrough hook generator always uses
+# #!/usr/bin/env php), delegate to install_hook_block_php instead — a fresh
+# hook (file doesn't exist yet) is still created as bash, matching prior
+# behavior.
 install_hook_block() {
     local hook_block="$1"
 
     mkdir -p /etc/libvirt/hooks
     if [ ! -f "$HOOK_PATH" ]; then
         printf '#!/bin/bash\n# Libvirt qemu hook\n' > "$HOOK_PATH"
+    elif head -n1 "$HOOK_PATH" | grep -qi 'php'; then
+        install_hook_block_php
+        return $?
     fi
 
     local base tmp last_line_no last_line

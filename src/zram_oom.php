@@ -67,13 +67,19 @@ function oom_hook_path(): string {
     return '/etc/libvirt/hooks/qemu';
 }
 
-/** Unique marker pair for this plugin's block in the hook script. */
+/** Unique marker pair for this plugin's block in the hook script (bash hooks). */
 const OOM_HOOK_MARKER_START = '# BEGIN zram-oom-protection';
 const OOM_HOOK_MARKER_END   = '# END zram-oom-protection';
+/** Same marker pair, PHP-comment syntax — for PHP-based hooks (Forgejo #22). */
+const OOM_HOOK_MARKER_START_PHP = '// BEGIN zram-oom-protection';
+const OOM_HOOK_MARKER_END_PHP   = '// END zram-oom-protection';
 
 /**
  * Remove only the plugin's marked block from the libvirt qemu hook.
  * Preserves any surrounding user content. No-op if the block is absent.
+ * Tries both the bash (# ...) and PHP (// ...) marker styles — a given hook
+ * only ever has one, but which one was installed depends on the hook's own
+ * language (see install_hook_block_php in zram_oom_apply.sh).
  */
 function oom_remove_hook_block(array &$logs): void {
     $path = oom_hook_path();
@@ -82,6 +88,8 @@ function oom_remove_hook_block(array &$logs): void {
     if ($content === false) return;
     $pattern = '/' . preg_quote(OOM_HOOK_MARKER_START, '/') . '.*?' . preg_quote(OOM_HOOK_MARKER_END, '/') . '\n?/s';
     $new = preg_replace($pattern, '', $content);
+    $patternPhp = '/' . preg_quote(OOM_HOOK_MARKER_START_PHP, '/') . '.*?' . preg_quote(OOM_HOOK_MARKER_END_PHP, '/') . '\n?/s';
+    $new = preg_replace($patternPhp, '', $new);
     if ($new === $content) return; // block not present
     if (file_put_contents($path, $new) !== false) {
         $logs[] = 'Libvirt hook block removed from ' . $path;

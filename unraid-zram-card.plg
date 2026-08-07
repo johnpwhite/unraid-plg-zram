@@ -1,8 +1,10 @@
 <?xml version='1.0' standalone='yes'?>
 
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.08.06.01" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.08.07.01" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.08.07.01
+- Fix: Memory Protection's VM-level protection now works on servers using GPU or device passthrough.
 ## 2026.08.06.01
 - Fix: the plugin's Settings page and dashboard could vanish after a reboot, with your saved configuration still intact underneath. This happened when the update server wasn't reachable at the exact moment Unraid re-installs the plugin's files during boot. The plugin's files are now cached locally after the first successful install, so every later boot loads instantly with no network needed at all.
 - Fix: Memory Protection now actually protects background services and containers, not just VMs — a hook it depends on could silently fail to install correctly in some setups, meaning protection wasn't applied. Protected containers and background services can now also have their memory reserved from reclaim, previously only available for VMs.
@@ -365,15 +367,22 @@ for zdev in /sys/block/zram*; do
     fi
 done
 
-# Remove the plugin's OOM hook block from the libvirt qemu hook (preserve user content)
+# Remove the plugin's OOM hook block from the libvirt qemu hook (preserve
+# user content). Two marker styles: bash (#) hooks and PHP (//) hooks —
+# Unraid's own VFIO passthrough hook generator writes PHP, not bash. See
+# docs/specs/OOM_PROTECTION.md (Forgejo #22).
 HOOK="/etc/libvirt/hooks/qemu"
 if [ -f "$HOOK" ] &amp;&amp; grep -q "# BEGIN zram-oom-protection" "$HOOK" 2>/dev/null; then
     sed -i '/# BEGIN zram-oom-protection/,/# END zram-oom-protection/d' "$HOOK"
     echo "Removed OOM hook block from $HOOK"
-    if [ -f "$HOOK" ] &amp;&amp; [ -z "$(sed '/^#!.*/d;/^\s*$/d' "$HOOK" 2&gt;/dev/null)" ]; then
-        rm -f "$HOOK"
-        echo "Libvirt hook removed (was empty after cleanup)"
-    fi
+fi
+if [ -f "$HOOK" ] &amp;&amp; grep -q "// BEGIN zram-oom-protection" "$HOOK" 2>/dev/null; then
+    sed -i '\#// BEGIN zram-oom-protection#,\#// END zram-oom-protection#d' "$HOOK"
+    echo "Removed OOM hook block (PHP) from $HOOK"
+fi
+if [ -f "$HOOK" ] &amp;&amp; [ -z "$(sed '/^#!.*/d;/^\s*$/d' "$HOOK" 2&gt;/dev/null)" ]; then
+    rm -f "$HOOK"
+    echo "Libvirt hook removed (was empty after cleanup)"
 fi
 
 # Reset oom_score_adj to 0 for any running VMs and containers
