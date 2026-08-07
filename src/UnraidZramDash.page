@@ -1,0 +1,26 @@
+Menu="Dashboard:0"
+Icon="unraid-zram-card.png"
+---
+<?php
+/**
+ * <module_context>
+ *   <name>UnraidZramDash</name>
+ *   <description>Dashboard page loader for ZRAM Card plugin</description>
+ *   <dependencies>ZramCard, zram_config</dependencies>
+ * </module_context>
+ */
+try {
+    $docroot = $docroot ?? $_SERVER['DOCUMENT_ROOT'] ?: '/usr/local/emhttp';
+    $includeFile = "$docroot/plugins/unraid-zram-card/ZramCard.php";
+
+    if (file_exists($includeFile)) {
+        require_once $includeFile;
+        if (function_exists('getZramDashboardCard')) {
+            $content = getZramDashboardCard();
+            $mytiles['unraid-zram-card']['column2'] = $content;
+        }
+    }
+} catch (Throwable $e) {
+    if (ob_get_level() > 0) ob_end_clean();
+}
+?>

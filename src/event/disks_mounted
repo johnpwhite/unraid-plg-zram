@@ -1,0 +1,9 @@
+#!/bin/bash
+# Clears the array-stopping pause marker written by event/stopping (Forgejo
+# #17) once the array's disks are mounted again, so zram_collector.php's
+# background self-heal (zram_reactivate_disk_swap_if_needed) resumes. Fires
+# on every array start, not just after a genuine stop, which is harmless —
+# removing an absent marker is a no-op.
+
+rm -f /tmp/unraid-zram-card/array-stopping
+exit 0

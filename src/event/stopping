@@ -1,0 +1,83 @@
+#!/bin/bash
+# Releases the Tier 2 disk swapfile at the very start of cmdStop — before
+# Unassigned Devices unmounts its disks (stopping_svcs) and before pool shares
+# unmount (unmounting_disks). Covers all storage types: UD disks, cache pools,
+# and the Unraid 7.3.0 boot-pool partition. See OP #1241.
+#
+# Backing-aware (Forgejo #17): for loop-backed swap, /proc/swaps lists
+# /dev/loopN, not the image path — a plain `grep "$SSD_PATH" /proc/swaps`
+# never matches, so swapoff never ran and the loop device kept the pool busy
+# forever, hanging the array stop. Mirrors the loop-resolution logic already
+# used by the REMOVE script and zram_config.php's self-heal.
+#
+# Also backing-aware for zvol (Forgejo #18/#20, docs/specs/TIER2_ZVOL_SWAP.md):
+# /dev/zvol/<pool>/<dataset> is a symlink; /proc/swaps lists the resolved
+# /dev/zdN alias, never the symlink path — same problem class as loop, but
+# resolved via readlink -f instead of losetup -j, and with no losetup-d
+# equivalent detach step (a zvol isn't "attached" the way a loop device is).
+#
+# Also writes a pause marker so zram_collector.php's background self-heal
+# (zram_reactivate_disk_swap_if_needed) doesn't race this shutdown and
+# re-activate the swap moments after we deactivate it — see event/disks_mounted,
+# which clears the marker once the array is back up.
+
+CONFIG="/boot/config/plugins/unraid-zram-card/settings.ini"
+LOG="/tmp/unraid-zram-card/boot_init.log"
+STOPPING_MARKER="/tmp/unraid-zram-card/array-stopping"
+
+mkdir -p "$(dirname "$LOG")"
+
+ts() { date '+%Y-%m-%d %H:%M:%S'; }
+
+# Written unconditionally and first, before any config/backing checks below —
+# the collector must stop self-healing for the whole stop window regardless
+# of whether Tier 2 turns out to be enabled (cheap, always safe).
+date +%s > "$STOPPING_MARKER" 2>/dev/null
+
+[ -f "$CONFIG" ] || exit 0
+
+SSD_ENABLED=$(grep '^ssd_swap_enabled=' "$CONFIG" 2>/dev/null | cut -d'"' -f2)
+SSD_PATH=$(grep '^ssd_swap_path=' "$CONFIG" 2>/dev/null | cut -d'"' -f2)
+SSD_BACKING=$(grep '^ssd_swap_backing=' "$CONFIG" 2>/dev/null | cut -d'"' -f2)
+
+[ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ] || exit 0
+
+if [ "$SSD_BACKING" = "loop" ]; then
+    LOOP_DEV=$(losetup -j "$SSD_PATH" 2>/dev/null | awk -F: '{print $1; exit}')
+    if [ -n "$LOOP_DEV" ] && grep -q "^$LOOP_DEV " /proc/swaps 2>/dev/null; then
+        echo "[$(ts)] [INFO] stopping: swapoff $SSD_PATH via $LOOP_DEV" >> "$LOG"
+        RC=0
+        swapoff "$LOOP_DEV" 2>&1 || RC=$?
+        if [ $RC -eq 0 ]; then
+            echo "[$(ts)] [INFO] stopping: swapoff succeeded" >> "$LOG"
+            if losetup -d "$LOOP_DEV" 2>&1; then
+                echo "[$(ts)] [INFO] stopping: detached $LOOP_DEV" >> "$LOG"
+            else
+                echo "[$(ts)] [WARN] stopping: losetup -d $LOOP_DEV failed — pool may still be busy" >> "$LOG"
+            fi
+        else
+            echo "[$(ts)] [WARN] stopping: swapoff failed (rc=$RC) — array stop may hang" >> "$LOG"
+        fi
+    fi
+elif [ "$SSD_BACKING" = "zvol" ]; then
+    ZVOL_DEV=$(readlink -f "$SSD_PATH" 2>/dev/null)
+    if [ -n "$ZVOL_DEV" ] && grep -q "^$ZVOL_DEV " /proc/swaps 2>/dev/null; then
+        echo "[$(ts)] [INFO] stopping: swapoff $SSD_PATH via $ZVOL_DEV" >> "$LOG"
+        RC=0
+        swapoff "$ZVOL_DEV" 2>&1 || RC=$?
+        if [ $RC -eq 0 ]; then
+            echo "[$(ts)] [INFO] stopping: swapoff succeeded" >> "$LOG"
+        else
+            echo "[$(ts)] [WARN] stopping: swapoff failed (rc=$RC) — array stop may hang" >> "$LOG"
+        fi
+    fi
+elif grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
+    echo "[$(ts)] [INFO] stopping: swapoff $SSD_PATH" >> "$LOG"
+    RC=0
+    swapoff "$SSD_PATH" 2>&1 || RC=$?
+    if [ $RC -eq 0 ]; then
+        echo "[$(ts)] [INFO] stopping: swapoff succeeded" >> "$LOG"
+    else
+        echo "[$(ts)] [WARN] stopping: swapoff failed (rc=$RC) — array stop may hang" >> "$LOG"
+    fi
+fi

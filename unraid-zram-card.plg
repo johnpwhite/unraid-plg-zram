@@ -1,0 +1,415 @@
+<?xml version='1.0' standalone='yes'?>
+
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.08.06.01" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+
+<CHANGES>
+## 2026.08.06.01
+- Fix: the plugin's Settings page and dashboard could vanish after a reboot, with your saved configuration still intact underneath. This happened when the update server wasn't reachable at the exact moment Unraid re-installs the plugin's files during boot. The plugin's files are now cached locally after the first successful install, so every later boot loads instantly with no network needed at all.
+- Fix: Memory Protection now actually protects background services and containers, not just VMs — a hook it depends on could silently fail to install correctly in some setups, meaning protection wasn't applied. Protected containers and background services can now also have their memory reserved from reclaim, previously only available for VMs.
+- Fix: a rare cause of the array getting stuck on Stop when Tier 2 disk swap lived on a multi-drive btrfs or ZFS pool.
+- Feat: the Memory Protection table can now remove dead entries. A VM or container you'd protected that's since been deleted no longer sits in the list forever waiting for it to come back — a remove button clears it.
+- Feat: Tier 2 disk swap can now use a dedicated ZFS volume as overflow storage, for pools where a plain swap file isn't supported. A new "Allow ZFS Tier 2" setting turns this on, off by default, as there are ZFS caching implications you should understand first with swap on ZFS.
+- Improve: fixed a couple of layout issues on narrow screens/phones on the Settings page.
+## 2026.07.12.04
+- Rename: The plugin is now called ZRAM Compressed Memory in Apps, Installed Plugins, and Settings. Existing installations and saved settings are unchanged.
+- Fix: Plugin updates are now more reliable after an interrupted or failed installation.
+## 2026.06.17.02
+- Fix: ZRAM swap now activates reliably on every boot. On some systems the swap device failed to create after a reboot — the log showed "failed to reset: Device or resource busy" — even though clicking CREATE in the dashboard worked every time. The cause was a boot-time timing conflict between the plugin and the kernel's automatic device probing. The plugin now creates the swap device a different way that sidesteps that conflict entirely, so Tier 1 comes up cleanly on every reboot. Reported on the forum by martinjuhasz.
+## 2026.06.17.01
+- Feat: Memory Protection — a new Settings card that decides what your server shuts down first if it ever runs completely out of memory. Give each VM, container, and background service a plain-language priority (from "Sacrifice last" to "Sacrifice first"), with its live memory shown beside it. Protect a VM or container and the services it depends on are protected automatically. A built-in guard refuses settings that would leave the system with nothing safe to shut down, and every change saves on its own.
+- Feat: Tier 2 disk swap now works on multi-device btrfs cache pools and ZFS datasets. These were previously blocked because a swap file cannot sit directly on btrfs-RAID or ZFS; Tier 2 now uses a loop-backed image so any pool can host overflow swap, with the dashboard, status and settings all aware of it.
+- Improve: Dashboard device table redesigned for clarity — it reads correctly on both light and dark themes, with aligned figures, per-tier accent dots, and a new "Used" column showing in-use swap to two decimals.
+## 2026.05.28.03
+- Security: CSRF token validation hardened — tokens are now verified against the server-issued value rather than just checked for presence. Tier 2 swap mount point restricted to /mnt/* paths, preventing path traversal.
+## 2026.05.28.02
+- Improve: plugin icon recoloured to Unraid brand orange — now readable on all four Unraid themes.
+## 2026.05.28.01
+- Fix: Tier 2 disk swap file no longer causes the array to hang on stop/shutdown. If the swap file lives on a pool share or an Unassigned Devices disk, the kernel held an open reference to it when the pool unmounted — causing a permanent hang. A new array-stop hook now releases the swap file before any disk unmounts begin, covering all storage types including the Unraid 7.3.0 boot-pool partition.
+
+## 2026.05.12.01
+- Feat: Tier 2 disk swap now recovers on its own. If the disk swap file exists but isn't active — which can happen when its mount comes up more than a few minutes after the plugin starts (a long array outage, a flash-drive swap) and the boot-time retry has given up — the background service re-activates it automatically within a few seconds. The Tier 2 card also gains an ACTIVATE button for that state, so you can bring it back with one click without a reboot or the shell. The auto-recovery re-checks your settings first, so it will never re-enable a swap file you've just removed.
+
+## 2026.05.06.15
+- Fix: Dashboard "Compressed" chip and chart line now use the algorithm's compressed payload size, not total RAM occupied by the zram device. Previously, under light load, per-page metadata + slot rounding overhead could push the "RAM occupied" figure above the uncompressed data size, producing a visible contradiction with the Ratio chip (e.g. "Uncompressed 2.36 MB / Compressed 2.65 MB" while Ratio showed a healthy ratio). The Ratio chip was always correct — now the Compressed numbers and chart line match it.
+
+## 2026.05.06.14
+- Feat: Plugin Settings auto-save. APPLY &amp; SAVE retired — every field commits on blur (text/number) or change (select/checkbox/slider) with an inline "Saved ✓" confirmation, and side effects are gated by key (sysctl vm.swappiness only when swappiness changed; collector restart only on collection_interval / debug, not every save). Tier 1 size/algorithm controls auto-save too and apply on next CREATE.
+- Feat: Advanced per-tier priority override. Hidden behind a confirmation overlay explaining the load-bearing relationship (Tier 1 must stay strictly higher than Tier 2 — invert and every page goes to disk first, ZRAM is bypassed). Inputs lock until the overlay is acknowledged each session; SAVE shows a final diff confirmation before applying. Defaults remain 100/10. Live re-prioritisation runs swapoff/swapon when a tier is active; falls back to "applies on next CREATE" if the safety check fails.
+- Feat: Dashboard rework — Tier 2-only mode now usable. Forum report: running with only the Disk Tier left the dashboard empty. Three render modes (both tiers / Tier 1 only / Tier 2 only) drive which chips and chart series appear. New cyan Disk Used chip and Disk dataset on the chart, sourced from live swap usage rather than file allocation size. "No swap configured" copy with a settings link covers the both-off case.
+- Feat: Unified Activity log. Command History and System Debug Log tabs replaced with a single chronological feed with filter chips (All / Commands / Events / Errors) and colour-coded badges per entry. Single CLEAR truncates both source files. Live action toasts now persist across reloads — the console pane no longer starts empty after refresh.
+- Feat: Live tier observability on the Settings page. Each tier's status row shows current used bytes vs allocated size plus its priority and the inline explainer "used first" / "overflow only". Swappiness input gains a clarifier line that it's a global kernel setting (not per-tier) — direct response to forum questions about per-tier swappiness/priority.
+- Improve: Tier 2 drive picker. ZFS pools now appear in the list (were silently filtered out). Multi-device btrfs (Unraid RAID cache pools) and ZFS pools are clearly classified "Not Supported" with red indicator and unclickable rows — the kernel rejects swap files on those filesystems, so the previous "clickable, fail at CREATE time" UX was confusing. HDD warning rephrased to be honest about random-IO impact.
+- Improve: Plugin Settings polish — units standardised to seconds (Refresh and Collection Interval both show "(sec)" with backward-compatible storage); auto-size readout now GB on both sides ("50% of 62.6GB = 31.3GB" instead of mixed MB/GB); tighter row spacing; Tier 1 controls hide once a ZRAM device is active to mirror Tier 2's existing pattern.
+- Improve: Action log entries show friendly phrases ("Create disk swap file", "Update swappiness") instead of raw snake_case identifiers.
+- Improve: Disk swap file label renamed from ZRAM_CARD_SSD to ZRAM_CARD_DISK to complete the SSD → Disk terminology pass started in 2026.04.28.02. Existing installs auto-migrate on next plugin start (swaplabel runs while the swap is offline) — no user action required.
+- Fix: Tier 2 stays inactive after reboot when its mount comes up after plugin start. Forum report: "[WARN] Disk swap mount (/mnt/swap) not available yet. Skipping Tier 2." init.sh now schedules a background poller that retries every 5s for up to 5 minutes once the mount appears — typical Unraid boot has Tier 2 active within 60–120s without user intervention.
+- Fix: REMOVE button state-sync under memory pressure. Forum report: "REMOVE button persists across reloads". Root cause: swapoff and zramctl --reset failures were silently swallowed and the UI reported success regardless. Both commands now check exit codes and report real errors; kernel and UI state stay in sync.
+- Fix: CREATE respects live form values. Forum report: "I cannot set Auto Size to 75% — it always creates 16G; turns out you have to APPLY &amp; SAVE first". CREATE now reads size_mode/percent/algo straight from the form and persists what was actually used, so a slider tweak made before clicking CREATE is no longer silently dropped.
+
+## 2026.04.28.02
+- Feat: Extended swappiness range (0-200, kernel 5.8+ aware). The Swappiness setting now accepts the full kernel range (was 0-100) and the default is raised to 150 — the recommended setting for compressed-RAM swap, where evicting a zram page is cheaper than dropping page cache. Settings page shows tier guidance: 60 kernel default, 100 equal weighting, 150 recommended for zram, 180+ aggressive. Existing users keep their saved value on upgrade.
+- Improve: Inclusive Tier 2 terminology. "SSD Swap File" renamed to "Disk Swap File" across the settings page, dashboard card, action toasts, init logs, and public README. The drive picker has always accepted HDD cache-pool drives (with a warning), but the previous copy implied SSD/NVMe-only.
+- Improve: Honest HDD warning. Rewrote the HDD warning in the Tier 2 drive picker. The previous "may interfere with parity operations" claim was misleading — the picker excludes array drives entirely, so HDD swap on a cache pool cannot directly affect parity calculation. The new wording is honest about random-IO performance impact and acknowledges that a slow swap is still better than running out of memory.
+- Security: CSRF hardening for log-read endpoints. Added CSRF token validation to the view_log and view_cmd_log AJAX actions (previously exempt; could leak diagnostic details to cross-origin requests). Archived the legacy zram_swap.php handler, which had been superseded by zram_actions.php and used REQUEST variables without proper escaping.
+
+## 2026.04.18.07
+- Feat: Dashboard graph Y-axis labels now round to the nearest 5 in their natural unit (MB / GB / etc) for easier reading. Stat cards continue to show precise values.
+- Fix: Chart tooltip no longer clips at the bottom of the graph or overflows into adjacent cards when hovering near the edges.
+- Fix: Uninstalling the plugin no longer wipes your saved settings. Refresh interval, compression algorithm, swappiness, and SSD swap configuration now survive uninstall/reinstall per Unraid convention.
+
+## 2026.04.17.06
+- Feat: Dashboard graph now visualises both uncompressed and compressed memory as stacked filled layers, with CPU load overlaid on top. The visible gap between the two layers is the RAM saved by ZRAM.
+- Feat: Mini stats cards reworked to match the graph: Uncompressed, Compressed, Ratio, Load, Swappiness.
+- Fix: Settings form POST was silently dropped on save. Refresh interval and other settings now persist correctly.
+- Fix: JS/CSS cache-buster now uses filemtime so browsers pick up fresh assets on every plugin upgrade (no more manual hard-refresh after installing a new version).
+
+## 2026.04.16.09
+- Fix: Drive picker only shows mounts under /mnt/. Excludes Docker, libvirt, tmpfs, and zram-backed mounts that are unsuitable for swap files.
+
+## 2026.04.16.08
+- Major Feature: Tiered Swap Manager — ZRAM (in-memory, compressed) plus optional SSD swap file (overflow protection).
+- Feature: Auto-sizes ZRAM to a percentage of system RAM (configurable 25-75%, default 50%).
+- Feature: Drive picker for SSD/NVMe swap file with media detection (recommends NVMe, warns on HDD, blocks USB).
+- Feature: Device labeling — all plugin-managed ZRAM devices tagged with ZRAM_CARD label.
+- Feature: Device isolation — only shows plugin-owned devices; hides ZRAM from other plugins.
+- Feature: Detects btrfs RAID pools and warns that swap files are not supported on multi-device btrfs.
+- Feature: Handles btrfs single-device filesystems with NOCOW attribute for swap file compatibility.
+- Security: CSRF token validation on all actions, escapeshellarg on all shell commands.
+- Security: Swap files created with 600 permissions.
+- Fix: Atomic config writes with file locking prevent corruption from concurrent requests.
+- Fix: Background collector no longer reads config from USB flash every 3 seconds (cached with periodic refresh).
+- Fix: History file writes are atomic (write-to-tmp then rename).
+- Fix: Collector restart uses SIGTERM with SIGKILL fallback instead of sleep-and-hope.
+- Architecture: Single ZRAM device model replaces multi-device (modern kernels parallelize within one device).
+- Architecture: Shared config module eliminates 4x duplicated logging functions.
+- Architecture: All JavaScript moved to external files for Unraid page framework compatibility.
+- Upgrade: Automatic migration from legacy multi-device config to single-device on first boot.
+
+## 2026.02.18.07
+- Feature: Added ZRAM discovery to boot init log for existing devices.
+- Fix: Corrected dashboard logo sizing and removed duplicate expander icon.
+- Style: Finalized Unraid 7.2+ dashboard header compliance.
+
+## 2026.02.18.04
+- Feature: Standardized release labels and improved changelog preservation.
+- Docs: Finalized cumulative changelog and versioning script updates.
+
+## 2026.02.13.13
+- UX: Tightened README layout for better Plugin Manager visibility.
+- Fix: Resolved runaway CPU load calculation in background collector.
+- Feature: Added configurable background collection interval (Default 3s).
+- Feature: Implemented persistent server-side command history.
+- Lifecycle: Improved plugin removal (stops collector and purges all tmp files).
+- Architecture: Flattened source structure and added idempotent initialization.
+- Settings: Diagnostics console now enabled by default on new installs.
+- Bugfix: Resolved background collector logging issues during upgrades.
+- Docs: Added comprehensive Settings and Usage guide for non-technical users.
+
+## 2026.01.30.21
+- New Feature: Persistent Dashboard History. Maintains a 1-hour rolling chart of ZRAM performance even after closing the browser.
+- New Feature: Unified Diagnostics Console. Integrated tabbed console for real-time Command History and System Debug Logs.
+- New Feature: In-Page Debug Viewer. Live-refreshing log viewer with truncation capabilities, bypassing external window issues.
+- Improvement: Standardized Logging. Consistent [LEVEL] prefixes (INFO, DEBUG, WARN, ERROR) across all plugin components.
+- Improvement: Robust Installer. Automatic configuration healing on boot to ensure stability after fresh installs or updates.
+- Improvement: Performance Optimizations. Enhanced CPU Load tracking and precision for ZRAM metrics.
+- Fix: Permission Stability. Standardized world-readable diagnostics logs (0666) for reliable access across web/root users.
+- Fix: UI Synchronization. Resolved issues with swappiness and debug toggle states persisting across refreshes.
+
+## 2026.01.25.66
+- Official Initial Release.
+</CHANGES>
+
+
+<ICON>https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/src/unraid-zram-card.png</ICON>
+
+<!-- 1. FETCH SOURCE BUNDLE -->
+<!-- Cached to flash. Unraid's native FILE/URL downloader only checks whether
+     this target already exists — it skips re-fetching it if so — so this
+     download only happens on a fresh install or an explicit user-triggered
+     update (network is known to be reachable then). It is NOT re-fetched by
+     the silent boot-time reinstall that repopulates /usr/local/emhttp (tmpfs)
+     on every boot, which is what makes the installer below safe to re-run
+     with no network dependency. See docs/specs/BOOT_INSTALL_NETWORK_INDEPENDENCE.md. -->
+<FILE Name="/boot/config/plugins/unraid-zram-card/src.tar.gz">
+<URL>https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/src.tar.gz</URL>
+</FILE>
+
+<!-- 2. HYBRID INSTALLER SCRIPT -->
+<FILE Run="/bin/bash" Name="/tmp/unraid-zram-card-installer">
+<INLINE>
+#!/bin/bash
+NAME="unraid-zram-card"
+LOCAL_SRC="/boot/config/plugins/$NAME"
+EMHTTP_DEST="/usr/local/emhttp/plugins/$NAME"
+ARCHIVE="$LOCAL_SRC/src.tar.gz"
+
+# Unraid may reuse a named inline FILE left in /tmp by a previous failed
+# install. Always remove this installer on exit so upgrades execute the script
+# embedded in the current .plg rather than a stale cached copy. Also clean up
+# the extraction staging dir (set once STAGE is created below).
+STAGE=""
+cleanup_install() { rm -f /tmp/unraid-zram-card-installer; [ -n "$STAGE" ] &amp;&amp; rm -rf "$STAGE"; }
+trap cleanup_install EXIT
+
+echo "--- INSTALL START ---"
+
+# All plugin source comes from the flash-cached src.tar.gz fetched by the
+# FILE/URL block above — no network calls happen in this script, so it is
+# safe to re-run on every boot's silent reinstall.
+if [ ! -f "$ARCHIVE" ]; then
+    echo "FATAL: source archive not found at $ARCHIVE. The download step did not complete."
+    exit 1
+fi
+
+STAGE=$(mktemp -d)
+MANIFEST="$STAGE/.manifest"
+if ! tar -tzf "$ARCHIVE" > "$MANIFEST" 2>/dev/null; then
+    echo "FATAL: source archive at $ARCHIVE is unreadable/corrupt. Existing installation was not changed."
+    exit 1
+fi
+
+FILES=(
+    "zram_config.php:src/zram_config.php"
+    "ZramCard.php:src/ZramCard.php"
+    "zram_status.php:src/zram_status.php"
+    "zram_actions.php:src/zram_actions.php"
+    "zram_drives.php:src/zram_drives.php"
+    "zram_collector.php:src/zram_collector.php"
+    "zram_init.sh:src/zram_init.sh"
+    "UnraidZramCard.page:src/UnraidZramCard.page"
+    "UnraidZramDash.page:src/UnraidZramDash.page"
+    "unraid-zram-card.png:src/unraid-zram-card.png"
+    "README.md:src/README.md"
+    "js/zram-card.js:src/js/zram-card.js"
+    "js/zram-settings.js:src/js/zram-settings.js"
+    "js/chart.min.js:src/js/chart.min.js"
+    "event/stopping:src/event/stopping"
+    "event/disks_mounted:src/event/disks_mounted"
+    "zram_oom.php:src/zram_oom.php"
+    "zram_oom_apply.sh:src/zram_oom_apply.sh"
+)
+
+# Verify every required file is present in the archive BEFORE touching the
+# existing installation — a corrupt/incomplete cached archive must leave a
+# currently-working install untouched rather than tearing it down first.
+# See docs/specs/BOOT_INSTALL_NETWORK_INDEPENDENCE.md.
+FAILED=0
+for mapping in "${FILES[@]}"; do
+    SRC="${mapping##*:}"
+    if ! grep -Fqx "$SRC" "$MANIFEST"; then
+        echo "ERROR: $SRC missing from source archive."
+        FAILED=$((FAILED+1))
+    fi
+done
+if [ "$FAILED" -gt 0 ]; then
+    echo "FATAL: $FAILED required file(s) missing from source archive. Existing installation was not changed."
+    exit 1
+fi
+
+if ! tar -xzf "$ARCHIVE" -C "$STAGE" 2>/dev/null; then
+    echo "FATAL: failed to extract source archive. Existing installation was not changed."
+    exit 1
+fi
+
+rm -rf "$EMHTTP_DEST"
+mkdir -p "$EMHTTP_DEST/js"
+mkdir -p "$EMHTTP_DEST/event"
+
+FAILED=0
+for mapping in "${FILES[@]}"; do
+    DEST="${mapping%%:*}"
+    SRC="${mapping##*:}"
+    echo "Installing $DEST ..."
+    if [ -s "$STAGE/$SRC" ]; then
+        mkdir -p "$(dirname "$EMHTTP_DEST/$DEST")"
+        cp "$STAGE/$SRC" "$EMHTTP_DEST/$DEST"
+        # Static assets nginx serves directly (icon PNG, JS files, README)
+        # must be world-readable or they 404 for user `nobody`. The chmod +x
+        # block below makes the named scripts also executable (0755).
+        chmod 0644 "$EMHTTP_DEST/$DEST"
+    else
+        echo "ERROR: $SRC missing or empty in extracted archive."
+        FAILED=$((FAILED+1))
+    fi
+done
+
+chmod +x "$EMHTTP_DEST/zram_status.php"
+chmod +x "$EMHTTP_DEST/zram_actions.php"
+chmod +x "$EMHTTP_DEST/zram_drives.php"
+chmod +x "$EMHTTP_DEST/zram_collector.php"
+chmod +x "$EMHTTP_DEST/zram_init.sh"
+chmod +x "$EMHTTP_DEST/event/stopping"
+chmod +x "$EMHTTP_DEST/event/disks_mounted"
+chmod +x "$EMHTTP_DEST/zram_oom_apply.sh"
+
+# Ensure the loop block-device driver is available for Tier 2 loop-backed swap.
+modprobe loop 2>/dev/null || true
+
+if [ "$FAILED" -gt 0 ]; then
+    echo "FATAL: $FAILED file(s) failed to install. Plugin install incomplete — Unraid will flag this."
+    exit 1
+fi
+
+# Belt-and-braces: even if $FAILED accounting somehow misses a 0-byte file
+# (a future chmod against a missing path quietly creating a placeholder, etc.)
+# a final scan catches it before declaring success.
+EMPTY=$(find "$EMHTTP_DEST" -type f -size 0 2>/dev/null)
+if [ -n "$EMPTY" ]; then
+    echo "FATAL: zero-byte files found post-install:"
+    echo "$EMPTY"
+    exit 1
+fi
+
+echo "--- INSTALL COMPLETE ---"
+mkdir -p "/boot/config/plugins/$NAME"
+if [ ! -f "/boot/config/plugins/$NAME/settings.ini" ]; then
+    echo "Creating default configuration..."
+    cat > "/boot/config/plugins/$NAME/settings.ini" &lt;&lt; 'DEFCFG'
+enabled="yes"
+refresh_interval="3000"
+collection_interval="3"
+swappiness="100"
+debug="no"
+console_visible="yes"
+zram_size="auto"
+zram_percent="50"
+zram_algo="zstd"
+ssd_swap_enabled="no"
+ssd_swap_path=""
+ssd_swap_size="16G"
+ssd_swap_mount=""
+ssd_swap_backing="auto"
+ssd_swap_allow_zfs="no"
+oom_protect_enabled="no"
+oom_levels=""
+oom_default_level="normal"
+oom_proc_patterns=""
+oom_auto_deps=""
+oom_oom_group="yes"
+vm_memory_min="no"
+DEFCFG
+fi
+</INLINE>
+</FILE>
+
+<!-- 3. POST-INSTALL EXECUTION -->
+<FILE Run="/bin/bash">
+<INLINE>
+NAME="unraid-zram-card"
+INIT_SCRIPT="/usr/local/emhttp/plugins/$NAME/zram_init.sh"
+LOG="/tmp/$NAME/boot_init.log"
+mkdir -p "/tmp/$NAME"
+if [ -x "$INIT_SCRIPT" ]; then
+    "$INIT_SCRIPT" >> "$LOG" 2>&amp;1
+fi
+</INLINE>
+</FILE>
+
+<!-- 4. REMOVE -->
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+#!/bin/bash
+NAME="unraid-zram-card"
+PLUGIN_DIR="/usr/local/emhttp/plugins/$NAME"
+CONFIG_DIR="/boot/config/plugins/$NAME"
+ZRAM_LABEL="ZRAM_CARD"
+echo "Removing $NAME..."
+
+# Stop collector
+if [ -f "/tmp/$NAME/collector.pid" ]; then
+    PID=$(cat "/tmp/$NAME/collector.pid")
+    echo "Stopping collector (PID $PID)..."
+    kill "$PID" 2>/dev/null
+fi
+
+# Deactivate Tier 2 swap if configured (backing-aware: loop vs. direct file)
+if [ -f "$CONFIG_DIR/settings.ini" ]; then
+    SSD_PATH=$(grep "ssd_swap_path=" "$CONFIG_DIR/settings.ini" 2>/dev/null | cut -d'"' -f2)
+    BACKING=$(grep "ssd_swap_backing=" "$CONFIG_DIR/settings.ini" 2>/dev/null | cut -d'"' -f2)
+    if [ "$BACKING" = "loop" ]; then
+        LOOP_DEV=$(losetup -j "$SSD_PATH" 2>/dev/null | awk -F: '{print $1; exit}')
+        if [ -n "$LOOP_DEV" ] &amp;&amp; grep -q "^$LOOP_DEV " /proc/swaps 2>/dev/null; then
+            echo "Deactivating loop-backed swap: $SSD_PATH via $LOOP_DEV"
+            swapoff "$LOOP_DEV" 2>/dev/null
+            losetup -d "$LOOP_DEV" 2>/dev/null
+        fi
+    elif [ "$BACKING" = "zvol" ]; then
+        ZVOL_DEV=$(readlink -f "$SSD_PATH" 2>/dev/null)
+        if [ -n "$ZVOL_DEV" ] &amp;&amp; grep -q "^$ZVOL_DEV " /proc/swaps 2>/dev/null; then
+            echo "Deactivating zvol-backed swap: $SSD_PATH via $ZVOL_DEV"
+            swapoff "$ZVOL_DEV" 2>/dev/null
+        fi
+        # No losetup -d equivalent — a zvol isn't "attached" the way a loop
+        # device is; swapoff alone releases it. The zvol dataset itself is
+        # preserved below, same policy as the loop image / swap file.
+    elif [ -n "$SSD_PATH" ] &amp;&amp; grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
+        echo "Deactivating SSD swap: $SSD_PATH"
+        swapoff "$SSD_PATH" 2>/dev/null
+    fi
+    # NOTE: the Tier 2 swap file/image/zvol itself is intentionally preserved on
+    # uninstall — it is user data, often gigabytes, and recreating it requires
+    # the dashboard's CREATE flow. To delete it, REMOVE via the Tier 2 card
+    # before uninstalling, or remove it manually afterwards (zfs destroy for a
+    # zvol). See docs/specs/INSTALL_HARDENING.md and docs/specs/TIER2_ZVOL_SWAP.md.
+fi
+
+# Deactivate our labeled ZRAM device
+for zdev in /sys/block/zram*; do
+    [ -d "$zdev" ] || continue
+    ZID=$(basename "$zdev")
+    ELABEL=$(blkid -s LABEL -o value "/dev/$ZID" 2>/dev/null || true)
+    if [ "$ELABEL" = "$ZRAM_LABEL" ]; then
+        echo "Deactivating /dev/$ZID (label: $ZRAM_LABEL)"
+        swapoff "/dev/$ZID" 2>/dev/null
+        zramctl --reset "/dev/$ZID" 2>/dev/null
+    fi
+done
+
+# Remove the plugin's OOM hook block from the libvirt qemu hook (preserve user content)
+HOOK="/etc/libvirt/hooks/qemu"
+if [ -f "$HOOK" ] &amp;&amp; grep -q "# BEGIN zram-oom-protection" "$HOOK" 2>/dev/null; then
+    sed -i '/# BEGIN zram-oom-protection/,/# END zram-oom-protection/d' "$HOOK"
+    echo "Removed OOM hook block from $HOOK"
+    if [ -f "$HOOK" ] &amp;&amp; [ -z "$(sed '/^#!.*/d;/^\s*$/d' "$HOOK" 2&gt;/dev/null)" ]; then
+        rm -f "$HOOK"
+        echo "Libvirt hook removed (was empty after cleanup)"
+    fi
+fi
+
+# Reset oom_score_adj to 0 for any running VMs and containers
+# (best-effort — never fail the uninstall)
+if command -v virsh &gt;/dev/null 2&gt;&amp;1; then
+    while read -r VMNAME; do
+        [ -z "$VMNAME" ] &amp;&amp; continue
+        PIDFILE="/run/libvirt/qemu/${VMNAME}.pid"
+        [ -f "$PIDFILE" ] || continue
+        PID=$(cat "$PIDFILE" 2&gt;/dev/null)
+        [ -z "$PID" ] &amp;&amp; continue
+        echo 0 &gt; "/proc/$PID/oom_score_adj" 2&gt;/dev/null || true
+        echo "Reset oom_score_adj to 0 for VM $VMNAME (pid $PID)"
+    done &lt; &lt;(virsh list --name 2&gt;/dev/null | grep -v '^$')
+fi
+for CGFILE in /sys/fs/cgroup/docker/*/cgroup.procs; do
+    [ -f "$CGFILE" ] || continue
+    while read -r PID; do
+        [ -z "$PID" ] &amp;&amp; continue
+        echo 0 &gt; "/proc/$PID/oom_score_adj" 2&gt;/dev/null || true
+    done &lt; "$CGFILE"
+done
+
+rm -rf "$PLUGIN_DIR"
+# $CONFIG_DIR (/boot/config/plugins/unraid-zram-card/) is preserved across
+# uninstall per Unraid convention: settings, custom algo choices, SSD-swap
+# config, and the persisted device.conf survive so a later reinstall picks
+# up where the user left off. To fully wipe, delete that dir manually.
+rm -rf "/tmp/$NAME"
+removepkg "$NAME" > /dev/null 2>&amp;1
+if [ -f /usr/local/sbin/update_plugin_cache ]; then
+    /usr/local/sbin/update_plugin_cache
+fi
+echo "Uninstall of $NAME complete."
+exit 0
+</INLINE>
+</FILE>
+
+</PLUGIN>
