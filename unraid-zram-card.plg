@@ -8,7 +8,7 @@
 - Fix: Memory Protection now actually protects background services and containers, not just VMs — a hook it depends on could silently fail to install correctly in some setups, meaning protection wasn't applied. Protected containers and background services can now also have their memory reserved from reclaim, previously only available for VMs.
 - Fix: a rare cause of the array getting stuck on Stop when Tier 2 disk swap lived on a multi-drive btrfs or ZFS pool.
 - Feat: the Memory Protection table can now remove dead entries. A VM or container you'd protected that's since been deleted no longer sits in the list forever waiting for it to come back — a remove button clears it.
-- Feat: Tier 2 disk swap can now use a dedicated ZFS volume as overflow storage, for pools where a plain swap file isn't supported. A new "Allow ZFS Tier 2" setting turns this on, off by default, as there are ZFS caching implications you should understand first with swap on ZFS.
+- Feat: Tier 2 disk swap can now use a dedicated ZFS volume as overflow storage, for pools where a plain swap file isn't supported. A new "Allow ZFS Tier 2" setting turns this on, off by default, as there are ZFS caching implications you should understand first with swap on ZFS. The volume the plugin creates has ZFS's own RAM and SSD caching turned off automatically, since caching swap data works against the whole point of swap (freeing up RAM) and wastes cache-drive writes on data that's never worth re-reading.
 - Improve: fixed a couple of layout issues on narrow screens/phones on the Settings page.
 ## 2026.07.12.04
 - Rename: The plugin is now called ZRAM Compressed Memory in Apps, Installed Plugins, and Settings. Existing installations and saved settings are unchanged.

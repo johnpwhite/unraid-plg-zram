@@ -339,6 +339,18 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
             exit;
         }
 
+        // ARC caching swap data is self-defeating — swap exists to relieve RAM
+        // pressure, so letting ZFS cache those same pages back into RAM (ARC)
+        // just moves the pressure into ZFS's own cache instead of resolving
+        // it. L2ARC caching is equally pointless for swap's high-churn,
+        // effectively-random write pattern (no benefit, just device wear).
+        // Non-fatal if it fails (a permission/version quirk shouldn't block a
+        // working swap device) but always logged so a failure isn't silent.
+        // See docs/specs/TIER2_ZVOL_SWAP.md.
+        if (zram_run('zfs set primarycache=none secondarycache=none ' . escapeshellarg($zvolDataset), $logs) !== 0) {
+            zram_log("zvol $zvolDataset: could not disable ARC/L2ARC caching — swap will work but may compete with ZFS's own cache for RAM", 'WARN');
+        }
+
         // The /dev/zvol/... symlink is udev-created and can lag zfs create by
         // a beat; poll briefly rather than failing on the first check.
         $tries = 0;
