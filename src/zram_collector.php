@@ -545,13 +545,34 @@ function zram_collector_tick(array &$state, ?int $nowSec = null, ?float $nowMs =
     }
 }
 
+/**
+ * Loop gate. Always true in production. A test sets
+ * $GLOBALS['_zram_collector_ticks'] to a number; the gate then turns false once
+ * the loop has run that many ticks.
+ */
+function zram_collector_keep_running(): bool {
+    if (!isset($GLOBALS['_zram_collector_ticks'])) return true;
+    if ($GLOBALS['_zram_collector_ticks'] <= 0) return false;
+    $GLOBALS['_zram_collector_ticks']--;
+    return true;
+}
+
+/**
+ * The daemon: claim the PID file, then collect and sleep until stopped.
+ * $isAlive and $sleep are for tests; the daemon passes nothing. Returns when
+ * another collector is alive or the loop gate turns false.
+ */
+function zram_collector_main(?callable $isAlive = null, ?callable $sleep = null): void {
+    $state = zram_collector_start($isAlive);
+    if ($state === null) return;
+    $sleep = $sleep ?? 'sleep';
+    while (zram_collector_keep_running()) {
+        zram_collector_tick($state);
+        $sleep($state['interval']);
+    }
+}
+
 // PHPUnit loads the functions above without starting the infinite daemon loop.
 if (defined('ZRAM_COLLECTOR_LIBRARY_ONLY') && ZRAM_COLLECTOR_LIBRARY_ONLY) return;
 
-$zramCollectorState = zram_collector_start();
-if ($zramCollectorState === null) exit;
-
-while (true) {
-    zram_collector_tick($zramCollectorState);
-    sleep($zramCollectorState['interval']);
-}
+zram_collector_main();

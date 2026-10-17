@@ -164,6 +164,21 @@ function zram_set_exec(?callable $fn): void {
     $GLOBALS['_zram_exec_override'] = $fn;
 }
 
+/**
+ * Signal that stands in for exit() under PHPUnit. A test defines
+ * ZRAM_TEST_EXIT_THROWS; zram_exit() then throws this instead of ending the
+ * process. In production the constant is not defined and zram_exit() exits.
+ */
+final class ZramExitSignal extends RuntimeException {}
+
+/** End the request. The one place the web entry code calls exit. */
+function zram_exit(): void {
+    if (defined('ZRAM_TEST_EXIT_THROWS') && ZRAM_TEST_EXIT_THROWS) {
+        throw new ZramExitSignal();
+    }
+    exit;
+}
+
 /** Run a shell command, log it, return exit code. */
 function zram_run(string $cmd, array &$logs): int {
     zram_exec($cmd . " 2>&1", $out, $ret);

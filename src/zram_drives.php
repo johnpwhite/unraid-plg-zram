@@ -225,10 +225,20 @@ function zram_drives_handle(array $in, string $serverCsrf): array {
     return ['status' => 200, 'body' => ['drives' => $drives]];
 }
 
-if (!defined('ZRAM_DRIVES_LIBRARY_ONLY')) {
+/**
+ * Web entry: send the drive list as JSON. $get is the query array ($_GET).
+ *
+ * @param array<string,mixed> $get
+ */
+function zram_drives_main(array $get): void {
     header('Content-Type: application/json');
     $_var = @parse_ini_file(ZRAM_VAR_INI, false, INI_SCANNER_RAW) ?: [];
-    $_r = zram_drives_handle(['csrf_token' => filter_input(INPUT_GET, 'csrf_token', FILTER_UNSAFE_RAW) ?: ''], (string)($_var['csrf_token'] ?? ''));
+    $csrf = $get['csrf_token'] ?? '';
+    $_r = zram_drives_handle(['csrf_token' => is_string($csrf) && $csrf !== '0' ? $csrf : ''], (string)($_var['csrf_token'] ?? ''));
     http_response_code($_r['status']);
     echo json_encode($_r['body']);
+}
+
+if (!defined('ZRAM_DRIVES_LIBRARY_ONLY')) {
+    zram_drives_main($_GET);
 }

@@ -178,7 +178,12 @@ function zram_status_build(): array {
     ];
 }
 
-if (!defined('ZRAM_STATUS_LIBRARY_ONLY')) {
+/** Web entry: send the status as JSON. */
+function zram_status_main(): void {
     header('Content-Type: application/json');
     echo json_encode(zram_status_build());
+}
+
+if (!defined('ZRAM_STATUS_LIBRARY_ONLY')) {
+    zram_status_main();
 }

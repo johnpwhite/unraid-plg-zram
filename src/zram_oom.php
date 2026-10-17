@@ -865,15 +865,25 @@ function zram_oom_handle(string $action, array $in, string $serverCsrf): array {
     return ['status' => 200, 'body' => ['success' => false, 'message' => "Unknown action: $action"]];
 }
 
-if (!defined('ZRAM_OOM_LIBRARY_ONLY') && PHP_SAPI !== 'cli') {
+/**
+ * Web entry: send the OOM response as JSON. $get is the query array ($_GET).
+ *
+ * @param array<string,mixed> $get
+ */
+function zram_oom_main(array $get): void {
     header('Content-Type: application/json');
     $_var = @parse_ini_file(ZRAM_VAR_INI, false, INI_SCANNER_RAW) ?: [];
+    $action = $get['action'] ?? '';
     $_r   = zram_oom_handle(
-        filter_input(INPUT_GET, 'action', FILTER_UNSAFE_RAW) ?: '',
-        $_GET,
+        is_string($action) && $action !== '0' ? $action : '',
+        $get,
         (string)($_var['csrf_token'] ?? '')
     );
     http_response_code($_r['status']);
     echo json_encode($_r['body']);
-    exit;
+    zram_exit();
+}
+
+if (!defined('ZRAM_OOM_LIBRARY_ONLY') && PHP_SAPI !== 'cli') {
+    zram_oom_main($_GET);
 }

@@ -1034,10 +1034,15 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
     return $json(['success' => false, 'message' => "Unknown action: $action"]);
 }
 
-// Web entry point: read the real request and send the response.
-if (!defined('ZRAM_ACTIONS_LIBRARY_ONLY')) {
+/**
+ * Web entry: read the real request values and send the response. $get is the
+ * query array ($_GET). PHPUnit calls this with ZRAM_TEST_EXIT_THROWS defined.
+ *
+ * @param array<string,mixed> $get
+ */
+function zram_actions_main(array $get): void {
     $_var = @parse_ini_file(ZRAM_VAR_INI, false, INI_SCANNER_RAW) ?: [];
-    $_r = zram_actions_handle(zram_actions_request_string($_GET['action'] ?? ''), $_GET, zram_actions_request_string($_var['csrf_token'] ?? ''));
+    $_r = zram_actions_handle(zram_actions_request_string($get['action'] ?? ''), $get, zram_actions_request_string($_var['csrf_token'] ?? ''));
     http_response_code($_r['status']);
     if ($_r['type'] === 'text') {
         header('Content-Type: text/plain; charset=utf-8');
@@ -1051,5 +1056,9 @@ if (!defined('ZRAM_ACTIONS_LIBRARY_ONLY')) {
         header('Content-Type: application/json');
         echo json_encode($_r['body']);
     }
-    exit;
+    zram_exit();
+}
+
+if (!defined('ZRAM_ACTIONS_LIBRARY_ONLY')) {
+    zram_actions_main($_GET);
 }
