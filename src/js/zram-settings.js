@@ -119,15 +119,15 @@ function loadDrives() {
             var rowCls = 'zram-drive-row' + (d.clickable === false ? ' zram-drive-row-blocked' : '');
             var clickAttr = d.clickable === false
                 ? ''
-                : ' onclick="selectDrive(this,\'' + d.mount.replace(/'/g, "\\'") + '\',\'' + (d.backing || 'file') + '\')"';
+                : ' onclick="' + escHtml('selectDrive(this,\'' + String(d.mount).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\',\'' + (d.backing || 'file') + '\')') + '"';
             var warnColor = d.classify === 'blocked' ? '#cc3333' : '#ff8c00';
 
             html += '<div class="' + rowCls + '"' + clickAttr + '>';
             html += '<div class="indicator ' + cls + '"></div>';
             html += '<div style="flex:1;">';
-            html += '<div style="font-weight:bold;font-size:0.9em;">' + d.mount + badge + '</div>';
-            html += '<div style="font-size:0.8em;opacity:0.6;">' + d.model + ' &middot; ' + d.transport.toUpperCase() + ' &middot; ' + free + ' free</div>';
-            if (d.warning) html += '<div style="font-size:0.8em;color:' + warnColor + ';margin-top:2px;">' + d.warning + '</div>';
+            html += '<div style="font-weight:bold;font-size:0.9em;">' + escHtml(d.mount) + badge + '</div>';
+            html += '<div style="font-size:0.8em;opacity:0.6;">' + escHtml(d.model) + ' &middot; ' + escHtml(String(d.transport || '').toUpperCase()) + ' &middot; ' + free + ' free</div>';
+            if (d.warning) html += '<div style="font-size:0.8em;color:' + warnColor + ';margin-top:2px;">' + escHtml(d.warning) + '</div>';
             html += '</div></div>';
         });
         list.innerHTML = html;
@@ -154,13 +154,14 @@ function createDiskSwap() {
 }
 
 function formatDriveSize(bytes) {
-    if (bytes <= 0) return '0 B';
+    bytes = Number(bytes);
+    if (!(bytes >= 1)) return '0 B';
     var u = ['B','KB','MB','GB','TB'];
-    var i = Math.floor(Math.log(bytes) / Math.log(1024));
+    var i = Math.min(u.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
     return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + u[i];
 }
 
-function switchTab(tab) {
+function switchTab() {
     // Legacy tab function — no-op since the unified activity feed replaced the tabs.
     // Retained so anyone calling it from a stale tab does not throw.
 }
@@ -270,12 +271,6 @@ function bootstrapActivity() {
         c.addEventListener('click', function() { setActivityFilter(c.dataset.filter); });
     });
     fetchActivity();
-}
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bootstrapActivity);
-} else {
-    bootstrapActivity();
 }
 
 // --- Per-tier priority overrides (Advanced details panel) ---------------------
@@ -422,11 +417,16 @@ function resetPriorities() {
     var params = 'action=update_priorities&zram=100&ssd=10&csrf_token=' + encodeURIComponent(CSRF);
     $.get(API + '?' + params, function(data) {
         if (data && data.success) {
+            // New baseline for the next SAVE diff (see savePriorities).
+            if (z) z.defaultValue = '100';
+            if (s) s.defaultValue = '10';
             addLog('Priorities reset to defaults (100 / 10)', 'cmd');
             fetchActivity();
         } else {
             addLog('Reset failed: ' + ((data && data.message) || 'unknown'), 'err');
         }
+    }).fail(function(xhr) {
+        addLog('Reset failed (HTTP ' + xhr.status + ')', 'err');
     });
 }
 
@@ -467,12 +467,6 @@ function bootstrapPriorityOverride() {
             }
         });
     });
-}
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bootstrapPriorityOverride);
-} else {
-    bootstrapPriorityOverride();
 }
 
 // --- Auto-save: every form field with data-autosave="true" persists on blur
@@ -637,19 +631,6 @@ function showSavedIndicator(el, text, kind) {
     setTimeout(function() { span.classList.add('fade'); }, holdMs);
     setTimeout(function() { if (span.parentNode) span.parentNode.removeChild(span); }, totalMs);
 }
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bootstrapAutoSave);
-} else {
-    bootstrapAutoSave();
-}
-
-// The activity feed itself loads via bootstrapActivity() / fetchActivity()
-// (unified log — see docs/specs/UNIFIED_ACTIVITY_LOG.md); this only needs
-// to kick off the drive list.
-$(function() {
-    loadDrives();
-});
 
 // ─── OOM Protection Card ──────────────────────────────────────────────────
 
@@ -831,7 +812,12 @@ function loadOomItems() {
     var CSRF   = window.ZRAM_PAGE.CSRF;
     var OOM_API = (window.ZRAM_OOM_CONFIG || {}).OOM_API || '/plugins/unraid-zram-card/zram_oom.php';
     $.get(OOM_API + '?action=list_items&csrf_token=' + encodeURIComponent(CSRF), function(data) {
-        if (!data.items) return;
+        if (!data || !data.items) {
+            // The server answered but sent no list: show why, not an endless "Loading".
+            var tbe = document.getElementById('zram-oom-tbody');
+            if (tbe) tbe.innerHTML = '<tr><td colspan="5" style="color:#cc3333;padding:12px 8px;">Failed to load items — ' + escHtml((data && data.message) || 'unexpected answer from the server') + '</td></tr>';
+            return;
+        }
         _oomItems = data.items;
         // Run reconcile once on bootstrap — if it changed something, save + re-render;
         // otherwise just render (no save on every page load for no-op reconcile).
@@ -858,7 +844,7 @@ function buildRow(item) {
     // deleted) keep their configured level forever waiting for an item that
     // may never come back — offer a way to drop the dead entry entirely.
     var removeBtn = item.present ? '' :
-        ' <button type="button" class="zram-oom-remove-btn" title="Remove this entry — it no longer exists" onclick="removeOomItem(' + JSON.stringify(item.id) + ')"><i class="fa fa-times"></i></button>';
+        ' <button type="button" class="zram-oom-remove-btn" title="Remove this entry — it no longer exists" onclick="removeOomItem(' + escHtml(JSON.stringify(item.id)) + ')"><i class="fa fa-times"></i></button>';
     return '<tr class="zram-oom-row' + absentClass + '" data-item-id="' + escHtml(item.id) + '">'
         + '<td style="padding:5px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escHtml(item.name) + '">' + escHtml(item.name) + '</td>'
         + '<td style="padding:5px 8px;"><span class="zram-oom-badge ' + badgeClass + '">' + escHtml(item.type) + '</span></td>'
@@ -1169,8 +1155,11 @@ function maybeWarnOomRisk(selectedLevel) {
     // Show a one-time swal explaining the over-protection risk
     // when the user first picks a protective level (protected or high).
     if (selectedLevel !== 'protected' && selectedLevel !== 'high') return;
-    if (localStorage.getItem('zram_oom_protect_warned')) return;
-    localStorage.setItem('zram_oom_protect_warned', '1');
+    // Blocked site storage (private window) must not stop the level change that follows.
+    try {
+        if (localStorage.getItem('zram_oom_protect_warned')) return;
+        localStorage.setItem('zram_oom_protect_warned', '1');
+    } catch (e) { /* warn again next time */ }
     if (typeof swal !== 'function') return;
     swal({
         title: 'Too much protected?',
@@ -1312,7 +1301,6 @@ var _svcSuggestedForReconcile = [];
     var _svcVisible    = [];   // items visible in dropdown (for keyboard nav)
     var _svcDdIdx      = -1;
     var _svcCloseTimer = null;
-    var _svcLoaded     = false;
 
     function _fmtMem(bytes) {
         if (!bytes) return '';
@@ -1321,35 +1309,12 @@ var _svcSuggestedForReconcile = [];
         return Math.round(mb) + ' MB';
     }
 
-    // Sync ONLY what's committed (already in _oomItems as proc items) into the
-    // hidden input. Called by _commitStagingChips after committing, and on
-    // _removeChip when a proc item is removed from the table directly via the
-    // table (future path). The hidden input is the persistence source for
-    // applyOomLevels(); the staging chips do NOT write to it until committed.
-    function _syncHiddenFromItems() {
-        var h = document.getElementById('zram-oom-proc-patterns');
-        if (!h) return;
-        // Collect all proc: ids from _oomItems
-        var names = [];
-        _oomItems.forEach(function(item) {
-            if (item.type === 'proc' && item.name) names.push(item.name);
-        });
-        // Also include any names already in the hidden input that aren't in
-        // _oomItems (safety: e.g. offline patterns that weren't discovered)
-        var existing = h.value ? h.value.split(',') : [];
-        existing.forEach(function(n) {
-            n = n.trim();
-            if (n && names.indexOf(n) === -1) names.push(n);
-        });
-        h.value = names.join(',');
-    }
-
     function _chipHtml(name, memBytes, critical) {
         var memBadge = memBytes ? '<span class="zram-svc-chip-mem">' + _fmtMem(memBytes) + '</span>' : '';
         var crit     = critical ? '<span class="zram-svc-dd-crit" title="Critical service">⚡</span>' : '';
-        return '<span class="zram-svc-chip' + (critical ? ' zram-svc-chip-crit' : '') + '" data-svc-name="' + name + '">'
-            + crit + '<span>' + name + '</span>' + memBadge
-            + '<button type="button" class="zram-svc-chip-x" data-svc-remove="' + name + '" title="Remove">×</button>'
+        return '<span class="zram-svc-chip' + (critical ? ' zram-svc-chip-crit' : '') + '" data-svc-name="' + escHtml(name) + '">'
+            + crit + '<span>' + escHtml(name) + '</span>' + memBadge
+            + '<button type="button" class="zram-svc-chip-x" data-svc-remove="' + escHtml(name) + '" title="Remove">×</button>'
             + '</span>';
     }
 
@@ -1404,8 +1369,8 @@ var _svcSuggestedForReconcile = [];
         if (suggested.length === 0 && other.length === 0) {
             // Free-text entry hint
             if (q !== '') {
-                html += '<div class="zram-svc-dd-item" data-svc-freetext="' + q + '">'
-                    + '<span class="zram-svc-dd-name">' + q + '</span>'
+                html += '<div class="zram-svc-dd-item" data-svc-freetext="' + escHtml(q) + '">'
+                    + '<span class="zram-svc-dd-name">' + escHtml(q) + '</span>'
                     + '<span class="zram-svc-dd-desc">Add custom pattern</span>'
                     + '</div>';
             } else {
@@ -1429,10 +1394,10 @@ var _svcSuggestedForReconcile = [];
 
     function _ddItemHtml(p, isSuggested) {
         var crit = (isSuggested && p.critical) ? '<span class="zram-svc-dd-crit" title="Critical">⚡</span>' : '';
-        var desc = isSuggested && p.desc ? '<span class="zram-svc-dd-desc">' + p.desc + '</span>' : '';
+        var desc = isSuggested && p.desc ? '<span class="zram-svc-dd-desc">' + escHtml(p.desc) + '</span>' : '';
         var mem  = p.mem_bytes ? '<span class="zram-svc-dd-mem">' + _fmtMem(p.mem_bytes) + '</span>' : (p.running === false ? '<span class="zram-svc-dd-mem" style="opacity:0.35">offline</span>' : '');
-        return '<div class="zram-svc-dd-item" data-svc-name="' + p.name + '">'
-            + '<span class="zram-svc-dd-name">' + p.name + '</span>' + crit + desc + mem
+        return '<div class="zram-svc-dd-item" data-svc-name="' + escHtml(p.name) + '">'
+            + '<span class="zram-svc-dd-name">' + escHtml(p.name) + '</span>' + crit + desc + mem
             + '</div>';
     }
 
@@ -1650,7 +1615,6 @@ var _svcSuggestedForReconcile = [];
             if (!data || !data.success) return;
             _svcSuggested = data.suggested || [];
             _svcOther     = data.other     || [];
-            _svcLoaded    = true;
             // Expose suggested list to module scope so reconcileOomDeps() can use
             // live mem/state when auto-adding manager rows.
             _svcSuggestedForReconcile = _svcSuggested;
@@ -1684,4 +1648,60 @@ function bootstrapOomCard() {
     });
 }
 
-document.addEventListener('DOMContentLoaded', bootstrapOomCard);
+// Page start-up. The page script tag sits above the markup, so each part waits
+// for the DOM when it is still loading. Same order as before this was one function.
+function zramRunWhenReady(fn) {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', fn);
+    } else {
+        fn();
+    }
+}
+
+function zramStartup() {
+    zramRunWhenReady(bootstrapActivity);
+    zramRunWhenReady(bootstrapPriorityOverride);
+    zramRunWhenReady(bootstrapAutoSave);
+    // The activity feed itself loads via bootstrapActivity() / fetchActivity()
+    // (unified log — see docs/specs/UNIFIED_ACTIVITY_LOG.md); this only needs
+    // to kick off the drive list.
+    $(function() {
+        loadDrives();
+    });
+    document.addEventListener('DOMContentLoaded', bootstrapOomCard);
+}
+
+// Test hook (no effect in a browser, where `module` is undefined): a test
+// requires this file without starting the page, then calls zramStartup() itself.
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        toggleSizeMode, updateAutoSize, syncFormValues, buildCreateZramParams, createZram,
+        ZRAM_ACTION_LABELS, zramAction, loadDrives, selectDrive, createDiskSwap, formatDriveSize,
+        switchTab, ACTIVITY_FILTERS, fetchActivity, clearActivity, setActivityFilter,
+        applyActivityFilter, buildActivityRow, addLog, bootstrapActivity,
+        unlockPriorityInputs, lockPriorityInputs, savePriorities, resetPriorities,
+        bootstrapPriorityOverride, saveZramSize, bootstrapAutoSave, setSettingsLocked,
+        zramSaveBegin, zramSaveEnd, zramAutoSave, showSavedOnButton, showSavedIndicator,
+        OOM_LEVEL_SCORES, OOM_LEVEL_LABELS, OOM_DEPS, reconcileOomDeps, fmtOomMem,
+        fmtOomMemWithKind, loadOomItems, buildRow, removeOomItem, renderOomTable,
+        updateOomAutoNote, toggleOomDefaults, oomSortItems, oomFilterItems, oomSortBy,
+        oomSearchInput, updateOomSortHeaders, buildLevelSelect, oomLevelChanged, escHtml,
+        collectOomLevels, serializeOomLevels, oomGuardCheck, maybeWarnOomRisk, autoSaveOom,
+        scheduleOomSave, applyOomLevels, resetOomLevels, applyOomPreset, bootstrapOomCard,
+        zramStartup, zramRunWhenReady,
+        // Module state, read and written by tests.
+        state: {
+            get oomItems() { return _oomItems; }, set oomItems(v) { _oomItems = v; },
+            get oomAutoDeps() { return _oomAutoDeps; }, set oomAutoDeps(v) { _oomAutoDeps = v; },
+            get sortCol() { return _oomSortCol; }, set sortCol(v) { _oomSortCol = v; },
+            get sortDir() { return _oomSortDir; }, set sortDir(v) { _oomSortDir = v; },
+            get defaultsOpen() { return _oomDefaultsOpen; }, set defaultsOpen(v) { _oomDefaultsOpen = v; },
+            get searchQuery() { return _oomSearchQuery; }, set searchQuery(v) { _oomSearchQuery = v; },
+            get saveLocks() { return _zramSaveLocks; }, set saveLocks(v) { _zramSaveLocks = v; },
+            get activityFilter() { return activityCurrentFilter; }, set activityFilter(v) { activityCurrentFilter = v; },
+            get saveTimer() { return _oomSaveTimer; }
+        }
+    };
+} else {
+    zramStartup();
+}

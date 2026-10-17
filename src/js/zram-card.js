@@ -5,7 +5,7 @@ function formatBytes(bytes, dec = 2) {
     if (isNaN(bytes) || bytes <= 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let i = Math.max(0, Math.floor(Math.log(bytes) / Math.log(k)));
+    let i = Math.min(sizes.length - 1, Math.max(0, Math.floor(Math.log(bytes) / Math.log(k))));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dec)) + ' ' + sizes[i];
 }
 
@@ -18,7 +18,7 @@ function formatBytesRound(bytes, step = 5) {
     if (isNaN(bytes) || bytes <= 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let i = Math.max(0, Math.floor(Math.log(bytes) / Math.log(k)));
+    let i = Math.min(sizes.length - 1, Math.max(0, Math.floor(Math.log(bytes) / Math.log(k))));
     let scaled = bytes / Math.pow(k, i);
     while (scaled < step && i > 0) {
         i--;
@@ -61,16 +61,11 @@ function updateTierRow(row, t) {
     if (used) used.textContent = ((Number(t.used) || 0) / 1073741824).toFixed(2) + ' GB';
 }
 
-// Node.js export for Vitest — no-op in the browser (module is undefined there).
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { formatBytes, formatBytesRound, filterHistory, updateTierRow };
-}
-
-(function () {
+const zramCardApi = (function () {
     // Bail early in non-dashboard contexts (tests, other Unraid pages) so we
     // don't start polling timers that have nothing to render.
     if (typeof document === 'undefined' || !document.getElementById('zramChart')) {
-        return;
+        return null;
     }
     let chartInstance = null;
     const historyLimit = 300;
@@ -325,9 +320,31 @@ if (typeof module !== 'undefined' && module.exports) {
         }
     }
 
-    if (document.readyState === 'complete') updateStats();
-    else window.addEventListener('load', updateStats);
+    function start() {
+        if (document.readyState === 'complete') updateStats();
+        else window.addEventListener('load', updateStats);
 
-    const config = window.ZRAM_CONFIG || { pollInterval: 3000 };
-    setInterval(updateStats, config.pollInterval);
+        const config = window.ZRAM_CONFIG || { pollInterval: 3000 };
+        setInterval(updateStats, config.pollInterval);
+    }
+
+    // Test hook: put the poller back to its first-load state.
+    function resetState() {
+        chartInstance = null;
+        historyLoaded = false;
+        lastTotalTicks = null;
+        lastTime = null;
+        Object.keys(historyData).forEach(function (k) { historyData[k].length = 0; });
+    }
+
+    // A test requires this file (module.exports exists) and starts the poller
+    // itself; in a browser nothing is exported and the poller starts at once.
+    if (!(typeof module !== 'undefined' && module.exports)) start();
+
+    return { start, updateStats, initChart, externalTooltip, resetState, historyData, getChart: function () { return chartInstance; } };
 })();
+
+// Node.js export for Vitest — no-op in the browser (module is undefined there).
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = Object.assign({ formatBytes, formatBytesRound, filterHistory, updateTierRow }, zramCardApi || {});
+}
