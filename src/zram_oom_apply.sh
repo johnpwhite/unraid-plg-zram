@@ -376,7 +376,8 @@ PATTERNS="mover${TAB}unraid_mover
 shfs${TAB}shfs
 btrfs${TAB}btrfs"
 if [ -n "$OOM_PROC_PATTERNS" ]; then
-    OLDIFS="$IFS"; IFS=','
+    # set -f: a pattern such as php* must not expand to file names in the cwd.
+    OLDIFS="$IFS"; IFS=','; set -f
     for PAT in $OOM_PROC_PATTERNS; do
         # trim leading and trailing blanks (the settings page trims them too)
         PAT="${PAT#"${PAT%%[![:space:]]*}"}"
@@ -385,7 +386,7 @@ if [ -n "$OOM_PROC_PATTERNS" ]; then
         PATTERNS="$PATTERNS
 $PAT${TAB}$PAT"
     done
-    IFS="$OLDIFS"
+    IFS="$OLDIFS"; set +f
 fi
 while IFS="$TAB" read -r LABEL PATTERN <&3; do
     [ -n "$PATTERN" ] || continue

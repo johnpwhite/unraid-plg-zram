@@ -159,6 +159,25 @@ SWAPON=$(command -v swapon || echo "/sbin/swapon")
 # /sys/class/zram-control/hot_add (always uninitialised) and write
 # comp_algorithm then disksize directly through sysfs. Prints the /dev path on
 # success; on failure prints the last error text and returns non-zero.
+# release_zram_device DEV — give a new, unused zram device back to the kernel.
+# hot_remove when zram-control exists (the matching call for hot_add), else
+# zramctl --reset. Never writes the device file.
+release_zram_device() {
+    local dev="$1" name id
+    name=$(basename "$dev")
+    id="${name#zram}"
+    rm -f "$DEVICE_FILE"
+    case "$id" in (''|*[!0-9]*) id="" ;; esac
+    if [ -n "$id" ] && [ -e "$ZRAM_CONTROL/hot_remove" ] \
+       && echo "$id" > "$ZRAM_CONTROL/hot_remove" 2>/dev/null; then
+        zlog "Released $dev (hot_remove)" "INFO"
+    elif $ZRAMCTL --reset "$dev" > /dev/null 2>&1; then
+        zlog "Released $dev (zramctl --reset)" "INFO"
+    else
+        zlog "Could not release $dev" "WARN"
+    fi
+}
+
 create_zram_device() {
     local size="$1" algo="$2" id dev i
 
@@ -241,14 +260,19 @@ else
     if DEV=$(create_zram_device "$ZRAM_SIZE" "$ZRAM_ALGO") && [ -n "$DEV" ] && is_blk "$DEV"; then
         zlog "Allocated $DEV, formatting with label $ZRAM_LABEL" "INFO"
         # A failed mkswap or swapon must not be logged as "Tier 1 active".
+        # On failure the new device is released and not cached: a cached device
+        # with no label would show on the dashboard as swap, and the next CREATE
+        # would allocate a second device.
         if ! $MKSWAP -L "$ZRAM_LABEL" "$DEV" > /dev/null 2>&1; then
             zlog "mkswap failed on $DEV — Tier 1 is not active" "ERROR"
+            release_zram_device "$DEV"
         elif ! $SWAPON "$DEV" -p "$ZRAM_PRIO"; then
             zlog "swapon failed on $DEV — Tier 1 is not active" "ERROR"
+            release_zram_device "$DEV"
         else
             zlog "Tier 1 active: $DEV" "INFO"
+            basename "$DEV" > "$DEVICE_FILE"
         fi
-        basename "$DEV" > "$DEVICE_FILE"
     else
         zlog "Failed to create ZRAM device: $DEV" "ERROR"
     fi
@@ -411,7 +435,7 @@ if [ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ]; then
                     zlog "Disk swap is present but could not be turned on after $RETRY_ROUNDS tries — Tier 2 stays inactive. Check the disk swap file or device." "ERROR"
                     exit 1
                 fi
-                zlog "Disk swap mount ($SSD_MOUNT) never appeared after 5 minutes — Tier 2 stays inactive. Check that the mount comes up on boot." "WARN"
+                zlog "Disk swap mount ($SSD_MOUNT) never appeared after $((RETRY_ROUNDS * RETRY_SLEEP))s — Tier 2 stays inactive. Check that the mount comes up on boot." "WARN"
             ) > /dev/null 2>&1 &
             disown
         fi

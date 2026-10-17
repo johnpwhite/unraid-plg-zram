@@ -13,7 +13,10 @@ log_step "Extracting source tarball"
 # Stop here when the tarball is missing or bad. Before this check, a failed
 # extract fell through to rm -rf of the working install and then a cp that
 # copied nothing, and the log still said "Files installed".
-if ! (cd "${TMP_DIR}" && tar -xzf aicli-src.tar.gz) || [ ! -d "${TMP_DIR}/src" ]; then
+# Remove a stale tree first: tar overlays into it, so a truncated tarball
+# would pass a directory check. Then check for a file the tarball must hold.
+rm -rf "${TMP_DIR}/src"
+if ! (cd "${TMP_DIR}" && tar -xzf aicli-src.tar.gz) || [ ! -f "${TMP_DIR}/src/zram_init.sh" ]; then
     log_fail "Could not extract ${TMP_DIR}/aicli-src.tar.gz — existing install was not changed"
     exit 1
 fi

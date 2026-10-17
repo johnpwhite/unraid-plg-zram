@@ -267,6 +267,18 @@ function zram_collector_claim_pid(?callable $isAlive = null, ?int $myPid = null)
 }
 
 /**
+ * Start-up order: claim the PID file first, then build the state. A second
+ * collector must exit before it reads the settings or the history. Returns the
+ * state, or null when another collector is alive.
+ *
+ * @return array<string,mixed>|null
+ */
+function zram_collector_start(?callable $isAlive = null, ?int $myPid = null): ?array {
+    if (!zram_collector_claim_pid($isAlive, $myPid)) return null;
+    return zram_collector_state_init();
+}
+
+/**
  * One collection tick: refresh settings now and then, resolve the device,
  * run zramctl, sample Tier 2, append to the history file and write the poll
  * log line. All loop state lives in $state. $nowSec and $nowMs (epoch seconds
@@ -536,8 +548,8 @@ function zram_collector_tick(array &$state, ?int $nowSec = null, ?float $nowMs =
 // PHPUnit loads the functions above without starting the infinite daemon loop.
 if (defined('ZRAM_COLLECTOR_LIBRARY_ONLY') && ZRAM_COLLECTOR_LIBRARY_ONLY) return;
 
-$zramCollectorState = zram_collector_state_init();
-if (!zram_collector_claim_pid()) exit;
+$zramCollectorState = zram_collector_start();
+if ($zramCollectorState === null) exit;
 
 while (true) {
     zram_collector_tick($zramCollectorState);

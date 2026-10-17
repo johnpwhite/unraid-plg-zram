@@ -32,7 +32,7 @@ function zram_actions_loop_for(string $image): string {
     $out = [];
     zram_exec("losetup -j " . escapeshellarg($image) . " 2>/dev/null", $out);
     foreach ($out as $line) {
-        if (preg_match('#^(/dev/loop\d+):#', $line, $m)) return $m[1];
+        if (preg_match('#^(' . preg_quote(ZRAM_DEV_DIR, '#') . '/loop\d+):#', $line, $m)) return $m[1];
     }
     return '';
 }
@@ -46,11 +46,16 @@ function zram_actions_zfs_dataset(string $mount): string {
     return '';
 }
 
+/** A request value as a string. '' when it is missing or not a string (for example ?action[]=x). */
+function zram_actions_request_string($v): string {
+    return is_string($v) ? $v : '';
+}
+
 /**
  * Run one action.
  *
  * @param array<string,mixed> $in  the request values (the query string)
- * @return array{status:int,type:string,body:mixed}
+ * @return array{status:int,type:string,body:mixed} type 'file' means body is the path of a text file for the web entry to send
  */
 function zram_actions_handle(string $action, array $in, string $serverCsrf): array {
     // Read one request value as a string (null when missing or not a string).
@@ -80,7 +85,7 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
     if ($action === 'view_log') {
         if (!$_csrfOk) return $text("Missing CSRF token\n", 403);
         if (file_exists(ZRAM_DEBUG_LOG) && is_readable(ZRAM_DEBUG_LOG)) {
-            return $text((string)@file_get_contents(ZRAM_DEBUG_LOG));
+            return ['status' => 200, 'type' => 'file', 'body' => ZRAM_DEBUG_LOG];
         }
         return $text("Debug log not found or not readable.\n");
     }
@@ -172,7 +177,7 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
         // Check if we already have a device
         $existing = zram_get_our_device();
         if ($existing) {
-            return $json(['success' => false, 'message' => "ZRAM device already active: /dev/$existing", 'logs' => $logs]);
+            return $json(['success' => false, 'message' => "ZRAM device already active: " . ZRAM_DEV_DIR . "/$existing", 'logs' => $logs]);
         }
 
         zram_run('modprobe zram', $logs);
@@ -187,7 +192,7 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
         $dev = trim(end($find_out));
         // Only a real zram device node is accepted. Other text (a warning with
         // exit code 0, for example) must not reach mkswap.
-        if (!preg_match('#^/dev/zram\d+$#', $dev)) {
+        if (!preg_match('#^' . preg_quote(ZRAM_DEV_DIR, '#') . '/zram\d+$#', $dev)) {
             return $json(['success' => false, 'message' => 'Failed to allocate ZRAM device', 'logs' => $logs]);
         }
         $devName = basename($dev);
@@ -227,7 +232,7 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
         if (empty($ourDev)) {
             return $json(['success' => false, 'message' => 'No ZRAM Card device found', 'logs' => $logs]);
         }
-        $devPath = "/dev/$ourDev";
+        $devPath = ZRAM_DEV_DIR . "/$ourDev";
 
         $safety = zram_evacuation_safe($devPath, $logs);
         if (!$safety['safe']) {
@@ -276,7 +281,7 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
         $mount = $str('mount') ?: '';
         // Spaces and line breaks are removed from the size ("16 G" -> "16G").
         // The raw text would be written to settings.ini.
-        $sizeStr = preg_replace('/\s+/', '', $str('size') ?: '16G');
+        $sizeStr = strtoupper(preg_replace('/\s+/', '', $str('size') ?: '16G'));
 
         // Restrict mount to paths returned by the drive discovery API: all are
         // under /mnt/ (never array disks, user shares, or system paths). Resolving
@@ -458,7 +463,7 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
             zram_exec("losetup -f --show " . escapeshellarg($swapFile) . " 2>&1", $losetupOut, $losetupRet);
             $loopDev = trim(end($losetupOut) ?: '');
             $logs[] = ['cmd' => "losetup -f --show $swapFile", 'output' => $loopDev, 'status' => $losetupRet];
-            if ($losetupRet !== 0 || !preg_match('#^/dev/loop\d+$#', $loopDev)) {
+            if ($losetupRet !== 0 || !preg_match('#^' . preg_quote(ZRAM_DEV_DIR, '#') . '/loop\d+$#', $loopDev)) {
                 @unlink($swapFile);
                 return $json(['success' => false, 'message' => 'losetup failed: ' . $loopDev, 'logs' => $logs]);
             }
@@ -663,6 +668,7 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
             // Resolve attached loop device for this image (idempotency guard)
             $loopDev = zram_actions_loop_for($swapFile);
 
+            $freshLoop = false;
             // Already active (loop attached + in /proc/swaps)?
             if ($loopDev !== '') {
                 $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
@@ -680,12 +686,15 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
                 zram_exec("losetup -f --show " . escapeshellarg($swapFile) . " 2>&1", $losetupOut, $losetupRet);
                 $loopDev = trim(end($losetupOut) ?: '');
                 $logs[] = ['cmd' => "losetup -f --show $swapFile", 'output' => $loopDev, 'status' => $losetupRet];
-                if ($losetupRet !== 0 || !preg_match('#^/dev/loop\d+$#', $loopDev)) {
+                if ($losetupRet !== 0 || !preg_match('#^' . preg_quote(ZRAM_DEV_DIR, '#') . '/loop\d+$#', $loopDev)) {
                     return $json(['success' => false, 'message' => 'losetup failed: ' . $loopDev, 'logs' => $logs]);
                 }
+                $freshLoop = true;
             }
 
             if (zram_run('swapon ' . escapeshellarg($loopDev) . ' -p ' . $prio, $logs) !== 0) {
+                // Detach a loop device this action attached. Keep one that was attached before.
+                if ($freshLoop) zram_exec('losetup -d ' . escapeshellarg($loopDev) . ' 2>/dev/null');
                 return $json(['success' => false, 'message' => 'swapon loop device failed', 'logs' => $logs]);
             }
 
@@ -841,7 +850,7 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
         // Best-effort live re-prioritisation for Tier 1 if the device is currently active
         $ourDev = zram_get_our_device();
         if ($ourDev && file_exists(ZRAM_SYS_BLOCK . "/$ourDev")) {
-            $devPath = "/dev/$ourDev";
+            $devPath = ZRAM_DEV_DIR . "/$ourDev";
             $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
             // Exact name match: /dev/zram1 must not match a /dev/zram10 line.
             if (zram_actions_in_swaps($swaps, $devPath)) {
@@ -1028,12 +1037,16 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
 // Web entry point: read the real request and send the response.
 if (!defined('ZRAM_ACTIONS_LIBRARY_ONLY')) {
     $_var = @parse_ini_file(ZRAM_VAR_INI, false, INI_SCANNER_RAW) ?: [];
-    $_r = zram_actions_handle((string)($_GET['action'] ?? ''), $_GET, (string)($_var['csrf_token'] ?? ''));
+    $_r = zram_actions_handle(zram_actions_request_string($_GET['action'] ?? ''), $_GET, zram_actions_request_string($_var['csrf_token'] ?? ''));
     http_response_code($_r['status']);
     if ($_r['type'] === 'text') {
         header('Content-Type: text/plain; charset=utf-8');
         if ($_r['status'] === 200) header('Cache-Control: no-cache');
         echo $_r['body'];
+    } elseif ($_r['type'] === 'file') {
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Cache-Control: no-cache');
+        readfile($_r['body']);
     } else {
         header('Content-Type: application/json');
         echo json_encode($_r['body']);
