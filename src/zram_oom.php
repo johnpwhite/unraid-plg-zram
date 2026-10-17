@@ -629,7 +629,7 @@ function zram_oom_handle(string $action, array $in, string $serverCsrf): array {
         // Persist the levels + defaults to config
         $saved = zram_config_write([
             'oom_protect_enabled' => 'yes',
-            'oom_levels'          => $levelsRaw,
+            'oom_levels'          => oom_serialize_levels($levels),   // parsed, so a dropped unsafe id is not saved
             'oom_default_level'   => $defaultLevel,
             'oom_oom_group'       => $oomGroup,
             'vm_memory_min'       => $vmMemoryMin,
@@ -884,6 +884,8 @@ function zram_oom_main(array $get): void {
     zram_exit();
 }
 
-if (!defined('ZRAM_OOM_LIBRARY_ONLY') && PHP_SAPI !== 'cli') {
+// The web server never runs the CLI SAPI, so a command line include stays inert.
+// ZRAM_OOM_RUN_IN_CLI=1 lets a test run the real script as a subprocess.
+if (!defined('ZRAM_OOM_LIBRARY_ONLY') && (PHP_SAPI !== 'cli' || getenv('ZRAM_OOM_RUN_IN_CLI') === '1')) {
     zram_oom_main($_GET);
 }

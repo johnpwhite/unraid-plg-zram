@@ -52,6 +52,71 @@ function zram_actions_request_string($v): string {
 }
 
 /**
+ * Validate and normalise the raw value of one auto-save setting.
+ * Returns ['value' => normalised] or ['error' => message]. The caller has
+ * already checked that $key is on the whitelist; a key with no case here is
+ * a code error and answers "Validation missing for key".
+ *
+ * @return array{value:string|int}|array{error:string}
+ */
+function zram_actions_validate_setting(string $key, string $raw): array {
+    $rawValue = $raw;
+    switch ($key) {
+        case 'enabled':
+        case 'debug':
+        case 'console_visible':
+        case 'ssd_swap_allow_zfs':
+            $value = ($rawValue === 'yes' || $rawValue === 'true' || $rawValue === '1' || $rawValue === 'on') ? 'yes' : 'no';
+            break;
+        case 'refresh_interval':
+            // Form sends seconds; storage in ms. Legacy raw ms (>= 100) accepted as-is.
+            $f = floatval($rawValue);
+            $ms = $f >= 100 ? intval($f) : intval(round($f * 1000));
+            $value = max(1000, $ms);
+            break;
+        case 'collection_interval':
+            $value = max(1, intval($rawValue));
+            break;
+        case 'swappiness':
+            $value = max(0, min(200, intval($rawValue)));
+            break;
+        case 'thp_mode':
+            if (!in_array($rawValue, zram_thp_modes(), true)) {
+                return ['error' => 'Invalid huge pages mode'];
+            }
+            $value = $rawValue;
+            break;
+        case 'thp_compaction':
+            if (!zram_thp_compaction_valid((string)$rawValue)) {
+                return ['error' => 'Invalid compaction value'];
+            }
+            // Store the kernel number ('off' -> '0', '07' -> '7'); 'system' stays.
+            $value = $rawValue === 'system' ? 'system' : (string)zram_thp_compaction_number((string)$rawValue);
+            break;
+        case 'zram_percent':
+            $value = max(25, min(75, intval($rawValue)));
+            break;
+        case 'zram_size':
+            if ($rawValue === 'auto' || preg_match('/^\d+\s*[GMT]$/i', $rawValue)) {
+                $value = $rawValue === 'auto' ? 'auto' : strtoupper(preg_replace('/\s+/', '', $rawValue));
+            } else {
+                return ['error' => 'Invalid size — use "auto" or e.g. 16G'];
+            }
+            break;
+        case 'zram_algo':
+            $algos = ['zstd', 'lz4', 'lzo', 'deflate'];
+            if (!in_array($rawValue, $algos, true)) {
+                return ['error' => 'Invalid algorithm'];
+            }
+            $value = $rawValue;
+            break;
+        default:
+            return ['error' => 'Validation missing for key'];
+    }
+    return ['value' => $value];
+}
+
+/**
  * Run one action.
  *
  * @param array<string,mixed> $in  the request values (the query string)
@@ -643,7 +708,8 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
             // the ZFS dataset does. Just resolve the stable symlink to the
             // /dev/zdN alias /proc/swaps reports.
             $zvolDev = realpath($swapFile) ?: '';
-            if ($zvolDev === '' || !file_exists($zvolDev)) {
+            if ($zvolDev === '' || !file_exists($zvolDev)
+                || !preg_match('#^' . preg_quote(ZRAM_DEV_DIR, '#') . '/zd\d+(p\d+)?$#', $zvolDev)) {
                 return $json(['success' => false, 'message' => 'zvol device not found for ' . $swapFile, 'logs' => $logs]);
             }
 
@@ -742,59 +808,11 @@ function zram_actions_handle(string $action, array $in, string $serverCsrf): arr
             return $json(['success' => false, 'message' => 'Invalid setting key', 'logs' => $logs]);
         }
 
-        // Per-key validation
-        switch ($key) {
-            case 'enabled':
-            case 'debug':
-            case 'console_visible':
-            case 'ssd_swap_allow_zfs':
-                $value = ($rawValue === 'yes' || $rawValue === 'true' || $rawValue === '1' || $rawValue === 'on') ? 'yes' : 'no';
-                break;
-            case 'refresh_interval':
-                // Form sends seconds; storage in ms. Legacy raw ms (>= 100) accepted as-is.
-                $f = floatval($rawValue);
-                $ms = $f >= 100 ? intval($f) : intval(round($f * 1000));
-                $value = max(1000, $ms);
-                break;
-            case 'collection_interval':
-                $value = max(1, intval($rawValue));
-                break;
-            case 'swappiness':
-                $value = max(0, min(200, intval($rawValue)));
-                break;
-            case 'thp_mode':
-                if (!in_array($rawValue, zram_thp_modes(), true)) {
-                    return $json(['success' => false, 'message' => 'Invalid huge pages mode', 'logs' => $logs]);
-                }
-                $value = $rawValue;
-                break;
-            case 'thp_compaction':
-                if (!zram_thp_compaction_valid((string)$rawValue)) {
-                    return $json(['success' => false, 'message' => 'Invalid compaction value', 'logs' => $logs]);
-                }
-                // Store the kernel number ('off' -> '0', '07' -> '7'); 'system' stays.
-                $value = $rawValue === 'system' ? 'system' : (string)zram_thp_compaction_number((string)$rawValue);
-                break;
-            case 'zram_percent':
-                $value = max(25, min(75, intval($rawValue)));
-                break;
-            case 'zram_size':
-                if ($rawValue === 'auto' || preg_match('/^\d+\s*[GMT]$/i', $rawValue)) {
-                    $value = $rawValue === 'auto' ? 'auto' : strtoupper(preg_replace('/\s+/', '', $rawValue));
-                } else {
-                    return $json(['success' => false, 'message' => 'Invalid size — use "auto" or e.g. 16G', 'logs' => $logs]);
-                }
-                break;
-            case 'zram_algo':
-                $algos = ['zstd', 'lz4', 'lzo', 'deflate'];
-                if (!in_array($rawValue, $algos, true)) {
-                    return $json(['success' => false, 'message' => 'Invalid algorithm', 'logs' => $logs]);
-                }
-                $value = $rawValue;
-                break;
-            default:
-                return $json(['success' => false, 'message' => 'Validation missing for key', 'logs' => $logs]);
+        $v = zram_actions_validate_setting($key, $rawValue);
+        if (isset($v['error'])) {
+            return $json(['success' => false, 'message' => $v['error'], 'logs' => $logs]);
         }
+        $value = $v['value'];
 
         zram_config_write([$key => $value]);
 

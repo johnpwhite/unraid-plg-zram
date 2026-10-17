@@ -546,12 +546,18 @@ function zram_collector_tick(array &$state, ?int $nowSec = null, ?float $nowMs =
 }
 
 /**
- * Loop gate. Always true in production. A test sets
+ * Loop gate. Always true in production (unless ZRAM_COLLECTOR_MAX_TICKS is set). A test sets
  * $GLOBALS['_zram_collector_ticks'] to a number; the gate then turns false once
  * the loop has run that many ticks.
  */
 function zram_collector_keep_running(): bool {
-    if (!isset($GLOBALS['_zram_collector_ticks'])) return true;
+    if (!isset($GLOBALS['_zram_collector_ticks'])) {
+        // ZRAM_COLLECTOR_MAX_TICKS lets a test run the real script for a set number of ticks.
+        // Production leaves it unset, so the daemon runs for ever.
+        $max = getenv('ZRAM_COLLECTOR_MAX_TICKS');
+        if ($max === false || !ctype_digit($max)) return true;
+        $GLOBALS['_zram_collector_ticks'] = (int)$max;
+    }
     if ($GLOBALS['_zram_collector_ticks'] <= 0) return false;
     $GLOBALS['_zram_collector_ticks']--;
     return true;
