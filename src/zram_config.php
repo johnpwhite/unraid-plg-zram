@@ -179,6 +179,19 @@ function zram_exit(): void {
     exit;
 }
 
+/**
+ * Production entry guard for each endpoint file and the collector.
+ * When the library-only constant is defined (PHPUnit), store the entry
+ * callable in $GLOBALS['_zram_entries'] so a test can run it. Otherwise run it.
+ */
+function zram_entry(string $libraryOnlyConst, callable $main): void {
+    if (defined($libraryOnlyConst)) {
+        $GLOBALS['_zram_entries'][$libraryOnlyConst] = $main;
+        return;
+    }
+    $main();
+}
+
 /** Run a shell command, log it, return exit code. */
 function zram_run(string $cmd, array &$logs): int {
     zram_exec($cmd . " 2>&1", $out, $ret);

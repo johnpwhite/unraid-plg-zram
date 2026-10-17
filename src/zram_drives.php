@@ -239,6 +239,4 @@ function zram_drives_main(array $get): void {
     echo json_encode($_r['body']);
 }
 
-if (!defined('ZRAM_DRIVES_LIBRARY_ONLY')) {
-    zram_drives_main($_GET);
-}
+zram_entry('ZRAM_DRIVES_LIBRARY_ONLY', function (): void { zram_drives_main($_GET); });

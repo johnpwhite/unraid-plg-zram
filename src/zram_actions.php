@@ -1077,6 +1077,4 @@ function zram_actions_main(array $get): void {
     zram_exit();
 }
 
-if (!defined('ZRAM_ACTIONS_LIBRARY_ONLY')) {
-    zram_actions_main($_GET);
-}
+zram_entry('ZRAM_ACTIONS_LIBRARY_ONLY', function (): void { zram_actions_main($_GET); });

@@ -184,6 +184,4 @@ function zram_status_main(): void {
     echo json_encode(zram_status_build());
 }
 
-if (!defined('ZRAM_STATUS_LIBRARY_ONLY')) {
-    zram_status_main();
-}
+zram_entry('ZRAM_STATUS_LIBRARY_ONLY', function (): void { zram_status_main(); });

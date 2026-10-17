@@ -579,6 +579,4 @@ function zram_collector_main(?callable $isAlive = null, ?callable $sleep = null)
 }
 
 // PHPUnit loads the functions above without starting the infinite daemon loop.
-if (defined('ZRAM_COLLECTOR_LIBRARY_ONLY') && ZRAM_COLLECTOR_LIBRARY_ONLY) return;
-
-zram_collector_main();
+zram_entry('ZRAM_COLLECTOR_LIBRARY_ONLY', function (): void { zram_collector_main(); });

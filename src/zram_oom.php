@@ -429,7 +429,8 @@ function zram_oom_handle(string $action, array $in, string $serverCsrf): array {
         // --- Over-protection guard ---
         // Discover ALL items (matching boot-script semantics) so the guard covers
         // unconfigured items that will receive the default level at reboot.
-        $discovered   = oom_discover_items();
+        // Test seam: a test sets $GLOBALS['_zram_oom_items_override'] to feed the apply loop.
+        $discovered   = $GLOBALS['_zram_oom_items_override'] ?? oom_discover_items();
         $allIds       = array_column($discovered, 'id');
         if (oom_is_overprotected($allIds, $levels, $defaultLevel)) {
             return ['status' => 200, 'body' => [
@@ -886,6 +887,8 @@ function zram_oom_main(array $get): void {
 
 // The web server never runs the CLI SAPI, so a command line include stays inert.
 // ZRAM_OOM_RUN_IN_CLI=1 lets a test run the real script as a subprocess.
-if (!defined('ZRAM_OOM_LIBRARY_ONLY') && (PHP_SAPI !== 'cli' || getenv('ZRAM_OOM_RUN_IN_CLI') === '1')) {
-    zram_oom_main($_GET);
-}
+zram_entry('ZRAM_OOM_LIBRARY_ONLY', function (): void {
+    if (PHP_SAPI !== 'cli' || getenv('ZRAM_OOM_RUN_IN_CLI') === '1') {
+        zram_oom_main($_GET);
+    }
+});
