@@ -1,0 +1,16 @@
+#!/bin/bash
+# Turns the Tier 2 disk swap on after each array start (Forgejo #30). emhttp
+# fires disks_mounted when the array and pool disks are mounted. This is the
+# only automatic turn-on apart from boot (zram_init.sh). The collector does not
+# re-activate the swap, so a manual swapoff, or an array stop that waits a long
+# time, is not undone. See docs/specs/TIER2_RECOVERY.md.
+#
+# Run in the background: the PHP waits up to 60 s for a zvol's /dev/zvol link,
+# and emhttp must not wait for it.
+
+PHP_LIB="/usr/local/emhttp/plugins/unraid-zram-card/zram_config.php"
+[ -f "$PHP_LIB" ] || exit 0
+
+nohup php -r 'require $argv[1]; zram_activate_disk_swap_at_array_start(60);' "$PHP_LIB" \
+    >/dev/null 2>&1 &
+exit 0

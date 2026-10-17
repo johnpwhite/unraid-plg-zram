@@ -1,0 +1,6 @@
+# Public .gitattributes, written by the storefront mirror (ci/scripts/storefront/public-files/).
+# The private repository has its own .gitattributes for line endings. That file is not published.
+# The built UI bundle is generated code. GitHub collapses it in diffs and leaves it out of language statistics.
+src/assets/ui/** linguist-generated=true -diff
+# The release tarball is a binary file. Never diff it.
+src.tar.gz binary linguist-generated=true
