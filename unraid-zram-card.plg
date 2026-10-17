@@ -1,8 +1,12 @@
 <?xml version='1.0' standalone='yes'?>
 
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.10.17.01" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.10.17.02" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.10.17.02
+- Improve: the Huge pages and Background memory compaction settings now show the real Linux values (always, madvise, never; 0 or 20) with a short meaning for each, and no Leave as is choice. Before you choose, each setting shows the value your server uses now, and nothing changes until you pick another.
+- Fix: on the dashboard, the Disk row now looks like the ZRAM row: it keeps its coloured dot and its blue colour, and the used amount shows in the Used column, which now updates on both rows. Before, the Disk row lost its dot, turned red and showed the amount in its name.
+- Fix: in the Memory Protection table, the remove button no longer runs past the edge of the table on narrow screens.
 ## 2026.10.17.01
 - Feat: new Huge pages and Background memory compaction settings. On a busy server the kernel can keep trying to build large 2 MB memory pages for every program, fail most of the time, and make programs wait for seconds. Choose Huge pages: Only when asked to stop those stalls; virtual machines still get large pages. The settings page shows how often those attempts fail on your server, so you can see if it helps. Both settings start as Leave as is, so nothing changes until you choose.
 - Improve: the Tier 2 disk swap now turns on by itself only at boot and when the array starts. Before, the plugin checked every few seconds and turned the disk swap back on, so you could not turn it off by hand, and during a slow array stop it could turn it on again and stop the array from finishing. If you turn the disk swap off yourself, it now stays off until you click ACTIVATE or the array starts again.
@@ -143,7 +147,7 @@
      only checks whether this target already exists — it skips re-fetching
      it if so — and that check applies to EVERY invocation, not just the
      silent boot-time reinstall that repopulates /usr/local/emhttp (tmpfs) on
-     every boot. Putting 2026.10.17.01 in the cached path means each version
+     every boot. Putting 2026.10.17.02 in the cached path means each version
      bump gets its own cache slot: a user-triggered update or reinstall onto
      a NEW version always downloads (that path has never existed on this
      flash before), while the silent boot-time reinstall of an
@@ -152,9 +156,9 @@
      Updates" and "reinstall" both silently kept the FIRST version's
      tarball forever (forum report, raphael_, 2026-08-31).
      See docs/specs/PLUGIN_CACHE_VERSION_REFRESH.md. -->
-<FILE Name="/boot/config/plugins/unraid-zram-card/src-2026.10.17.01.tar.gz">
+<FILE Name="/boot/config/plugins/unraid-zram-card/src-2026.10.17.02.tar.gz">
 <URL>https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/src.tar.gz</URL>
-<SHA256>c04aea2d7bc3e91d5e16c4e503576c4b98e2bba80c1355e05ef57aabedfe276a</SHA256>
+<SHA256>f3faab0a90f0e60961718f5910a9e2bc85b6c55090ea0e0df33d3ca18f96c7b3</SHA256>
 </FILE>
 
 <!-- 2. HYBRID INSTALLER SCRIPT -->
@@ -162,7 +166,7 @@
 <INLINE>
 #!/bin/bash
 NAME="unraid-zram-card"
-VERSION="2026.10.17.01"
+VERSION="2026.10.17.02"
 LOCAL_SRC="/boot/config/plugins/$NAME"
 EMHTTP_DEST="/usr/local/emhttp/plugins/$NAME"
 ARCHIVE="$LOCAL_SRC/src-$VERSION.tar.gz"

@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
         'collection_interval' => max(1, intval($_POST['collection_interval'] ?? 3)),
         'swappiness'          => max(0, min(200, intval($_POST['swappiness'] ?? 150))),
         'thp_mode'            => in_array($_POST['thp_mode'] ?? '', zram_thp_modes(), true) ? $_POST['thp_mode'] : 'system',
-        'thp_compaction'      => in_array($_POST['thp_compaction'] ?? '', zram_thp_compaction_modes(), true) ? $_POST['thp_compaction'] : 'system',
+        'thp_compaction'      => zram_thp_compaction_valid((string)($_POST['thp_compaction'] ?? '')) ? (string)$_POST['thp_compaction'] : 'system',
         'debug'               => ($_POST['debug'] ?? '') === 'yes' ? 'yes' : 'no',
         'console_visible'     => ($_POST['console_visible'] ?? 'yes') === 'yes' ? 'yes' : 'no',
         'zram_size'           => $_POST['zram_size'] ?: 'auto',
@@ -272,6 +272,10 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
 .zram-oom-mem-muted { font-style:italic;opacity:0.6; }
 .zram-oom-remove-btn { background:transparent; border:1px solid rgba(204,51,51,0.4); color:#cc3333; border-radius:3px; width:24px; height:24px; line-height:1; cursor:pointer; opacity:0.6; margin-left:4px; vertical-align:middle; }
 .zram-oom-remove-btn:hover { opacity:1; background:rgba(204,51,51,0.1); }
+/* Protection cell: the level select shrinks so select + remove button never overflow the column. */
+.zram-oom-level-cell { display:flex; align-items:center; min-width:0; }
+.zram-oom-level-cell .zram-oom-level-select { flex:1 1 auto; min-width:0; max-width:100%; }
+.zram-oom-level-cell .zram-oom-remove-btn { flex:0 0 24px; }
 /* Service picker chip widget */
 .zram-svc-picker { position: relative; display: inline-block; min-width: 280px; max-width: 480px; width: 100%; }
 /* Chips live in their OWN box BELOW the filter input, so adding chips never shrinks the input. Hidden until something is staged. */
@@ -462,23 +466,30 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
             </dd>
             <dt class="zram-row-top">Huge pages:</dt>
             <dd class="zram-row-top">
+<?php
+// The options are the kernel values themselves. With no saved choice yet
+// ('system'), the select shows what the kernel uses now and the plugin
+// changes nothing until a person picks another value.
+$thpSel = $settings['thp_mode'] !== 'system' ? $settings['thp_mode'] : $thpNow;
+$thpOpts = ['always' => 'always — every program', 'madvise' => 'madvise — only programs that ask (recommended)', 'never' => 'never — no huge pages'];
+$compSaved = zram_thp_compaction_number((string)$settings['thp_compaction']);
+$compSel = $compSaved !== null ? (string)$compSaved : $compNow;
+$compOpts = ['0' => '0 — off (recommended)', '20' => '20 — on, kernel default'];
+if (preg_match('/^\d+$/', $compSel) && !isset($compOpts[$compSel])) $compOpts[$compSel] = $compSel . ' — on';
+?>
                 <select name="thp_mode" data-autosave="true" <?php echo $thpAvailable ? '' : 'disabled'; ?>>
-                    <option value="system" <?php echo ($settings['thp_mode']=='system')?'selected':''; ?>>Leave as is</option>
-                    <option value="madvise" <?php echo ($settings['thp_mode']=='madvise')?'selected':''; ?>>Only when asked (recommended)</option>
-                    <option value="always" <?php echo ($settings['thp_mode']=='always')?'selected':''; ?>>Always</option>
-                    <option value="never" <?php echo ($settings['thp_mode']=='never')?'selected':''; ?>>Never</option>
+<?php foreach ($thpOpts as $v => $label): ?>
+                    <option value="<?php echo $v; ?>" <?php echo ($thpSel === $v) ? 'selected' : ''; ?>><?php echo htmlspecialchars($label); ?></option>
+<?php endforeach; ?>
                 </select>
                 <div style="font-size:0.8em;opacity:0.7;margin-top:4px;line-height:1.4;">
                     <?php if ($thpAvailable): ?>
-                    Kernel now: <strong><?php echo htmlspecialchars($thpNow ?: 'unknown'); ?></strong><br>
                     <?php if ($thpStats['failed_pct'] !== null): ?>
-                    Since boot, <?php echo $thpStats['failed_pct']; ?>% of huge-page requests failed and fell back to small pages
+                    Since boot, <?php echo $thpStats['failed_pct']; ?>% of huge-page requests failed
                     (<?php echo number_format($thpStats['fallback']); ?> of <?php echo number_format($thpStats['alloc'] + $thpStats['fallback']); ?>).
-                    A high share with <strong>Always</strong> means programs wait for nothing.<br>
+                    A high share with <strong>always</strong> means programs wait for nothing.<br>
                     <?php endif; ?>
-                    <strong>Only when asked</strong>: VMs and programs that request huge pages still get them.
-                    Other programs no longer wait while the kernel tries to free 2 MB blocks.
-                    This fixes multi-second stalls on busy servers.
+                    <strong>madvise</strong> stops multi-second stalls on busy servers. VMs still get huge pages.
                     <?php else: ?>
                     This kernel has no transparent huge pages. The setting is off.
                     <?php endif; ?>
@@ -487,18 +498,17 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
             <dt class="zram-row-top">Background memory compaction:</dt>
             <dd class="zram-row-top">
                 <select name="thp_compaction" data-autosave="true" <?php echo $compAvailable ? '' : 'disabled'; ?>>
-                    <option value="system" <?php echo ($settings['thp_compaction']=='system')?'selected':''; ?>>Leave as is</option>
-                    <option value="off" <?php echo ($settings['thp_compaction']=='off')?'selected':''; ?>>Off</option>
+<?php foreach ($compOpts as $v => $label): ?>
+                    <option value="<?php echo $v; ?>" <?php echo ($compSel === (string)$v) ? 'selected' : ''; ?>><?php echo htmlspecialchars($label); ?></option>
+<?php endforeach; ?>
                 </select>
                 <div style="font-size:0.8em;opacity:0.7;margin-top:4px;line-height:1.4;">
                     <?php if ($compAvailable): ?>
-                    Kernel now: <strong><?php echo htmlspecialchars($compNow === '0' ? 'off' : ($compNow === '' ? 'unknown' : "on ($compNow)")); ?></strong><br>
+                    How hard the kernel moves memory in the background to make 2 MB blocks.
+                    <strong>0</strong> stops it.
                     <?php else: ?>
-                    This kernel has no background compaction setting.<br>
+                    This kernel has no background compaction setting.
                     <?php endif; ?>
-                    Turn it off to stop the kernel moving memory around in the background.
-                    Leave as is puts back the value the kernel had before this plugin changed it.
-                    If the plugin has no saved value, the kernel keeps its current value until the next reboot.
                 </div>
             </dd>
             <dt>Debug Mode:</dt>

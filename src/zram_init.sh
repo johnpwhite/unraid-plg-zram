@@ -88,7 +88,7 @@ THP_ORIG="$LOG_DIR/thp-original.conf"
 THP_MODE=$(cfg_val "thp_mode")
 THP_COMPACTION=$(cfg_val "thp_compaction")
 case "$THP_MODE" in madvise|always|never) ;; *) THP_MODE="system" ;; esac
-case "$THP_COMPACTION" in off) ;; *) THP_COMPACTION="system" ;; esac
+case "$THP_COMPACTION" in off) THP_COMPACTION=0 ;; [0-9]|[0-9][0-9]|100) ;; *) THP_COMPACTION="system" ;; esac
 if [ ! -f "$THP_ORIG" ] && { [ "$THP_MODE" != "system" ] || [ "$THP_COMPACTION" != "system" ]; }; then
     : > "$THP_ORIG"
     if [ -f "$THP_FILE" ]; then
@@ -101,7 +101,7 @@ fi
 THP_ORIG_MODE=$(sed -n 's/^enabled=//p' "$THP_ORIG" 2>/dev/null)
 THP_ORIG_COMPACT=$(sed -n 's/^compaction=//p' "$THP_ORIG" 2>/dev/null)
 if [ "$THP_MODE" = "system" ]; then THP_MODE="$THP_ORIG_MODE"; fi
-if [ "$THP_COMPACTION" = "off" ]; then THP_COMPACT_VAL=0; else THP_COMPACT_VAL="$THP_ORIG_COMPACT"; fi
+if [ "$THP_COMPACTION" != "system" ]; then THP_COMPACT_VAL="$THP_COMPACTION"; else THP_COMPACT_VAL="$THP_ORIG_COMPACT"; fi
 if [ ! -f "$THP_FILE" ]; then
     zlog "THP sysfs file missing (kernel without THP), skipping huge pages" "INFO"
 elif [ -n "$THP_MODE" ]; then

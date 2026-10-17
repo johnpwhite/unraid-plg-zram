@@ -864,7 +864,9 @@ function buildRow(item) {
         + '<td style="padding:5px 8px;"><span class="zram-oom-badge ' + badgeClass + '">' + escHtml(item.type) + '</span></td>'
         + '<td style="padding:5px 8px;">' + escHtml(stateLabel) + '</td>'
         + '<td style="text-align:right;padding:5px 8px;font-variant-numeric:tabular-nums;">' + memCell + '</td>'
-        + '<td style="padding:5px 8px;white-space:nowrap;">' + levelSel + removeBtn + '</td>'
+        // Flex cell: the select shrinks so the remove button stays inside the
+        // column on narrow screens (seen at iPad portrait, 2026-10-17).
+        + '<td style="padding:5px 8px;"><div class="zram-oom-level-cell">' + levelSel + removeBtn + '</div></td>'
         + '</tr>';
 }
 

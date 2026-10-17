@@ -751,11 +751,12 @@ if ($action === 'update_setting') {
             $value = $rawValue;
             break;
         case 'thp_compaction':
-            if (!in_array($rawValue, zram_thp_compaction_modes(), true)) {
-                echo json_encode(['success' => false, 'message' => 'Invalid compaction mode', 'logs' => $logs]);
+            if (!zram_thp_compaction_valid((string)$rawValue)) {
+                echo json_encode(['success' => false, 'message' => 'Invalid compaction value', 'logs' => $logs]);
                 exit;
             }
-            $value = $rawValue;
+            // Store the kernel number ('off' -> '0', '07' -> '7'); 'system' stays.
+            $value = $rawValue === 'system' ? 'system' : (string)zram_thp_compaction_number((string)$rawValue);
             break;
         case 'zram_percent':
             $value = max(25, min(75, intval($rawValue)));

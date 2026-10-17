@@ -130,9 +130,22 @@ function zram_thp_modes(): array {
     return ['system', 'madvise', 'always', 'never'];
 }
 
-/** Allowed values for the background compaction setting. */
-function zram_thp_compaction_modes(): array {
-    return ['system', 'off'];
+/**
+ * Is $v a valid background compaction setting? The page offers the kernel
+ * number (vm.compaction_proactiveness, 0-100). 'system' (no value chosen yet,
+ * the plugin changes nothing) and 'off' (older versions, same as 0) stay valid
+ * so saved settings keep working.
+ */
+function zram_thp_compaction_valid(string $v): bool {
+    if ($v === 'system' || $v === 'off') return true;
+    return preg_match('/^\d{1,3}$/', $v) === 1 && intval($v) <= 100;
+}
+
+/** The kernel number for a compaction setting, or null for 'system'. */
+function zram_thp_compaction_number(string $v): ?int {
+    if ($v === 'off') return 0;
+    if ($v !== 'system' && zram_thp_compaction_valid($v)) return intval($v);
+    return null;
 }
 
 /**
@@ -184,7 +197,7 @@ function zram_apply_thp(string $mode, string $compaction, array &$logs,
                         string $origFile = ZRAM_THP_ORIG_FILE,
                         ?callable $sysctl = null,
                         string $compFile = ZRAM_COMPACTION_FILE): void {
-    if (!in_array($mode, zram_thp_modes(), true) || !in_array($compaction, zram_thp_compaction_modes(), true)) {
+    if (!in_array($mode, zram_thp_modes(), true) || !zram_thp_compaction_valid($compaction)) {
         zram_log("THP: ignored invalid values mode=$mode compaction=$compaction", 'WARN');
         return;
     }
@@ -231,10 +244,8 @@ function zram_apply_thp(string $mode, string $compaction, array &$logs,
     if (!is_file($compFile)) {
         zram_log('THP: ' . $compFile . ' not found (old kernel), skipping compaction setting', 'INFO');
     } else {
-        $want = null;
-        if ($compaction === 'off') {
-            $want = 0;
-        } elseif (isset($orig['compaction']) && preg_match('/^\d+$/', (string)$orig['compaction'])) {
+        $want = zram_thp_compaction_number($compaction);
+        if ($want === null && isset($orig['compaction']) && preg_match('/^\d+$/', (string)$orig['compaction'])) {
             $want = intval($orig['compaction']);
         }
         $cur = trim((string)@file_get_contents($compFile));

@@ -222,23 +222,23 @@ if (!function_exists('getZramDashboardCard')) {
                     <div class="zram-num">Algo</div>
                 </div>
 <?php if ($ourDev): ?>
-                <div class="zram-devgrid zram-devrow">
+                <div id="zram-dev-row" class="zram-devgrid zram-devrow">
                     <div class="zram-tier" style="color:#7fba59;"><span class="zram-dot" style="background:#7fba59;"></span>ZRAM</div>
                     <div class="zram-muted">RAM</div>
                     <div class="zram-ell" style="font-weight:bold;"><?php echo htmlspecialchars($ourDev); ?></div>
                     <div class="zram-num zram-muted"><?php echo $fmt($diskSize, 0); ?></div>
-                    <div class="zram-num zram-muted"><?php echo number_format($totalOriginal / 1073741824, 2); ?> GB</div>
+                    <div class="zram-num zram-muted zram-used"><?php echo number_format($totalOriginal / 1073741824, 2); ?> GB</div>
                     <div class="zram-num zram-muted"><?php echo $prio; ?></div>
                     <div class="zram-num zram-muted"><?php echo htmlspecialchars($algo); ?></div>
                 </div>
 <?php endif; ?>
 <?php if ($ssdPath): ?>
                 <div id="zram-ssd-row" class="zram-devgrid zram-devrow">
-                    <div class="zram-tier" style="<?php echo $ssdActive ? 'color:#00a4d8;' : 'opacity:0.6;'; ?>"><span class="zram-dot" style="background:<?php echo $ssdActive ? '#00a4d8' : '#9aa0a6'; ?>;"></span>Disk<?php if (!$ssdActive) echo ' (idle)'; ?></div>
+                    <div class="zram-tier" style="<?php echo $ssdActive ? 'color:#00a4d8;' : 'opacity:0.6;'; ?>"><span class="zram-dot" style="background:<?php echo $ssdActive ? '#00a4d8' : '#9aa0a6'; ?>;"></span>Disk<?php if (!$ssdActive) echo ' (off)'; ?></div>
                     <div class="zram-muted zram-ell" title="<?php echo htmlspecialchars($ssdMount); ?>"><?php echo htmlspecialchars($ssdPool); ?></div>
                     <div class="zram-muted zram-ell" title="<?php echo htmlspecialchars($ssdPath); ?>"><?php echo htmlspecialchars($ssdDevLabel); ?></div>
                     <div class="zram-num zram-muted"><?php echo $fmt($ssdSize ?: filesize($ssdPath), 0); ?></div>
-                    <div class="zram-num zram-muted"><?php echo number_format($ssdUsed / 1073741824, 2); ?> GB</div>
+                    <div class="zram-num zram-muted zram-used"><?php echo number_format($ssdUsed / 1073741824, 2); ?> GB</div>
                     <div class="zram-num zram-muted"><?php echo htmlspecialchars((string)$ssdPrio); ?></div>
                     <div class="zram-num zram-muted">&mdash;</div>
                 </div>

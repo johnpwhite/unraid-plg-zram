@@ -36,9 +36,34 @@ function filterHistory(raw) {
     return raw.filter(item => item && item.o !== undefined && item.u !== undefined);
 }
 
+// Refresh one row of the dashboard device table (Tier 1 ZRAM or Tier 2 Disk).
+// The tier cell keeps its dot: only the label text and the colours change.
+// Each tier keeps one colour (the same as its chart line); grey means off.
+// The used amount goes in the Used column, not in the label.
+function updateTierRow(row, t) {
+    if (!row) return;
+    const tier = row.querySelector('.zram-tier');
+    if (tier) {
+        const color = t.active ? t.color : '#9aa0a6';
+        let dot = tier.querySelector('.zram-dot');
+        if (!dot) {
+            dot = document.createElement('span');
+            dot.className = 'zram-dot';
+        }
+        tier.textContent = '';
+        tier.appendChild(dot);
+        tier.appendChild(document.createTextNode(t.name + (t.active ? '' : ' (off)')));
+        dot.style.background = color;
+        tier.style.color = t.active ? t.color : '';
+        tier.style.opacity = t.active ? '' : '0.6';
+    }
+    const used = row.querySelector('.zram-used');
+    if (used) used.textContent = ((Number(t.used) || 0) / 1073741824).toFixed(2) + ' GB';
+}
+
 // Node.js export for Vitest — no-op in the browser (module is undefined there).
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { formatBytes, formatBytesRound, filterHistory };
+    module.exports = { formatBytes, formatBytesRound, filterHistory, updateTierRow };
 }
 
 (function () {
@@ -243,23 +268,11 @@ if (typeof module !== 'undefined' && module.exports) {
                 el('zram-load').title = 'Ticks: ' + currentTicks;
             }
 
-            // Update SSD row if present
-            const ssdRow = el('zram-ssd-row');
-            if (ssdRow && data.ssd_swap) {
+            // Device table rows: same look for both tiers, live Used column
+            updateTierRow(el('zram-dev-row'), { name: 'ZRAM', color: '#7fba59', active: true, used: aggs.total_original });
+            if (data.ssd_swap) {
                 const s = data.ssd_swap;
-                const tierEl = ssdRow.querySelector('div:first-child');
-                if (tierEl) {
-                    if (s.active && s.used > 0) {
-                        tierEl.style.color = '#e57373';
-                        tierEl.textContent = 'Disk (' + formatBytes(s.used, 0) + ')';
-                    } else if (s.active) {
-                        tierEl.style.color = '#00a4d8';
-                        tierEl.textContent = 'Disk (idle)';
-                    } else {
-                        tierEl.style.color = '#666';
-                        tierEl.textContent = 'Disk (off)';
-                    }
-                }
+                updateTierRow(el('zram-ssd-row'), { name: 'Disk', color: '#00a4d8', active: !!s.active, used: s.used });
             }
 
             // Chart data — initial backfill, filtering out legacy entries missing o/u.
