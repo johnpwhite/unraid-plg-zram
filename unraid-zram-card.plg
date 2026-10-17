@@ -1,6 +1,6 @@
 <?xml version='1.0' standalone='yes'?>
 
-<PLUGIN name="unraid-zram-card" author="John White" version="2026.10.17.02" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
+<PLUGIN name="unraid-zram-card" author="John White" version="2026.10.17.03" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
 ## 2026.10.17.02
@@ -147,7 +147,7 @@
      only checks whether this target already exists — it skips re-fetching
      it if so — and that check applies to EVERY invocation, not just the
      silent boot-time reinstall that repopulates /usr/local/emhttp (tmpfs) on
-     every boot. Putting 2026.10.17.02 in the cached path means each version
+     every boot. Putting 2026.10.17.03 in the cached path means each version
      bump gets its own cache slot: a user-triggered update or reinstall onto
      a NEW version always downloads (that path has never existed on this
      flash before), while the silent boot-time reinstall of an
@@ -156,9 +156,9 @@
      Updates" and "reinstall" both silently kept the FIRST version's
      tarball forever (forum report, raphael_, 2026-08-31).
      See docs/specs/PLUGIN_CACHE_VERSION_REFRESH.md. -->
-<FILE Name="/boot/config/plugins/unraid-zram-card/src-2026.10.17.02.tar.gz">
+<FILE Name="/boot/config/plugins/unraid-zram-card/src-2026.10.17.03.tar.gz">
 <URL>https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/src.tar.gz</URL>
-<SHA256>f3faab0a90f0e60961718f5910a9e2bc85b6c55090ea0e0df33d3ca18f96c7b3</SHA256>
+<SHA256>5f8c90634fcd6331bc57f194913918b7bbe35431a634aaa27c748878d2e106b0</SHA256>
 </FILE>
 
 <!-- 2. HYBRID INSTALLER SCRIPT -->
@@ -166,7 +166,7 @@
 <INLINE>
 #!/bin/bash
 NAME="unraid-zram-card"
-VERSION="2026.10.17.02"
+VERSION="2026.10.17.03"
 LOCAL_SRC="/boot/config/plugins/$NAME"
 EMHTTP_DEST="/usr/local/emhttp/plugins/$NAME"
 ARCHIVE="$LOCAL_SRC/src-$VERSION.tar.gz"
