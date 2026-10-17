@@ -32,7 +32,7 @@ if ($ourDev) {
         $command = escapeshellarg($zramctl)
             . ' --bytes --noheadings --raw --output NAME,DISKSIZE,DATA,COMPR,ALGORITHM,TOTAL '
             . escapeshellarg("/dev/$ourDev") . ' 2>/dev/null';
-        exec($command, $out, $ret);
+        zram_exec($command, $out, $ret);
     } else {
         $ret = 127;
     }
@@ -58,7 +58,7 @@ if ($ourDev) {
             $prio = '100';
             $sw_out = [];
             if ($swapon !== '') {
-                exec(escapeshellarg($swapon) . ' --noheadings --show=NAME,PRIO 2>/dev/null', $sw_out);
+                zram_exec(escapeshellarg($swapon) . ' --noheadings --show=NAME,PRIO 2>/dev/null', $sw_out);
             }
             foreach ($sw_out as $sl) {
                 $sp = preg_split('/\s+/', trim($sl));
@@ -101,7 +101,7 @@ if ($ssdPath) {
 
     $ssd_out = [];
     if ($swapon !== '') {
-        exec(escapeshellarg($swapon) . ' --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssd_out);
+        zram_exec(escapeshellarg($swapon) . ' --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssd_out);
     }
     foreach ($ssd_out as $line) {
         $p = preg_split('/\s+/', trim($line));

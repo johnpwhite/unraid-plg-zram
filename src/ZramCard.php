@@ -32,7 +32,7 @@ if (!function_exists('getZramDashboardCard')) {
             if ($ourDev) {
                 $devCount = 1;
                 $out = [];
-                exec("zramctl --bytes --noheadings --raw --output NAME,DISKSIZE,DATA,COMPR,ALGORITHM,TOTAL /dev/$ourDev 2>/dev/null", $out);
+                zram_exec("zramctl --bytes --noheadings --raw --output NAME,DISKSIZE,DATA,COMPR,ALGORITHM,TOTAL /dev/$ourDev 2>/dev/null", $out);
                 foreach ($out as $line) {
                     $p = preg_split('/\s+/', trim($line));
                     if (count($p) >= 6 && basename($p[0]) === $ourDev) {
@@ -71,7 +71,7 @@ if (!function_exists('getZramDashboardCard')) {
                 $swapTarget = $ssdPath;
                 if ($ssdBacking === 'loop') {
                     $ljOut = [];
-                    exec('losetup -j ' . escapeshellarg($ssdPath) . ' 2>/dev/null', $ljOut);
+                    zram_exec('losetup -j ' . escapeshellarg($ssdPath) . ' 2>/dev/null', $ljOut);
                     foreach ($ljOut as $ljLine) {
                         if (preg_match('#^(/dev/loop\d+):#', $ljLine, $ljm)) {
                             $swapTarget = $ljm[1];
@@ -90,7 +90,7 @@ if (!function_exists('getZramDashboardCard')) {
                     if (($ssdBacking === 'loop' || $ssdBacking === 'zvol') && $swapTarget !== $ssdPath) {
                         $ssdDevLabel = basename($swapTarget);
                     }
-                    exec('swapon --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssdRows);
+                    zram_exec('swapon --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssdRows);
                     foreach ($ssdRows as $row) {
                         $rp = preg_split('/\s+/', trim($row));
                         if (count($rp) >= 4 && $rp[0] === $swapTarget) {
@@ -108,7 +108,7 @@ if (!function_exists('getZramDashboardCard')) {
             // Priority
             $prio = '-';
             if ($ourDev) {
-                exec('swapon --noheadings --show=NAME,PRIO 2>/dev/null', $sw);
+                zram_exec('swapon --noheadings --show=NAME,PRIO 2>/dev/null', $sw);
                 foreach ($sw as $sl) {
                     $sp = preg_split('/\s+/', trim($sl));
                     if (count($sp) >= 2 && basename($sp[0]) === $ourDev) { $prio = $sp[1]; break; }

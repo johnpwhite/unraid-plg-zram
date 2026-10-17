@@ -126,7 +126,7 @@ if ($action === 'create_zram') {
 
     zram_run('modprobe zram', $logs);
     $cmd = "zramctl --find --size " . escapeshellarg($size) . " --algorithm " . escapeshellarg($algo);
-    exec($cmd . " 2>&1", $find_out, $ret);
+    zram_exec($cmd . " 2>&1", $find_out, $ret);
     $logs[] = ['cmd' => $cmd, 'output' => implode(" ", $find_out), 'status' => $ret];
 
     if ($ret !== 0 || empty($find_out)) {
@@ -270,7 +270,7 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
     if (!in_array($backing, ['file', 'loop', 'zvol'], true)) $backing = 'file';
 
     // Detect btrfs on the target mount (used by direct-file path for NOCOW)
-    $fsType  = trim(exec("stat -f -c %T " . escapeshellarg($mount) . " 2>/dev/null"));
+    $fsType  = trim(zram_exec("stat -f -c %T " . escapeshellarg($mount) . " 2>/dev/null"));
     $isBtrfs = ($fsType === 'btrfs');
 
     // Defense-in-depth: the 'backing' param above is the drive picker's echo of
@@ -286,7 +286,7 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
         $forceZvol = false;
         if ($isBtrfs) {
             $devCount = [];
-            exec("btrfs filesystem show " . escapeshellarg($mount) . " 2>/dev/null | grep -c 'devid'", $devCount);
+            zram_exec("btrfs filesystem show " . escapeshellarg($mount) . " 2>/dev/null | grep -c 'devid'", $devCount);
             if (intval($devCount[0] ?? 0) > 1) $forceLoop = true;   // multi-device btrfs (RAID)
         } else {
             // Canonical fstype from /proc/mounts (stat -f is unreliable for zfs).
@@ -356,13 +356,13 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
         $tries = 0;
         while (!file_exists($zvolDev) && $tries < 20) { usleep(250000); $tries++; }
         if (!file_exists($zvolDev)) {
-            exec('zfs destroy ' . escapeshellarg($zvolDataset) . ' 2>&1');
+            zram_exec('zfs destroy ' . escapeshellarg($zvolDataset) . ' 2>&1');
             echo json_encode(['success' => false, 'message' => 'zvol device did not appear at ' . $zvolDev, 'logs' => $logs]);
             exit;
         }
 
         if (zram_run('mkswap -L ' . escapeshellarg(ZRAM_SSD_LABEL) . ' ' . escapeshellarg($zvolDev), $logs) !== 0) {
-            exec('zfs destroy ' . escapeshellarg($zvolDataset) . ' 2>&1');
+            zram_exec('zfs destroy ' . escapeshellarg($zvolDataset) . ' 2>&1');
             echo json_encode(['success' => false, 'message' => 'mkswap on zvol failed', 'logs' => $logs]);
             exit;
         }
@@ -370,7 +370,7 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
         $cfgPrio = zram_config_read();
         $ssdPrio = max(0, min(32767, intval($cfgPrio['ssd_swap_priority'] ?? 10)));
         if (zram_run('swapon ' . escapeshellarg($zvolDev) . ' -p ' . $ssdPrio, $logs) !== 0) {
-            exec('zfs destroy ' . escapeshellarg($zvolDataset) . ' 2>&1');
+            zram_exec('zfs destroy ' . escapeshellarg($zvolDataset) . ' 2>&1');
             echo json_encode(['success' => false, 'message' => 'swapon zvol failed', 'logs' => $logs]);
             exit;
         }
@@ -420,7 +420,7 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
         // 2. Attach as a loop block device
         $losetupOut = [];
         $losetupRet = 0;
-        exec("losetup -f --show " . escapeshellarg($swapFile) . " 2>&1", $losetupOut, $losetupRet);
+        zram_exec("losetup -f --show " . escapeshellarg($swapFile) . " 2>&1", $losetupOut, $losetupRet);
         $loopDev = trim(end($losetupOut) ?: '');
         $logs[] = ['cmd' => "losetup -f --show $swapFile", 'output' => $loopDev, 'status' => $losetupRet];
         if ($losetupRet !== 0 || !preg_match('#^/dev/loop\d+$#', $loopDev)) {
@@ -431,7 +431,7 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
 
         // 3. mkswap + swapon the LOOP device (not the image file)
         if (zram_run("mkswap -L " . escapeshellarg(ZRAM_SSD_LABEL) . " " . escapeshellarg($loopDev), $logs) !== 0) {
-            exec("losetup -d " . escapeshellarg($loopDev) . " 2>/dev/null");
+            zram_exec("losetup -d " . escapeshellarg($loopDev) . " 2>/dev/null");
             @unlink($swapFile);
             echo json_encode(['success' => false, 'message' => 'mkswap on loop device failed', 'logs' => $logs]);
             exit;
@@ -440,7 +440,7 @@ if ($action === 'create_disk_swap' || $action === 'create_ssd_swap') {
         $cfgPrio = zram_config_read();
         $ssdPrio = max(0, min(32767, intval($cfgPrio['ssd_swap_priority'] ?? 10)));
         if (zram_run("swapon " . escapeshellarg($loopDev) . " -p " . $ssdPrio, $logs) !== 0) {
-            exec("losetup -d " . escapeshellarg($loopDev) . " 2>/dev/null");
+            zram_exec("losetup -d " . escapeshellarg($loopDev) . " 2>/dev/null");
             @unlink($swapFile);
             @rmdir($swapDir);
             echo json_encode(['success' => false, 'message' => 'swapon loop device failed', 'logs' => $logs]);
@@ -544,7 +544,7 @@ if ($action === 'remove_disk_swap' || $action === 'remove_ssd_swap') {
     } elseif ($backing === 'loop') {
         // Resolve the attached loop device via the stable image path
         $losetupOut = [];
-        exec("losetup -j " . escapeshellarg($swapFile) . " 2>/dev/null", $losetupOut);
+        zram_exec("losetup -j " . escapeshellarg($swapFile) . " 2>/dev/null", $losetupOut);
         $loopDev = '';
         foreach ($losetupOut as $line) {
             if (preg_match('#^(/dev/loop\d+):#', $line, $m)) {
@@ -636,7 +636,7 @@ if ($action === 'activate_disk_swap' || $action === 'activate_ssd_swap') {
     if ($backing === 'loop') {
         // Resolve attached loop device for this image (idempotency guard)
         $losetupJOut = [];
-        exec("losetup -j " . escapeshellarg($swapFile) . " 2>/dev/null", $losetupJOut);
+        zram_exec("losetup -j " . escapeshellarg($swapFile) . " 2>/dev/null", $losetupJOut);
         $loopDev = '';
         foreach ($losetupJOut as $line) {
             if (preg_match('#^(/dev/loop\d+):#', $line, $m)) {
@@ -660,7 +660,7 @@ if ($action === 'activate_disk_swap' || $action === 'activate_ssd_swap') {
             // Loop not attached — attach fresh
             $losetupOut = [];
             $losetupRet = 0;
-            exec("losetup -f --show " . escapeshellarg($swapFile) . " 2>&1", $losetupOut, $losetupRet);
+            zram_exec("losetup -f --show " . escapeshellarg($swapFile) . " 2>&1", $losetupOut, $losetupRet);
             $loopDev = trim(end($losetupOut) ?: '');
             $logs[] = ['cmd' => "losetup -f --show $swapFile", 'output' => $loopDev, 'status' => $losetupRet];
             if ($losetupRet !== 0 || !preg_match('#^/dev/loop\d+$#', $loopDev)) {
@@ -868,7 +868,7 @@ if ($action === 'update_priorities') {
         $swapTarget = $ssdPath;
         if ($backing === 'loop') {
             $losetupOut = [];
-            exec("losetup -j " . escapeshellarg($ssdPath) . " 2>/dev/null", $losetupOut);
+            zram_exec("losetup -j " . escapeshellarg($ssdPath) . " 2>/dev/null", $losetupOut);
             $resolvedLoop = '';
             foreach ($losetupOut as $line) {
                 if (preg_match('#^(/dev/loop\d+):#', $line, $m)) { $resolvedLoop = $m[1]; break; }

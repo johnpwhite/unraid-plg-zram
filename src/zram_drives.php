@@ -114,7 +114,7 @@ foreach ($mounts as $line) {
     // Check btrfs RAID (swap files not supported on multi-device btrfs)
     $btrfsRaid = false;
     if ($fstype === 'btrfs') {
-        exec("btrfs filesystem show " . escapeshellarg($mount) . " 2>/dev/null | grep -c 'devid'", $devCount);
+        zram_exec("btrfs filesystem show " . escapeshellarg($mount) . " 2>/dev/null | grep -c 'devid'", $devCount);
         if (intval($devCount[0] ?? 0) > 1) $btrfsRaid = true;
     }
 

@@ -139,22 +139,22 @@ function oom_discover_items(): array {
     $items   = [];
 
     // --- VMs via virsh ---
-    exec('virsh list --all --name 2>/dev/null', $vmNames, $rc);
+    zram_exec('virsh list --all --name 2>/dev/null', $vmNames, $rc);
     if ($rc === 0) {
         foreach ($vmNames as $name) {
             $name = trim($name);
             if ($name === '') continue;
             if (!oom_is_safe_name($name)) continue;
-            // State. Reset $stateOut first — exec() APPENDS to an existing
+            // State. Reset $stateOut first — zram_exec() APPENDS to an existing
             // array, so without this every VM would inherit the FIRST VM's
             // state (e.g. an off "Jump Box" showing "running"). WP bug.
             $stateOut = [];
-            exec('virsh domstate ' . escapeshellarg($name) . ' 2>/dev/null', $stateOut);
+            zram_exec('virsh domstate ' . escapeshellarg($name) . ' 2>/dev/null', $stateOut);
             $state = trim($stateOut[0] ?? 'unknown');
             // Memory: configured from dumpxml (always accurate regardless of power state)
             $configuredBytes = 0;
             $dumpxmlOut = [];
-            exec('virsh dumpxml ' . escapeshellarg($name) . ' 2>/dev/null', $dumpxmlOut);
+            zram_exec('virsh dumpxml ' . escapeshellarg($name) . ' 2>/dev/null', $dumpxmlOut);
             $dumpxmlStr = implode("\n", $dumpxmlOut);
             if (preg_match("/<memory unit='KiB'>(\d+)<\/memory>/", $dumpxmlStr, $memM)) {
                 $configuredBytes = intval($memM[1]) * 1024;
@@ -202,7 +202,7 @@ function oom_discover_items(): array {
     // NOT match the cgroup directory name (/sys/fs/cgroup/docker/<full-id>/), so
     // without this both memory.current and cgroup.procs reads silently fail →
     // running containers reported no memory and oom_score 0. (cgroup v2.)
-    exec('docker ps -a --no-trunc --format "{{.Names}}\t{{.Status}}\t{{.ID}}" 2>/dev/null', $dockerLines, $drc);
+    zram_exec('docker ps -a --no-trunc --format "{{.Names}}\t{{.Status}}\t{{.ID}}" 2>/dev/null', $dockerLines, $drc);
     if ($drc === 0) {
         foreach ($dockerLines as $line) {
             $parts = explode("\t", $line);
@@ -247,7 +247,7 @@ function oom_discover_items(): array {
                 }
             } else {
                 $inspOut = [];
-                exec('docker inspect -f \'{{.HostConfig.Memory}}\' ' . escapeshellarg($cid) . ' 2>/dev/null', $inspOut);
+                zram_exec('docker inspect -f \'{{.HostConfig.Memory}}\' ' . escapeshellarg($cid) . ' 2>/dev/null', $inspOut);
                 $limit = intval($inspOut[0] ?? 0);
                 if ($limit > 0) {
                     $memBytes = $limit;
@@ -295,7 +295,7 @@ function oom_discover_items(): array {
     $allPatterns = array_merge($defaultPatterns, $userPatterns);
     foreach ($allPatterns as $label => $pattern) {
         if (!oom_is_safe_name((string)$label)) continue;
-        exec('pgrep -f ' . escapeshellarg($pattern) . ' 2>/dev/null', $pids, $prc);
+        zram_exec('pgrep -f ' . escapeshellarg($pattern) . ' 2>/dev/null', $pids, $prc);
         $adj   = 0;
         $score = 0;
         $state = 'idle';
@@ -475,7 +475,7 @@ if ($action === 'apply_oom') {
                     $cgPath = preg_replace('#/emulator$#', '', $cgPath);
                     $memMinFile = "/sys/fs/cgroup$cgPath/memory.min";
                     // Get VM max memory from dominfo — cap memory.min to that
-                    exec('virsh dominfo ' . escapeshellarg($name) . ' 2>/dev/null', $info);
+                    zram_exec('virsh dominfo ' . escapeshellarg($name) . ' 2>/dev/null', $info);
                     $maxMemKb = 0;
                     foreach ($info as $line) {
                         if (strpos($line, 'Max memory:') === 0) {
@@ -496,7 +496,7 @@ if ($action === 'apply_oom') {
 
         } elseif ($type === 'docker') {
             // Resolve container ID from name
-            exec('docker inspect -f \'{{.Id}}\' ' . escapeshellarg($name) . ' 2>/dev/null', $idOut, $drc);
+            zram_exec('docker inspect -f \'{{.Id}}\' ' . escapeshellarg($name) . ' 2>/dev/null', $idOut, $drc);
             if ($drc !== 0 || empty($idOut)) {
                 $logs[] = "Container $name: not found — skipping";
                 continue;
@@ -535,7 +535,7 @@ if ($action === 'apply_oom') {
             // memory limit (the limit is the safe cap — same reasoning as a
             // VM's configured RAM; an unlimited container has no safe cap).
             if ($level === 'protected' && $vmMemoryMin === 'yes') {
-                exec('docker inspect -f \'{{.HostConfig.Memory}}\' ' . escapeshellarg($name) . ' 2>/dev/null', $memOut);
+                zram_exec('docker inspect -f \'{{.HostConfig.Memory}}\' ' . escapeshellarg($name) . ' 2>/dev/null', $memOut);
                 $limitBytes = intval(trim($memOut[0] ?? '0'));
                 $memMinFile = "/sys/fs/cgroup/docker/$cid/memory.min";
                 if ($limitBytes > 0 && file_exists($memMinFile)) {
@@ -551,7 +551,7 @@ if ($action === 'apply_oom') {
             }
 
         } elseif ($type === 'proc') {
-            exec('pgrep -f ' . escapeshellarg($name) . ' 2>/dev/null', $pids, $prc);
+            zram_exec('pgrep -f ' . escapeshellarg($name) . ' 2>/dev/null', $pids, $prc);
             if ($prc !== 0 || empty($pids)) {
                 $logs[] = "Service $name: no matching process — skipping";
                 continue;
@@ -618,7 +618,7 @@ if ($action === 'apply_oom') {
     // Install/refresh the libvirt hook immediately (so it's present without waiting for boot)
     $applyScript = '/usr/local/emhttp/plugins/unraid-zram-card/zram_oom_apply.sh';
     if (is_executable($applyScript)) {
-        exec(escapeshellarg($applyScript) . ' --install-hook > /dev/null 2>&1 &');
+        zram_exec(escapeshellarg($applyScript) . ' --install-hook > /dev/null 2>&1 &');
     }
 
     $msg = "OOM levels applied: $applied items" . ($errors ? ", $errors errors — see activity log for details" : '');
@@ -632,7 +632,7 @@ if ($action === 'reset_oom') {
     $reset = 0;
 
     // Walk all VMs
-    exec('virsh list --all --name 2>/dev/null', $vmNames, $rc);
+    zram_exec('virsh list --all --name 2>/dev/null', $vmNames, $rc);
     if ($rc === 0) {
         foreach ($vmNames as $name) {
             $name = trim($name);
@@ -650,7 +650,7 @@ if ($action === 'reset_oom') {
     }
 
     // Walk all containers
-    exec('docker ps --format "{{.ID}}" 2>/dev/null', $cids, $drc);
+    zram_exec('docker ps --format "{{.ID}}" 2>/dev/null', $cids, $drc);
     if ($drc === 0) {
         foreach ($cids as $cid) {
             $cid = trim($cid);
@@ -760,10 +760,10 @@ if ($action === 'list_service_candidates') {
         if (!oom_is_safe_name($sname)) continue;
         // Try exact match first (-x), fall back to -f for multi-word daemons
         $pids = [];
-        exec('pgrep -x ' . escapeshellarg($sname) . ' 2>/dev/null', $pids, $prc);
+        zram_exec('pgrep -x ' . escapeshellarg($sname) . ' 2>/dev/null', $pids, $prc);
         if ($prc !== 0 || empty($pids)) {
             $pids = [];
-            exec('pgrep -f ' . escapeshellarg($sname) . ' 2>/dev/null', $pids);
+            zram_exec('pgrep -f ' . escapeshellarg($sname) . ' 2>/dev/null', $pids);
         }
         $instances  = count(array_filter($pids, fn($p) => is_numeric(trim($p))));
         $running    = $instances > 0;

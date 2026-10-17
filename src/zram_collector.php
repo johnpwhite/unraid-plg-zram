@@ -41,7 +41,7 @@ function zram_collector_find_labelled_device(string &$error): string {
     $command = escapeshellarg($blkidBinary) . ' -c /dev/null -t LABEL='
         . escapeshellarg(ZRAM_LABEL) . ' -o device '
         . implode(' ', array_map('escapeshellarg', $candidates)) . ' 2>&1';
-    exec($command, $output, $exitCode);
+    zram_exec($command, $output, $exitCode);
     if ($exitCode !== 0) {
         // blkid uses 2 for a clean no-match result; that means missing/unowned,
         // not that the ownership probe itself failed.
@@ -334,7 +334,7 @@ while (true) {
                 $command = escapeshellarg($zramctlBinary)
                     . ' --bytes --noheadings --raw --output NAME,DISKSIZE,DATA,COMPR,ALGORITHM,TOTAL '
                     . escapeshellarg("/dev/$ourDev") . ' 2>&1';
-                exec($command, $raw, $zramctlExit);
+                zram_exec($command, $raw, $zramctlExit);
             }
 
             $swapStateError = '';
@@ -427,13 +427,13 @@ while (true) {
             $swapTarget = $ssdPath;
             if ($backing === 'loop') {
                 $ljOut = [];
-                exec('losetup -j ' . escapeshellarg($ssdPath) . ' 2>/dev/null', $ljOut);
+                zram_exec('losetup -j ' . escapeshellarg($ssdPath) . ' 2>/dev/null', $ljOut);
                 foreach ($ljOut as $ljLine) {
                     if (preg_match('#^(/dev/loop\d+):#', $ljLine, $m)) { $swapTarget = $m[1]; break; }
                 }
             }
             $swapRows = [];
-            exec('swapon --bytes --noheadings --show=NAME,USED 2>/dev/null', $swapRows);
+            zram_exec('swapon --bytes --noheadings --show=NAME,USED 2>/dev/null', $swapRows);
             foreach ($swapRows as $row) {
                 $parts = preg_split('/\s+/', trim($row));
                 if (count($parts) >= 2 && $parts[0] === $swapTarget) {

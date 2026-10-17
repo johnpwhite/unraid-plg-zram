@@ -20,6 +20,19 @@ defined('ZRAM_DEVICE_FILE')  || define('ZRAM_DEVICE_FILE', ZRAM_LOG_DIR . '/devi
 defined('ZRAM_HISTORY_FILE') || define('ZRAM_HISTORY_FILE', ZRAM_LOG_DIR . '/history.json');
 defined('ZRAM_PID_FILE')     || define('ZRAM_PID_FILE', ZRAM_LOG_DIR . '/collector.pid');
 
+// System paths. Each is a constant with a default so PHPUnit can point the
+// plugin at temp files (tests/bootstrap.php defines them first).
+defined('ZRAM_PROC_SWAPS')      || define('ZRAM_PROC_SWAPS', '/proc/swaps');
+defined('ZRAM_PROC_MEMINFO')    || define('ZRAM_PROC_MEMINFO', '/proc/meminfo');
+defined('ZRAM_PROC_MOUNTS')     || define('ZRAM_PROC_MOUNTS', '/proc/mounts');
+defined('ZRAM_PROC_VMSTAT')     || define('ZRAM_PROC_VMSTAT', '/proc/vmstat');
+defined('ZRAM_SWAPPINESS_FILE') || define('ZRAM_SWAPPINESS_FILE', '/proc/sys/vm/swappiness');
+defined('ZRAM_SYS_BLOCK')       || define('ZRAM_SYS_BLOCK', '/sys/block');
+defined('ZRAM_SYS_CLASS_BLOCK') || define('ZRAM_SYS_CLASS_BLOCK', '/sys/class/block');
+defined('ZRAM_DEV_DIR')         || define('ZRAM_DEV_DIR', '/dev');
+defined('ZRAM_VAR_INI')         || define('ZRAM_VAR_INI', '/var/local/emhttp/var.ini');
+defined('ZRAM_EMHTTP_ROOT')     || define('ZRAM_EMHTTP_ROOT', '/usr/local/emhttp');
+
 defined('ZRAM_DEFAULTS') || define('ZRAM_DEFAULTS', [
     'enabled'             => 'yes',
     'refresh_interval'    => '3000',
@@ -109,9 +122,34 @@ function zram_cmd_log(string $msg, string $type = ''): void {
     @file_put_contents(ZRAM_CMD_LOG, json_encode($entry) . "\n", FILE_APPEND);
 }
 
+/**
+ * Run a shell command the way exec() does: $out gets the output lines
+ * appended, $ret gets the exit code, and the return value is the last line
+ * (or false). Every shell call in the plugin goes through here, so PHPUnit
+ * can replace the shell with zram_set_exec() and test each command path
+ * without a real zramctl, swapon or losetup. See docs/specs/TEST_SEAMS.md.
+ *
+ * @param array<int,string>|null $out
+ * @return string|false
+ */
+function zram_exec(string $cmd, ?array &$out = null, ?int &$ret = null) {
+    if ($out === null) $out = [];
+    $fn = $GLOBALS['_zram_exec_override'] ?? null;
+    if ($fn !== null) {
+        $ret = 0;
+        return $fn($cmd, $out, $ret);
+    }
+    return exec($cmd, $out, $ret);
+}
+
+/** Replace the shell for tests (null restores the real exec()). */
+function zram_set_exec(?callable $fn): void {
+    $GLOBALS['_zram_exec_override'] = $fn;
+}
+
 /** Run a shell command, log it, return exit code. */
 function zram_run(string $cmd, array &$logs): int {
-    exec($cmd . " 2>&1", $out, $ret);
+    zram_exec($cmd . " 2>&1", $out, $ret);
     $output = implode(" ", $out);
     $logs[] = ['cmd' => $cmd, 'output' => $output, 'status' => $ret];
     zram_log("CMD: $cmd | Status: $ret | Output: $output", 'INFO');
@@ -168,7 +206,7 @@ function zram_thp_current(string $thpFile = ZRAM_THP_FILE): string {
  * with THP "always" is the sign that the kernel wastes time on compaction.
  * Returns ['alloc' => int, 'fallback' => int, 'failed_pct' => ?int].
  */
-function zram_thp_fault_stats(string $vmstatFile = '/proc/vmstat'): array {
+function zram_thp_fault_stats(string $vmstatFile = ZRAM_PROC_VMSTAT): array {
     $raw = (string)@file_get_contents($vmstatFile);
     $alloc = preg_match('/^thp_fault_alloc (\d+)$/m', $raw, $m) ? intval($m[1]) : 0;
     $fallback = preg_match('/^thp_fault_fallback (\d+)$/m', $raw, $m) ? intval($m[1]) : 0;
@@ -306,11 +344,11 @@ function zram_get_our_device(): string {
     // every block device on the system to find the label match -- including
     // unassigned, spun-down disks -- which wakes them just to read their headers
     // on every Dashboard page load (forums.unraid.net/topic/196763, 2026-08-30).
-    $candidates = glob('/dev/zram*') ?: [];
+    $candidates = glob(ZRAM_DEV_DIR . '/zram*') ?: [];
     if ($candidates) {
         $cmd = 'blkid -c /dev/null -t LABEL=' . escapeshellarg(ZRAM_LABEL) . ' -o device '
              . implode(' ', array_map('escapeshellarg', $candidates)) . ' 2>/dev/null';
-        exec($cmd, $out);
+        zram_exec($cmd, $out);
         foreach ($out as $line) {
             $dev = trim($line);
             if (strpos($dev, '/dev/zram') === 0) {
@@ -321,7 +359,7 @@ function zram_get_our_device(): string {
     // Fallback: cached device file (written at creation time)
     if (file_exists(ZRAM_DEVICE_FILE)) {
         $cached = trim(@file_get_contents(ZRAM_DEVICE_FILE));
-        if ($cached && file_exists("/sys/block/$cached")) {
+        if ($cached && file_exists(ZRAM_SYS_BLOCK . "/$cached")) {
             return $cached;
         }
     }
@@ -341,7 +379,7 @@ function zram_get_our_device(): string {
 function zram_ssd_swap_target(string $backing, string $path): array {
     if ($backing === 'loop') {
         $ljOut = [];
-        exec('losetup -j ' . escapeshellarg($path) . ' 2>/dev/null', $ljOut);
+        zram_exec('losetup -j ' . escapeshellarg($path) . ' 2>/dev/null', $ljOut);
         foreach ($ljOut as $ljLine) {
             if (preg_match('#^(/dev/loop\d+):#', $ljLine, $ljm)) {
                 return ['target' => $ljm[1], 'dev' => basename($ljm[1])];
@@ -365,7 +403,7 @@ function zram_ssd_swap_backing_size(string $path): int {
     $real = realpath($path);
     if ($real === false) return 0;
     if (filetype($real) === 'block') {
-        $sectors = @file_get_contents('/sys/class/block/' . basename($real) . '/size');
+        $sectors = @file_get_contents(ZRAM_SYS_CLASS_BLOCK . '/' . basename($real) . '/size');
         return $sectors === false ? 0 : intval(trim($sectors)) * 512;
     }
     return intval(@filesize($real));
@@ -379,10 +417,10 @@ function zram_get_ssd_swap(): string {
     $path    = $cfg['ssd_swap_path'] ?? '';
     $backing = $cfg['ssd_swap_backing'] ?? 'file';
     if ($path && file_exists($path)) {
-        $swaps = @file_get_contents('/proc/swaps') ?: '';
+        $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
         if ($backing === 'loop') {
             $ljOut = [];
-            exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut);
+            zram_exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut);
             $loopDev = '';
             foreach ($ljOut as $line) {
                 if (preg_match('#^(/dev/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
@@ -431,13 +469,13 @@ function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): b
 
     // For loop-backed swap, /proc/swaps lists /dev/loopN — not the image path.
     if ($backing === 'loop') {
-        exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut);
+        zram_exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut);
         $loopDev = '';
         foreach ($ljOut as $line) {
             if (preg_match('#^(/dev/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
         }
         if ($loopDev !== '') {
-            $swaps = @file_get_contents('/proc/swaps') ?: '';
+            $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
             if (preg_match('/^' . preg_quote($loopDev, '/') . '\s/m', $swaps) === 1) return false; // already active
         }
     } elseif ($backing === 'zvol') {
@@ -445,11 +483,11 @@ function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): b
         // not the /dev/zvol/<pool>/<dataset> symlink path. See TIER2_ZVOL_SWAP.md.
         $zvolDev = realpath($path) ?: '';
         if ($zvolDev !== '') {
-            $swaps = @file_get_contents('/proc/swaps') ?: '';
+            $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
             if (preg_match('/^' . preg_quote($zvolDev, '/') . '\s/m', $swaps) === 1) return false; // already active
         }
     } else {
-        $swaps = @file_get_contents('/proc/swaps') ?: '';
+        $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
         if (strpos($swaps, $path) !== false) return false;     // already active
     }
 
@@ -469,15 +507,15 @@ function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): b
     if ($backing === 'loop') {
         // Resolve or attach loop device
         $ljOut2 = [];
-        exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut2);
+        zram_exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut2);
         $loopDev = '';
         foreach ($ljOut2 as $line) {
             if (preg_match('#^(/dev/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
         }
         if ($loopDev === '') {
-            exec('modprobe loop 2>/dev/null');
+            zram_exec('modprobe loop 2>/dev/null');
             $lfOut = [];
-            exec("losetup -f --show " . escapeshellarg($path) . " 2>/dev/null", $lfOut);
+            zram_exec("losetup -f --show " . escapeshellarg($path) . " 2>/dev/null", $lfOut);
             $loopDev = trim(end($lfOut) ?: '');
         }
         if (!preg_match('#^/dev/loop\d+$#', $loopDev)) {
@@ -486,7 +524,7 @@ function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): b
             return true;
         }
         // Check again in case it got activated between the pre-check and now
-        $swaps = @file_get_contents('/proc/swaps') ?: '';
+        $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
         if (preg_match('/^' . preg_quote($loopDev, '/') . '\s/m', $swaps) === 1) return false;
 
         if (zram_run('swapon ' . escapeshellarg($loopDev) . ' -p ' . $prio, $logs) === 0) {
@@ -510,7 +548,7 @@ function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): b
             return true;
         }
         // Check again in case it got activated between the pre-check and now
-        $swaps = @file_get_contents('/proc/swaps') ?: '';
+        $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
         if (preg_match('/^' . preg_quote($zvolDev, '/') . '\s/m', $swaps) === 1) return false;
 
         if (zram_run('swapon ' . escapeshellarg($path) . ' -p ' . $prio, $logs) === 0) {
@@ -542,7 +580,7 @@ function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): b
  * True when the Tier 2 swap at $path is in /proc/swaps. A loop image is listed
  * as /dev/loopN and a zvol as /dev/zdN, so resolve the target first.
  */
-function zram_ssd_swap_is_active(string $backing, string $path, string $swapsFile = '/proc/swaps'): bool {
+function zram_ssd_swap_is_active(string $backing, string $path, string $swapsFile = ZRAM_PROC_SWAPS): bool {
     $target = zram_ssd_swap_target($backing, $path)['target'];
     $swaps = @file_get_contents($swapsFile) ?: '';
     return preg_match('/^' . preg_quote($target, '/') . '\s/m', $swaps) === 1;
@@ -584,7 +622,7 @@ function zram_activate_disk_swap_at_array_start(int $waitSeconds = 60, ?callable
 /** Check if evacuation is safe before swapoff. */
 function zram_evacuation_safe(string $target, array &$logs): array {
     $zram_data = 0;
-    exec("zramctl --bytes --noheadings --raw --output NAME,DATA 2>/dev/null", $z_out);
+    zram_exec("zramctl --bytes --noheadings --raw --output NAME,DATA 2>/dev/null", $z_out);
     foreach ($z_out as $line) {
         $p = preg_split('/\s+/', trim($line));
         if (count($p) < 2) continue;
@@ -593,12 +631,12 @@ function zram_evacuation_safe(string $target, array &$logs): array {
             $zram_data += intval($p[1]);
         }
     }
-    $mem = @file_get_contents('/proc/meminfo') ?: '';
+    $mem = @file_get_contents(ZRAM_PROC_MEMINFO) ?: '';
     preg_match('/MemAvailable:\s+(\d+)/', $mem, $m);
     $avail = intval($m[1] ?? 0) * 1024;
 
     $other_swap = 0;
-    exec("swapon --bytes --noheadings --show=NAME,SIZE,USED 2>/dev/null", $s_out);
+    zram_exec("swapon --bytes --noheadings --show=NAME,SIZE,USED 2>/dev/null", $s_out);
     foreach ($s_out as $line) {
         $p = preg_split('/\s+/', trim($line));
         if (count($p) >= 3 && strpos($p[0], 'zram') === false) {
