@@ -8,9 +8,10 @@
 # Run in the background: the PHP waits up to 60 s for a zvol's /dev/zvol link,
 # and emhttp must not wait for it.
 
-PHP_LIB="/usr/local/emhttp/plugins/unraid-zram-card/zram_config.php"
+PHP_LIB="${ZRAM_PLUGIN_DIR:-/usr/local/emhttp/plugins/unraid-zram-card}/zram_config.php"
 [ -f "$PHP_LIB" ] || exit 0
 
+# shellcheck disable=SC2016  # the PHP code is single-quoted on purpose: $argv is PHP, not shell
 nohup php -r 'require $argv[1]; zram_activate_disk_swap_at_array_start(60);' "$PHP_LIB" \
     >/dev/null 2>&1 &
 exit 0

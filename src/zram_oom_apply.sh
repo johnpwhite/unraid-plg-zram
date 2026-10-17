@@ -5,14 +5,17 @@
 #   With no argument: applies container + service levels + installs libvirt hook
 #   With vm_name:     applies that VM's oom_score_adj (called from hook on started)
 
-CONFIG="/boot/config/plugins/unraid-zram-card/settings.ini"
-LOG="/tmp/unraid-zram-card/boot_init.log"
-HOOK_PATH="/etc/libvirt/hooks/qemu"
+CONFIG="${ZRAM_CONFIG:-/boot/config/plugins/unraid-zram-card/settings.ini}"
+LOG="${ZRAM_LOG_DIR:-/tmp/unraid-zram-card}/boot_init.log"
+HOOK_PATH="${ZRAM_HOOK_PATH:-/etc/libvirt/hooks/qemu}"
 HOOK_MARKER_START="# BEGIN zram-oom-protection"
 HOOK_MARKER_END="# END zram-oom-protection"
 PHP_HOOK_MARKER_START="// BEGIN zram-oom-protection"
 PHP_HOOK_MARKER_END="// END zram-oom-protection"
-PROTECTED_CGROUP_ROOT="/sys/fs/cgroup/zram-protected"
+CGROUP_ROOT="${ZRAM_CGROUP_ROOT:-/sys/fs/cgroup}"
+PROC_DIR="${ZRAM_PROC_DIR:-/proc}"
+LIBVIRT_RUN="${ZRAM_LIBVIRT_RUN:-/run/libvirt/qemu}"
+PROTECTED_CGROUP_ROOT="$CGROUP_ROOT/zram-protected"
 
 mkdir -p "$(dirname "$LOG")"
 
@@ -59,11 +62,11 @@ oom_level_for_id() {
 # write_oom_score_adj PID SCORE LABEL
 write_oom_score_adj() {
     local pid="$1" score="$2" label="$3"
-    if [ ! -f "/proc/$pid/oom_score_adj" ]; then
+    if [ ! -f "$PROC_DIR/$pid/oom_score_adj" ]; then
         zlog "oom_score_adj: pid $pid not found ($label)" WARN
         return 1
     fi
-    if echo "$score" > "/proc/$pid/oom_score_adj" 2>/dev/null; then
+    if echo "$score" > "$PROC_DIR/$pid/oom_score_adj" 2>/dev/null; then
         zlog "OOM: $label pid=$pid oom_score_adj=$score" INFO
         return 0
     fi
@@ -99,9 +102,9 @@ apply_memory_min() {
 # vm_cgroup_dir PID — resolve a VM qemu pid's cgroup v2 directory.
 vm_cgroup_dir() {
     local pid="$1" cg
-    cg=$(sed -n 's#^0::##p' "/proc/$pid/cgroup" 2>/dev/null | head -1)
+    cg=$(sed -n 's#^0::##p' "$PROC_DIR/$pid/cgroup" 2>/dev/null | head -1)
     cg="${cg%/emulator}"
-    [ -n "$cg" ] && echo "/sys/fs/cgroup${cg%/}"
+    [ -n "$cg" ] && echo "$CGROUP_ROOT${cg%/}"
 }
 
 # vm_max_memory_bytes VM_NAME — the VM's configured max memory, in bytes.
@@ -136,7 +139,7 @@ protect_proc_pid() {
         zlog "OOM: proc:$label (pid $pid) — could not move into protected cgroup" WARN
         return 1
     fi
-    rss_kb=$(awk '/^VmRSS:/{print $2}' "/proc/$pid/status" 2>/dev/null)
+    rss_kb=$(awk '/^VmRSS:/{print $2}' "$PROC_DIR/$pid/status" 2>/dev/null)
     if [ -z "$rss_kb" ] || [ "$rss_kb" -le 0 ] 2>/dev/null; then
         zlog "OOM: proc:$label (pid $pid) — could not read RSS, skipping memory.min" WARN
         return 1
@@ -176,6 +179,12 @@ PHPHOOKBLOCK
 # contract as the bash path.
 install_hook_block_php() {
     local base tmp blockfile
+    # A BEGIN marker with no END marker would make the strip below delete the
+    # rest of the hook file. Leave such a file alone.
+    if grep -qF "$PHP_HOOK_MARKER_START" "$HOOK_PATH" && ! grep -qF "$PHP_HOOK_MARKER_END" "$HOOK_PATH"; then
+        zlog "OOM: PHP libvirt hook has a BEGIN marker but no END marker — leaving unchanged" ERROR
+        return 1
+    fi
     base=$(mktemp)
     # # delimiter, not /: the marker text itself starts with // (PHP comment
     # prefix), which collides with sed's default / delimiter.
@@ -221,7 +230,7 @@ install_hook_block_php() {
 install_hook_block() {
     local hook_block="$1"
 
-    mkdir -p /etc/libvirt/hooks
+    mkdir -p "$(dirname "$HOOK_PATH")"
     if [ ! -f "$HOOK_PATH" ]; then
         printf '#!/bin/bash\n# Libvirt qemu hook\n' > "$HOOK_PATH"
     elif head -n1 "$HOOK_PATH" | grep -qi 'php'; then
@@ -230,6 +239,11 @@ install_hook_block() {
     fi
 
     local base tmp last_line_no last_line
+    # Same guard as the PHP path: sed would delete from a lone BEGIN to the end of the file.
+    if grep -qF "$HOOK_MARKER_START" "$HOOK_PATH" && ! grep -qF "$HOOK_MARKER_END" "$HOOK_PATH"; then
+        zlog "OOM: libvirt hook has a BEGIN marker but no END marker — leaving unchanged" ERROR
+        return 1
+    fi
     base=$(mktemp)
     sed "/$HOOK_MARKER_START/,/$HOOK_MARKER_END/d" "$HOOK_PATH" > "$base"
     tmp=$(mktemp)
@@ -298,7 +312,7 @@ if [ -n "$VM_ARG" ]; then
     zlog "OOM hook: applying VM $VM_ARG" INFO
     LEVEL=$(oom_level_for_id "vm:$VM_ARG" "$OOM_LEVELS" "$OOM_DEFAULT")
     SCORE=$(oom_score_for_level "$LEVEL")
-    PIDFILE="/run/libvirt/qemu/${VM_ARG}.pid"
+    PIDFILE="$LIBVIRT_RUN/${VM_ARG}.pid"
     if [ -f "$PIDFILE" ]; then
         PID=$(cat "$PIDFILE")
         write_oom_score_adj "$PID" "$SCORE" "vm:$VM_ARG"
@@ -326,21 +340,25 @@ if command -v docker >/dev/null 2>&1; then
         [ $RUNNING -eq 0 ] && continue
         LEVEL=$(oom_level_for_id "docker:$CNAME" "$OOM_LEVELS" "$OOM_DEFAULT")
         SCORE=$(oom_score_for_level "$LEVEL")
-        CGROUPFILE="/sys/fs/cgroup/docker/$CID/cgroup.procs"
+        CGROUPFILE="$CGROUP_ROOT/docker/$CID/cgroup.procs"
         if [ -f "$CGROUPFILE" ]; then
             while read -r PID; do
                 [ -z "$PID" ] || write_oom_score_adj "$PID" "$SCORE" "docker:$CNAME"
             done < "$CGROUPFILE"
             # memory.oom.group
             if [ "$OOM_GROUP" = "yes" ]; then
-                OOGFILE="/sys/fs/cgroup/docker/$CID/memory.oom.group"
+                OOGFILE="$CGROUP_ROOT/docker/$CID/memory.oom.group"
                 if [ -f "$OOGFILE" ]; then
-                    echo 1 > "$OOGFILE" 2>/dev/null && zlog "OOM: docker:$CNAME memory.oom.group=1" INFO
+                    if echo 1 > "$OOGFILE" 2>/dev/null; then
+                        zlog "OOM: docker:$CNAME memory.oom.group=1" INFO
+                    else
+                        zlog "OOM: docker:$CNAME — memory.oom.group write failed" WARN
+                    fi
                 fi
             fi
             if [ "$LEVEL" = "protected" ] && [ "$VM_MEMORY_MIN" = "yes" ]; then
                 DLIMIT=$(docker_memory_limit_bytes "$CNAME")
-                apply_memory_min "/sys/fs/cgroup/docker/$CID" "$DLIMIT" "docker:$CNAME"
+                apply_memory_min "$CGROUP_ROOT/docker/$CID" "$DLIMIT" "docker:$CNAME"
             fi
         else
             zlog "OOM: container $CNAME cgroup.procs not found ($CGROUPFILE)" WARN
@@ -350,17 +368,27 @@ fi
 
 # --- Plugin/host services ---
 # Curated defaults + user patterns
-PATTERNS="mover:unraid_mover shfs:shfs btrfs:btrfs"
+# One "label<TAB>pattern" line per entry. A user pattern may hold spaces or a
+# colon ("php artisan"); a space-split list turned it into several patterns
+# and a colon cut it in two, so pgrep could match and protect other programs.
+TAB=$'\t'
+PATTERNS="mover${TAB}unraid_mover
+shfs${TAB}shfs
+btrfs${TAB}btrfs"
 if [ -n "$OOM_PROC_PATTERNS" ]; then
     OLDIFS="$IFS"; IFS=','
     for PAT in $OOM_PROC_PATTERNS; do
-        PATTERNS="$PATTERNS $PAT:$PAT"
+        # trim leading and trailing blanks (the settings page trims them too)
+        PAT="${PAT#"${PAT%%[![:space:]]*}"}"
+        PAT="${PAT%"${PAT##*[![:space:]]}"}"
+        [ -n "$PAT" ] || continue
+        PATTERNS="$PATTERNS
+$PAT${TAB}$PAT"
     done
     IFS="$OLDIFS"
 fi
-for ENTRY in $PATTERNS; do
-    LABEL="${ENTRY%%:*}"
-    PATTERN="${ENTRY##*:}"
+while IFS="$TAB" read -r LABEL PATTERN <&3; do
+    [ -n "$PATTERN" ] || continue
     LEVEL=$(oom_level_for_id "proc:$LABEL" "$OOM_LEVELS" "$OOM_DEFAULT")
     SCORE=$(oom_score_for_level "$LEVEL")
     while read -r PID; do
@@ -369,7 +397,7 @@ for ENTRY in $PATTERNS; do
             protect_proc_pid "$PID" "$LABEL"
         fi
     done < <(pgrep -f "$PATTERN" 2>/dev/null)
-done
+done 3<<< "$PATTERNS"
 
 # --- VMs: apply to any running VMs at boot ---
 if command -v virsh >/dev/null 2>&1; then
@@ -377,7 +405,7 @@ if command -v virsh >/dev/null 2>&1; then
         [ -z "$VMNAME" ] && continue
         LEVEL=$(oom_level_for_id "vm:$VMNAME" "$OOM_LEVELS" "$OOM_DEFAULT")
         SCORE=$(oom_score_for_level "$LEVEL")
-        PIDFILE="/run/libvirt/qemu/${VMNAME}.pid"
+        PIDFILE="$LIBVIRT_RUN/${VMNAME}.pid"
         if [ -f "$PIDFILE" ]; then
             PID=$(cat "$PIDFILE")
             write_oom_score_adj "$PID" "$SCORE" "vm:$VMNAME"

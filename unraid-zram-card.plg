@@ -239,6 +239,21 @@ if ! tar -xzf "$ARCHIVE" -C "$STAGE" 2>/dev/null; then
     exit 1
 fi
 
+# A zero-byte file in the archive must also leave the working install alone.
+# Check every staged file BEFORE the teardown below.
+EMPTY_STAGED=0
+for mapping in "${FILES[@]}"; do
+    SRC="${mapping##*:}"
+    if [ ! -s "$STAGE/$SRC" ]; then
+        echo "ERROR: $SRC is empty in the source archive."
+        EMPTY_STAGED=$((EMPTY_STAGED+1))
+    fi
+done
+if [ "$EMPTY_STAGED" -gt 0 ]; then
+    echo "FATAL: $EMPTY_STAGED required file(s) empty in source archive. Existing installation was not changed."
+    exit 1
+fi
+
 rm -rf "$EMHTTP_DEST"
 mkdir -p "$EMHTTP_DEST/js"
 mkdir -p "$EMHTTP_DEST/event"
@@ -250,11 +265,15 @@ for mapping in "${FILES[@]}"; do
     echo "Installing $DEST ..."
     if [ -s "$STAGE/$SRC" ]; then
         mkdir -p "$(dirname "$EMHTTP_DEST/$DEST")"
-        cp "$STAGE/$SRC" "$EMHTTP_DEST/$DEST"
-        # Static assets nginx serves directly (icon PNG, JS files, README)
-        # must be world-readable or they 404 for user `nobody`. The chmod +x
-        # block below makes the named scripts also executable (0755).
-        chmod 0644 "$EMHTTP_DEST/$DEST"
+        if cp "$STAGE/$SRC" "$EMHTTP_DEST/$DEST"; then
+            # Static assets nginx serves directly (icon PNG, JS files, README)
+            # must be world-readable or they 404 for user `nobody`. The chmod +x
+            # block below makes the named scripts also executable (0755).
+            chmod 0644 "$EMHTTP_DEST/$DEST"
+        else
+            echo "ERROR: could not copy $SRC to $EMHTTP_DEST/$DEST."
+            FAILED=$((FAILED+1))
+        fi
     else
         echo "ERROR: $SRC missing or empty in extracted archive."
         FAILED=$((FAILED+1))
@@ -365,21 +384,24 @@ if [ -f "$CONFIG_DIR/settings.ini" ]; then
         LOOP_DEV=$(losetup -j "$SSD_PATH" 2>/dev/null | awk -F: '{print $1; exit}')
         if [ -n "$LOOP_DEV" ] &amp;&amp; grep -q "^$LOOP_DEV " /proc/swaps 2>/dev/null; then
             echo "Deactivating loop-backed swap: $SSD_PATH via $LOOP_DEV"
-            swapoff "$LOOP_DEV" 2>/dev/null
-            losetup -d "$LOOP_DEV" 2>/dev/null
+            if swapoff "$LOOP_DEV" 2>/dev/null; then
+                losetup -d "$LOOP_DEV" 2>/dev/null
+            else
+                echo "WARNING: could not turn off swap on $LOOP_DEV - it may stay in use"
+            fi
         fi
     elif [ "$BACKING" = "zvol" ]; then
         ZVOL_DEV=$(readlink -f "$SSD_PATH" 2>/dev/null)
         if [ -n "$ZVOL_DEV" ] &amp;&amp; grep -q "^$ZVOL_DEV " /proc/swaps 2>/dev/null; then
             echo "Deactivating zvol-backed swap: $SSD_PATH via $ZVOL_DEV"
-            swapoff "$ZVOL_DEV" 2>/dev/null
+            swapoff "$ZVOL_DEV" 2>/dev/null || echo "WARNING: could not turn off swap on $ZVOL_DEV - it may stay in use"
         fi
         # No losetup -d equivalent — a zvol isn't "attached" the way a loop
         # device is; swapoff alone releases it. The zvol dataset itself is
         # preserved below, same policy as the loop image / swap file.
-    elif [ -n "$SSD_PATH" ] &amp;&amp; grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
+    elif [ -n "$SSD_PATH" ] &amp;&amp; P="$SSD_PATH" awk '$1 == ENVIRON["P"] { f = 1 } END { exit !f }' /proc/swaps 2>/dev/null; then
         echo "Deactivating SSD swap: $SSD_PATH"
-        swapoff "$SSD_PATH" 2>/dev/null
+        swapoff "$SSD_PATH" 2>/dev/null || echo "WARNING: could not turn off swap on $SSD_PATH - it may stay in use"
     fi
     # NOTE: the Tier 2 swap file/image/zvol itself is intentionally preserved on
     # uninstall — it is user data, often gigabytes, and recreating it requires
@@ -395,7 +417,7 @@ for zdev in /sys/block/zram*; do
     ELABEL=$(blkid -s LABEL -o value "/dev/$ZID" 2>/dev/null || true)
     if [ "$ELABEL" = "$ZRAM_LABEL" ]; then
         echo "Deactivating /dev/$ZID (label: $ZRAM_LABEL)"
-        swapoff "/dev/$ZID" 2>/dev/null
+        swapoff "/dev/$ZID" 2>/dev/null || echo "WARNING: could not turn off swap on /dev/$ZID - it may stay in use"
         zramctl --reset "/dev/$ZID" 2>/dev/null
     fi
 done
@@ -405,11 +427,13 @@ done
 # Unraid's own VFIO passthrough hook generator writes PHP, not bash. See
 # docs/specs/OOM_PROTECTION.md (Forgejo #22).
 HOOK="/etc/libvirt/hooks/qemu"
-if [ -f "$HOOK" ] &amp;&amp; grep -q "# BEGIN zram-oom-protection" "$HOOK" 2>/dev/null; then
+# A BEGIN marker with no END marker would make sed delete the rest of the file,
+# so strip a block only when both markers are present.
+if [ -f "$HOOK" ] &amp;&amp; grep -q "# BEGIN zram-oom-protection" "$HOOK" 2>/dev/null &amp;&amp; grep -q "# END zram-oom-protection" "$HOOK" 2>/dev/null; then
     sed -i '/# BEGIN zram-oom-protection/,/# END zram-oom-protection/d' "$HOOK"
     echo "Removed OOM hook block from $HOOK"
 fi
-if [ -f "$HOOK" ] &amp;&amp; grep -q "// BEGIN zram-oom-protection" "$HOOK" 2>/dev/null; then
+if [ -f "$HOOK" ] &amp;&amp; grep -q "// BEGIN zram-oom-protection" "$HOOK" 2>/dev/null &amp;&amp; grep -q "// END zram-oom-protection" "$HOOK" 2>/dev/null; then
     sed -i '\#// BEGIN zram-oom-protection#,\#// END zram-oom-protection#d' "$HOOK"
     echo "Removed OOM hook block (PHP) from $HOOK"
 fi

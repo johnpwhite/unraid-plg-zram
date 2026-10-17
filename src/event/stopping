@@ -20,8 +20,9 @@
 # so nothing can turn it on again during the stop. event/disks_mounted turns it
 # on at the next array start.
 
-CONFIG="/boot/config/plugins/unraid-zram-card/settings.ini"
-LOG="/tmp/unraid-zram-card/boot_init.log"
+CONFIG="${ZRAM_CONFIG:-/boot/config/plugins/unraid-zram-card/settings.ini}"
+LOG="${ZRAM_LOG_DIR:-/tmp/unraid-zram-card}/boot_init.log"
+PROC_SWAPS="${ZRAM_PROC_SWAPS:-/proc/swaps}"
 
 mkdir -p "$(dirname "$LOG")"
 
@@ -29,7 +30,7 @@ ts() { date '+%Y-%m-%d %H:%M:%S'; }
 
 # A failed swapoff blocks the pool export and hangs the array stop, so it must
 # also reach the syslog, where the person reads why the stop hangs (Forgejo #26).
-syslog() { logger -t zram-tier2 "$1" 2>/dev/null; }
+syslog() { logger -t zram-tier2 "$1" 2>/dev/null || true; }
 
 [ -f "$CONFIG" ] || exit 0
 
@@ -41,7 +42,7 @@ SSD_BACKING=$(grep '^ssd_swap_backing=' "$CONFIG" 2>/dev/null | cut -d'"' -f2)
 
 if [ "$SSD_BACKING" = "loop" ]; then
     LOOP_DEV=$(losetup -j "$SSD_PATH" 2>/dev/null | awk -F: '{print $1; exit}')
-    if [ -n "$LOOP_DEV" ] && grep -q "^$LOOP_DEV " /proc/swaps 2>/dev/null; then
+    if [ -n "$LOOP_DEV" ] && grep -q "^$LOOP_DEV " "$PROC_SWAPS" 2>/dev/null; then
         echo "[$(ts)] [INFO] stopping: swapoff $SSD_PATH via $LOOP_DEV" >> "$LOG"
         RC=0
         swapoff "$LOOP_DEV" 2>&1 || RC=$?
@@ -59,7 +60,7 @@ if [ "$SSD_BACKING" = "loop" ]; then
     fi
 elif [ "$SSD_BACKING" = "zvol" ]; then
     ZVOL_DEV=$(readlink -f "$SSD_PATH" 2>/dev/null)
-    if [ -n "$ZVOL_DEV" ] && grep -q "^$ZVOL_DEV " /proc/swaps 2>/dev/null; then
+    if [ -n "$ZVOL_DEV" ] && grep -q "^$ZVOL_DEV " "$PROC_SWAPS" 2>/dev/null; then
         echo "[$(ts)] [INFO] stopping: swapoff $SSD_PATH via $ZVOL_DEV" >> "$LOG"
         syslog "turning off Tier 2 zvol swap $SSD_PATH ($ZVOL_DEV) before array stop"
         RC=0
@@ -71,7 +72,9 @@ elif [ "$SSD_BACKING" = "zvol" ]; then
             syslog "swapoff of Tier 2 swap $SSD_PATH failed (rc=$RC) - array stop may hang until it is turned off"
         fi
     fi
-elif grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
+elif P="$SSD_PATH" awk '$1 == ENVIRON["P"] { f = 1 } END { exit !f }' "$PROC_SWAPS" 2>/dev/null; then
+    # Exact match on the first field. A plain grep also matched a longer path
+    # (swap vs swap2), so swapoff ran on a swap that was not active.
     echo "[$(ts)] [INFO] stopping: swapoff $SSD_PATH" >> "$LOG"
     RC=0
     swapoff "$SSD_PATH" 2>&1 || RC=$?

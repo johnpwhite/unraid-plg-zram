@@ -2,12 +2,36 @@
 # zram_init.sh — Boot initialization for ZRAM Card plugin
 # Creates labeled ZRAM swap, reactivates disk swap file, launches collector
 
-LOG_DIR="/tmp/unraid-zram-card"
+LOG_DIR="${ZRAM_LOG_DIR:-/tmp/unraid-zram-card}"
 mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/boot_init.log"
 DEBUG_LOG="$LOG_DIR/debug.log"
-CONFIG="/boot/config/plugins/unraid-zram-card/settings.ini"
+CONFIG="${ZRAM_CONFIG:-/boot/config/plugins/unraid-zram-card/settings.ini}"
 DEVICE_FILE="$LOG_DIR/device.conf"
+# Test seams (docs/specs/TEST_SEAMS.md). Each ZRAM_* variable has the
+# production default, so nothing changes when no variable is set.
+PROC_SWAPS="${ZRAM_PROC_SWAPS:-/proc/swaps}"
+PROC_MEMINFO="${ZRAM_PROC_MEMINFO:-/proc/meminfo}"
+SYS_BLOCK="${ZRAM_SYS_BLOCK:-/sys/block}"
+ZRAM_CONTROL="${ZRAM_CONTROL_DIR:-/sys/class/zram-control}"
+DEV_DIR="${ZRAM_DEV_DIR:-/dev}"
+PLUGIN_DIR="${ZRAM_PLUGIN_DIR:-/usr/local/emhttp/plugins/unraid-zram-card}"
+RETRY_ROUNDS="${ZRAM_RETRY_ROUNDS:-60}"
+RETRY_SLEEP="${ZRAM_RETRY_SLEEP:-5}"
+
+# is_blk PATH — true for a block device. A test sets ZRAM_FAKE_BLOCK=1 so a
+# plain file counts as one (a test cannot create a real block device).
+is_blk() {
+    [ -b "$1" ] && return 0
+    [ -n "${ZRAM_FAKE_BLOCK:-}" ] && [ -e "$1" ]
+}
+
+# swap_listed PATH — true when PATH is the exact first field of a /proc/swaps
+# line. A plain `grep PATH` also matched a longer path (swap vs swap2) and
+# treated dots in the path as wildcards.
+swap_listed() {
+    P="$1" awk '$1 == ENVIRON["P"] { f = 1 } END { exit !f }' "$PROC_SWAPS" 2>/dev/null
+}
 ZRAM_LABEL="ZRAM_CARD"
 SSD_LABEL="ZRAM_CARD_DISK"
 SSD_LEGACY_LABEL="ZRAM_CARD_SSD"
@@ -42,7 +66,7 @@ if [ -f "$CONFIG" ]; then
         FIRST_ALGO=""
         IFS=',' read -ra ENTRIES <<< "$OLD_DEVS"
         for entry in "${ENTRIES[@]}"; do
-            IFS=':' read -r ESIZE EALGO EPRIO <<< "$entry"
+            IFS=':' read -r ESIZE EALGO _ <<< "$entry"
             if [ -z "$FIRST_ALGO" ] && [ -n "$EALGO" ]; then FIRST_ALGO="$EALGO"; fi
             # Parse size to MB
             NUM=$(echo "$ESIZE" | grep -oE '[0-9]+')
@@ -82,8 +106,8 @@ sysctl -q vm.swappiness="$SWAPPINESS"
 # --- Apply huge pages (THP) and background compaction ---
 # "system" leaves the kernel value alone. The first change in a boot saves the
 # original values to thp-original.conf so "system" can restore them later.
-THP_FILE="/sys/kernel/mm/transparent_hugepage/enabled"
-COMPACT_FILE="/proc/sys/vm/compaction_proactiveness"
+THP_FILE="${ZRAM_THP_FILE:-/sys/kernel/mm/transparent_hugepage/enabled}"
+COMPACT_FILE="${ZRAM_COMPACTION_FILE:-/proc/sys/vm/compaction_proactiveness}"
 THP_ORIG="$LOG_DIR/thp-original.conf"
 THP_MODE=$(cfg_val "thp_mode")
 THP_COMPACTION=$(cfg_val "thp_compaction")
@@ -138,25 +162,25 @@ SWAPON=$(command -v swapon || echo "/sbin/swapon")
 create_zram_device() {
     local size="$1" algo="$2" id dev i
 
-    if [ -e /sys/class/zram-control/hot_add ]; then
+    if [ -e "$ZRAM_CONTROL/hot_add" ]; then
         id=""
         for i in 1 2 3; do
-            id=$(cat /sys/class/zram-control/hot_add 2>/dev/null)
+            id=$(cat "$ZRAM_CONTROL/hot_add" 2>/dev/null)
             case "$id" in (''|*[!0-9]*) id="" ; sleep 0.3 ;; (*) break ;; esac
         done
-        if [ -n "$id" ] && [ -d "/sys/block/zram${id}" ]; then
-            dev="/dev/zram${id}"
+        if [ -n "$id" ] && [ -d "$SYS_BLOCK/zram${id}" ]; then
+            dev="$DEV_DIR/zram${id}"
             # comp_algorithm MUST be written before disksize.
-            if [ -n "$algo" ] && ! echo "$algo" > "/sys/block/zram${id}/comp_algorithm" 2>/dev/null; then
+            if [ -n "$algo" ] && ! echo "$algo" > "$SYS_BLOCK/zram${id}/comp_algorithm" 2>/dev/null; then
                 zlog "Kernel rejected algorithm '$algo' on $dev; using kernel default" "WARN"
             fi
             # disksize via sysfs uses memparse(), so "8G"/"512M" are accepted verbatim.
-            if echo "$size" > "/sys/block/zram${id}/disksize" 2>/dev/null; then
+            if echo "$size" > "$SYS_BLOCK/zram${id}/disksize" 2>/dev/null; then
                 printf '%s' "$dev"
                 return 0
             fi
             zlog "Failed to set disksize=$size on $dev via sysfs; releasing id $id" "WARN"
-            echo "$id" > /sys/class/zram-control/hot_remove 2>/dev/null || true
+            echo "$id" > "$ZRAM_CONTROL/hot_remove" 2>/dev/null || true
         fi
     fi
 
@@ -165,7 +189,7 @@ create_zram_device() {
     dev=""
     for i in 1 2 3 4 5; do
         if dev=$($ZRAMCTL --find --size "$size" --algorithm "$algo" 2>&1) \
-           && [ -n "$dev" ] && [ -b "$dev" ]; then
+           && [ -n "$dev" ] && is_blk "$dev"; then
             printf '%s' "$dev"
             return 0
         fi
@@ -177,18 +201,18 @@ create_zram_device() {
 
 # Check if we already have a labeled device active
 EXISTING_DEV=""
-for zdev in /sys/block/zram*; do
+for zdev in "$SYS_BLOCK"/zram*; do
     [ -d "$zdev" ] || continue
     ZID=$(basename "$zdev")
-    ELABEL=$(blkid -s LABEL -o value "/dev/$ZID" 2>/dev/null || true)
+    ELABEL=$(blkid -s LABEL -o value "$DEV_DIR/$ZID" 2>/dev/null || true)
     if [ "$ELABEL" = "$ZRAM_LABEL" ]; then
         EXISTING_DEV="$ZID"
         break
     fi
 done
 
-if [ -n "$EXISTING_DEV" ] && grep -q "/dev/$EXISTING_DEV" /proc/swaps 2>/dev/null; then
-    zlog "ZRAM device /dev/$EXISTING_DEV already active (labeled $ZRAM_LABEL). Skipping." "INFO"
+if [ -n "$EXISTING_DEV" ] && grep -q "^$DEV_DIR/$EXISTING_DEV " "$PROC_SWAPS" 2>/dev/null; then
+    zlog "ZRAM device $DEV_DIR/$EXISTING_DEV already active (labeled $ZRAM_LABEL). Skipping." "INFO"
     echo "$EXISTING_DEV" > "$DEVICE_FILE"
 else
     # Calculate size
@@ -196,7 +220,7 @@ else
     if [ -z "$ZRAM_SIZE" ] || [ "$ZRAM_SIZE" = "auto" ]; then
         ZRAM_PCT=$(cfg_val "zram_percent")
         if [ -z "$ZRAM_PCT" ]; then ZRAM_PCT=50; fi
-        MEM_KB=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+        MEM_KB=$(awk '/MemTotal/{print $2}' "$PROC_MEMINFO")
         ZRAM_MB=$(( MEM_KB * ZRAM_PCT / 100 / 1024 ))
         ZRAM_SIZE="${ZRAM_MB}M"
         zlog "Auto-sized ZRAM: ${ZRAM_PCT}% of ${MEM_KB}KB = ${ZRAM_SIZE}" "INFO"
@@ -214,12 +238,17 @@ else
     zlog "Creating ZRAM: size=$ZRAM_SIZE, algo=$ZRAM_ALGO, priority=$ZRAM_PRIO" "INFO"
     modprobe zram 2>/dev/null
 
-    if DEV=$(create_zram_device "$ZRAM_SIZE" "$ZRAM_ALGO") && [ -n "$DEV" ] && [ -b "$DEV" ]; then
+    if DEV=$(create_zram_device "$ZRAM_SIZE" "$ZRAM_ALGO") && [ -n "$DEV" ] && is_blk "$DEV"; then
         zlog "Allocated $DEV, formatting with label $ZRAM_LABEL" "INFO"
-        $MKSWAP -L "$ZRAM_LABEL" "$DEV" > /dev/null 2>&1
-        $SWAPON "$DEV" -p "$ZRAM_PRIO"
-        echo "$(basename "$DEV")" > "$DEVICE_FILE"
-        zlog "Tier 1 active: $DEV" "INFO"
+        # A failed mkswap or swapon must not be logged as "Tier 1 active".
+        if ! $MKSWAP -L "$ZRAM_LABEL" "$DEV" > /dev/null 2>&1; then
+            zlog "mkswap failed on $DEV — Tier 1 is not active" "ERROR"
+        elif ! $SWAPON "$DEV" -p "$ZRAM_PRIO"; then
+            zlog "swapon failed on $DEV — Tier 1 is not active" "ERROR"
+        else
+            zlog "Tier 1 active: $DEV" "INFO"
+        fi
+        basename "$DEV" > "$DEVICE_FILE"
     else
         zlog "Failed to create ZRAM device: $DEV" "ERROR"
     fi
@@ -244,7 +273,7 @@ activate_disk_swap() {
     # -f for a plain swapfile or loop image; -b for a zvol block device
     # (e.g. /dev/zvol/<pool>/<dataset>), which is never a regular file.
     # See docs/specs/TIER2_ZVOL_SWAP.md (Forgejo #18).
-    [ -f "$path" ] || [ -b "$path" ] || return 1
+    [ -f "$path" ] || is_blk "$path" || return 1
 
     local prio
     prio=$(cfg_val "ssd_swap_priority"); [ -z "$prio" ] && prio="10"
@@ -257,20 +286,28 @@ activate_disk_swap() {
 
     if [ "$backing" = "loop" ]; then
         # Idempotency guard: is this image already attached as a loop device?
-        local LOOP_DEV
+        local LOOP_DEV fresh_loop=""
         LOOP_DEV=$(losetup -j "$path" 2>/dev/null | awk -F: '{print $1; exit}')
         if [ -n "$LOOP_DEV" ]; then
             # Loop attached — is it already in /proc/swaps?
-            if grep -q "^$LOOP_DEV " /proc/swaps 2>/dev/null; then
+            if grep -q "^$LOOP_DEV " "$PROC_SWAPS" 2>/dev/null; then
                 return 0  # already active
             fi
             # Stale attach (crash/recovery): re-use it, just swapon
         else
             # Fresh attach
             LOOP_DEV=$(losetup -f --show "$path" 2>/dev/null) || return 2
+            fresh_loop=1
         fi
         zlog "Activating loop-backed swap: $path via $LOOP_DEV (priority=$prio)" "INFO"
-        $SWAPON "$LOOP_DEV" -p "$prio" 2>&1 || return 2
+        if ! $SWAPON "$LOOP_DEV" -p "$prio" 2>&1; then
+            # Do not leave the loop device we just attached holding the image
+            # (it would keep the pool busy and be re-used as a stale attach).
+            if [ -n "$fresh_loop" ]; then
+                losetup -d "$LOOP_DEV" 2>/dev/null || zlog "Could not detach $LOOP_DEV after the swapon failure" "WARN"
+            fi
+            return 2
+        fi
         return 0
     fi
 
@@ -281,8 +318,8 @@ activate_disk_swap() {
         # symlink path, so resolve before checking activity.
         local ZVOL_DEV
         ZVOL_DEV=$(readlink -f "$path" 2>/dev/null)
-        [ -b "$ZVOL_DEV" ] || return 1
-        if grep -q "^$ZVOL_DEV " /proc/swaps 2>/dev/null; then
+        is_blk "$ZVOL_DEV" || return 1
+        if grep -q "^$ZVOL_DEV " "$PROC_SWAPS" 2>/dev/null; then
             return 0  # already active
         fi
         zlog "Activating zvol-backed swap: $path via $ZVOL_DEV (priority=$prio)" "INFO"
@@ -291,7 +328,7 @@ activate_disk_swap() {
     fi
 
     # --- Direct-file path (single-device btrfs, XFS) ---
-    if grep -q "$path" /proc/swaps 2>/dev/null; then
+    if swap_listed "$path"; then
         return 0  # already active — nothing to do
     fi
     # Migrate legacy ZRAM_CARD_SSD label to ZRAM_CARD_DISK while offline.
@@ -312,22 +349,22 @@ activate_disk_swap() {
 if [ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ]; then
     # -f for a plain swapfile/loop image; -b for a zvol block device (a zvol
     # is never a regular file). See docs/specs/TIER2_ZVOL_SWAP.md (Forgejo #18).
-    if [ -f "$SSD_PATH" ] || [ -b "$SSD_PATH" ]; then
+    if [ -f "$SSD_PATH" ] || is_blk "$SSD_PATH"; then
         if [ "$BACKING" = "loop" ]; then
             EXIST_LOOP=$(losetup -j "$SSD_PATH" 2>/dev/null | awk -F: '{print $1; exit}')
-            if [ -n "$EXIST_LOOP" ] && grep -q "^$EXIST_LOOP " /proc/swaps 2>/dev/null; then
+            if [ -n "$EXIST_LOOP" ] && grep -q "^$EXIST_LOOP " "$PROC_SWAPS" 2>/dev/null; then
                 zlog "Loop-backed swap already active: $SSD_PATH ($EXIST_LOOP)" "INFO"
             else
                 activate_disk_swap "$SSD_PATH" || zlog "Failed to activate disk swap" "ERROR"
             fi
         elif [ "$BACKING" = "zvol" ]; then
             EXIST_ZVOL=$(readlink -f "$SSD_PATH" 2>/dev/null)
-            if [ -n "$EXIST_ZVOL" ] && grep -q "^$EXIST_ZVOL " /proc/swaps 2>/dev/null; then
+            if [ -n "$EXIST_ZVOL" ] && grep -q "^$EXIST_ZVOL " "$PROC_SWAPS" 2>/dev/null; then
                 zlog "Zvol-backed swap already active: $SSD_PATH ($EXIST_ZVOL)" "INFO"
             else
                 activate_disk_swap "$SSD_PATH" || zlog "Failed to activate disk swap" "ERROR"
             fi
-        elif grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
+        elif swap_listed "$SSD_PATH"; then
             zlog "Disk swap already active: $SSD_PATH" "INFO"
         else
             activate_disk_swap "$SSD_PATH" || zlog "Failed to activate disk swap" "ERROR"
@@ -340,35 +377,40 @@ if [ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ]; then
             # Boot race: UD / pool mounts come up AFTER plugin start. Spawn a
             # background poller that retries every 5s for up to 5 minutes.
             # See docs/specs/TIER2_BOOT_RETRY.md.
-            zlog "Disk swap mount ($SSD_MOUNT) not ready — scheduling background retry (60 x 5s)" "INFO"
+            zlog "Disk swap mount ($SSD_MOUNT) not ready — scheduling background retry ($RETRY_ROUNDS x ${RETRY_SLEEP}s)" "INFO"
             (
-                for i in $(seq 1 60); do
-                    sleep 5
-                    if [ -f "$SSD_PATH" ] || [ -b "$SSD_PATH" ]; then
+                for i in $(seq 1 "$RETRY_ROUNDS"); do
+                    sleep "$RETRY_SLEEP"
+                    if [ -f "$SSD_PATH" ] || is_blk "$SSD_PATH"; then
                         if [ "$BACKING" = "loop" ]; then
                             EXIST_LOOP=$(losetup -j "$SSD_PATH" 2>/dev/null | awk -F: '{print $1;exit}')
-                            if [ -n "$EXIST_LOOP" ] && grep -q "^$EXIST_LOOP " /proc/swaps 2>/dev/null; then
-                                zlog "Tier 2 active by external trigger after $((i*5))s wait" "INFO"
+                            if [ -n "$EXIST_LOOP" ] && grep -q "^$EXIST_LOOP " "$PROC_SWAPS" 2>/dev/null; then
+                                zlog "Tier 2 active by external trigger after $((i*RETRY_SLEEP))s wait" "INFO"
                                 exit 0
                             fi
                         elif [ "$BACKING" = "zvol" ]; then
                             EXIST_ZVOL=$(readlink -f "$SSD_PATH" 2>/dev/null)
-                            if [ -n "$EXIST_ZVOL" ] && grep -q "^$EXIST_ZVOL " /proc/swaps 2>/dev/null; then
-                                zlog "Tier 2 active by external trigger after $((i*5))s wait" "INFO"
+                            if [ -n "$EXIST_ZVOL" ] && grep -q "^$EXIST_ZVOL " "$PROC_SWAPS" 2>/dev/null; then
+                                zlog "Tier 2 active by external trigger after $((i*RETRY_SLEEP))s wait" "INFO"
                                 exit 0
                             fi
                         else
-                            if grep -q "$SSD_PATH" /proc/swaps 2>/dev/null; then
-                                zlog "Tier 2 active by external trigger after $((i*5))s wait" "INFO"
+                            if swap_listed "$SSD_PATH"; then
+                                zlog "Tier 2 active by external trigger after $((i*RETRY_SLEEP))s wait" "INFO"
                                 exit 0
                             fi
                         fi
                         if activate_disk_swap "$SSD_PATH"; then
-                            zlog "Tier 2 activated after $((i*5))s wait" "INFO"
+                            zlog "Tier 2 activated after $((i*RETRY_SLEEP))s wait" "INFO"
                             exit 0
                         fi
+                        SWAPON_TRIED=1
                     fi
                 done
+                if [ -n "${SWAPON_TRIED:-}" ]; then
+                    zlog "Disk swap is present but could not be turned on after $RETRY_ROUNDS tries — Tier 2 stays inactive. Check the disk swap file or device." "ERROR"
+                    exit 1
+                fi
                 zlog "Disk swap mount ($SSD_MOUNT) never appeared after 5 minutes — Tier 2 stays inactive. Check that the mount comes up on boot." "WARN"
             ) > /dev/null 2>&1 &
             disown
@@ -377,8 +419,8 @@ if [ "$SSD_ENABLED" = "yes" ] && [ -n "$SSD_PATH" ]; then
 fi
 
 # --- Launch collector ---
-COLLECTOR="/usr/local/emhttp/plugins/unraid-zram-card/zram_collector.php"
-PIDFILE="$LOG_DIR/collector.pid"
+COLLECTOR="$PLUGIN_DIR/zram_collector.php"
+PIDFILE="${ZRAM_PIDFILE:-$LOG_DIR/collector.pid}"
 
 if [ -f "$PIDFILE" ]; then
     OLD_PID=$(cat "$PIDFILE")
@@ -402,7 +444,7 @@ if [ -f "$COLLECTOR" ]; then
 fi
 
 # --- OOM Protection apply ---
-OOM_APPLY="/usr/local/emhttp/plugins/unraid-zram-card/zram_oom_apply.sh"
+OOM_APPLY="$PLUGIN_DIR/zram_oom_apply.sh"
 if [ -x "$OOM_APPLY" ]; then
     zlog "Calling zram_oom_apply.sh for boot-time OOM apply" "INFO"
     "$OOM_APPLY" >> "$LOG" 2>&1
