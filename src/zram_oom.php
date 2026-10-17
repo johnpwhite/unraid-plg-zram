@@ -682,12 +682,17 @@ function zram_oom_handle(string $action, array $in, string $serverCsrf): array {
                 $cgroupFile = ZRAM_CGROUP_DIR . "/docker/$cid/cgroup.procs";
                 if (!file_exists($cgroupFile)) continue;
                 $pids = array_filter(explode("\n", trim(@file_get_contents($cgroupFile) ?: '')));
+                $written = 0;
                 foreach ($pids as $p) {
                     $p = trim($p);
-                    if ($p && is_numeric($p)) @file_put_contents(ZRAM_PROC_DIR . "/$p/oom_score_adj", '0');
+                    if ($p && is_numeric($p) && @file_put_contents(ZRAM_PROC_DIR . "/$p/oom_score_adj", '0') !== false) $written++;
                 }
-                $logs[] = "Container $cid: oom_score_adj reset to 0";
-                $reset++;
+                if ($written > 0) {
+                    $logs[] = "Container $cid: oom_score_adj reset to 0";
+                    $reset++;
+                } else {
+                    $logs[] = "Container $cid: oom_score_adj could not be reset (no write succeeded)";
+                }
             }
         }
 

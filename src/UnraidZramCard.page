@@ -53,6 +53,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
 }
 
 $settings = zram_config_read();
+// An empty saved size means auto (Forgejo #90).
+if (trim((string)($settings['zram_size'] ?? '')) === '') $settings['zram_size'] = 'auto';
 $thpAvailable = is_file(ZRAM_THP_FILE);
 $thpNow = zram_thp_current();
 $thpStats = zram_thp_fault_stats();

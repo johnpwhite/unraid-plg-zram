@@ -126,7 +126,7 @@ function zram_status_build(): array {
                 'mount'   => $cfg['ssd_swap_mount'],
                 'size'    => zram_ssd_swap_backing_size($ssdPath),
                 'used'    => 0,
-                'prio'    => '10',
+                'prio'    => (string)max(0, min(32767, intval($cfg['ssd_swap_priority'] ?? 10))),
                 'active'  => false,
                 'backing' => $ssdBacking,
                 'dev'     => $loopDevName,
