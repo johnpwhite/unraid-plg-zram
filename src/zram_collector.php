@@ -25,8 +25,8 @@ function zram_collector_format_bytes(int $bytes): string {
 /** Resolve the plugin-owned device with one direct, cache-bypassing blkid probe. */
 function zram_collector_find_labelled_device(string &$error): string {
     $error = '';
-    $candidates = array_values(array_filter(glob('/dev/zram*') ?: [], static function ($path): bool {
-        return preg_match('#^/dev/zram\d+$#', $path) === 1;
+    $candidates = array_values(array_filter(glob(ZRAM_DEV_DIR . '/zram*') ?: [], static function ($path): bool {
+        return preg_match('#^' . preg_quote(ZRAM_DEV_DIR, '#') . '/zram\d+$#', $path) === 1;
     }));
     if (!$candidates) return '';
 
@@ -54,7 +54,7 @@ function zram_collector_find_labelled_device(string &$error): string {
 
     foreach ($output as $line) {
         $devicePath = trim((string) $line);
-        if (preg_match('#^/dev/zram\d+$#', $devicePath) === 1) return basename($devicePath);
+        if (preg_match('#^' . preg_quote(ZRAM_DEV_DIR, '#') . '/zram\d+$#', $devicePath) === 1) return basename($devicePath);
     }
     $error = 'blkid returned no valid zram device path';
     return '';
@@ -63,7 +63,7 @@ function zram_collector_find_labelled_device(string &$error): string {
 /** A configured zram device is usable by the plugin only while active as swap. */
 function zram_collector_device_is_active_swap(string $device, string &$error): bool {
     $error = '';
-    $swaps = @file_get_contents('/proc/swaps');
+    $swaps = @file_get_contents(ZRAM_PROC_SWAPS);
     if ($swaps === false) {
         $error = 'unable to read /proc/swaps';
         return false;
@@ -195,63 +195,97 @@ function zram_collector_log_diagnostic(
     }
 }
 
-// PHPUnit loads the pure helpers without starting the infinite daemon loop.
-if (defined('ZRAM_COLLECTOR_LIBRARY_ONLY') && ZRAM_COLLECTOR_LIBRARY_ONLY) return;
+/** How many history points the collector keeps (the chart shows these). */
+const ZRAM_COLLECTOR_MAX_POINTS = 300;
 
-$maxPoints = 300;
-/** @var array<string, array{key: string, logged_at: int}> $zramCollectorDiagnosticStates */
-$zramCollectorDiagnosticStates = [];
+/**
+ * Build the collector state: settings, counters and the loaded history. The
+ * daemon calls this once. A test calls it, then changes the state it needs.
+ *
+ * @return array<string,mixed>
+ */
+function zram_collector_state_init(): array {
+    global $zramCollectorDiagnosticStates;
+    /** @var array<string, array{key: string, logged_at: int}> $zramCollectorDiagnosticStates */
+    $zramCollectorDiagnosticStates = [];
 
-// Load settings (cached — only re-read periodically)
-$settings = zram_config_read();
-$interval = max(1, intval($settings['collection_interval'] ?? 3));
-$configRefreshCounter = 0;
-$configRefreshEvery = max(1, intval(60 / $interval)); // Re-read config ~once per minute
+    // Load settings (cached — only re-read periodically)
+    $settings = zram_config_read();
+    $interval = max(1, intval($settings['collection_interval'] ?? 3));
 
-zram_log("Collector starting (interval={$interval}s)...", 'INFO');
+    zram_log("Collector starting (interval={$interval}s)...", 'INFO');
 
-$zramctlBinary = zram_find_binary('zramctl');
-if ($zramctlBinary !== '') {
-    zram_log("Collector using zramctl binary: $zramctlBinary", 'INFO');
-}
-
-// PID management
-if (file_exists(ZRAM_PID_FILE)) {
-    $oldPid = intval(trim(@file_get_contents(ZRAM_PID_FILE)));
-    if ($oldPid > 0 && posix_kill($oldPid, 0)) {
-        zram_log("Collector already running (PID $oldPid). Exiting.", 'INFO');
-        exit;
+    $zramctlBinary = zram_find_binary('zramctl');
+    if ($zramctlBinary !== '') {
+        zram_log("Collector using zramctl binary: $zramctlBinary", 'INFO');
     }
+
+    // Load existing history. A missing, corrupt or non-array file starts empty.
+    $history = [];
+    if (file_exists(ZRAM_HISTORY_FILE)) {
+        $h = json_decode((string) @file_get_contents(ZRAM_HISTORY_FILE), true);
+        if (is_array($h)) $history = array_values($h);
+    }
+
+    return [
+        'maxPoints'            => ZRAM_COLLECTOR_MAX_POINTS,
+        'settings'             => $settings,
+        'interval'             => $interval,
+        'configRefreshCounter' => 0,
+        'configRefreshEvery'   => max(1, intval(60 / $interval)), // Re-read config ~once per minute
+        'zramctlBinary'        => $zramctlBinary,
+        'lastTotalTicks'       => null,
+        'lastTime'             => null,
+        'validatedDev'         => '',
+        'deviceResolutionNext' => 0,
+        'lastCacheSignature'   => null,
+        'cacheIsStale'         => false,
+        'resolutionStatus'     => '',
+        'resolutionDetails'    => '',
+        'lastCollectorStatus'  => '',
+        'history'              => $history,
+    ];
 }
-file_put_contents(ZRAM_PID_FILE, getmypid());
 
-$lastTotalTicks = null;
-$lastTime = null;
-$validatedDev = '';
-$deviceResolutionNext = 0;
-$lastCacheSignature = null;
-$cacheIsStale = false;
-$resolutionStatus = '';
-$resolutionDetails = '';
-$lastCollectorStatus = '';
-
-// Load existing history
-$history = [];
-if (file_exists(ZRAM_HISTORY_FILE)) {
-    $h = json_decode(@file_get_contents(ZRAM_HISTORY_FILE), true);
-    if (is_array($h)) $history = $h;
+/**
+ * PID file handling. Returns false when another collector is already alive
+ * (the caller then exits); otherwise writes our PID and returns true. A stale
+ * PID (process gone) is replaced. $isAlive takes a PID and returns bool; tests
+ * pass a fake, the daemon uses posix_kill($pid, 0).
+ */
+function zram_collector_claim_pid(?callable $isAlive = null, ?int $myPid = null): bool {
+    $isAlive = $isAlive ?? static fn(int $pid): bool => posix_kill($pid, 0);
+    if (file_exists(ZRAM_PID_FILE)) {
+        $oldPid = intval(trim((string) @file_get_contents(ZRAM_PID_FILE)));
+        if ($oldPid > 0 && $isAlive($oldPid)) {
+            zram_log("Collector already running (PID $oldPid). Exiting.", 'INFO');
+            return false;
+        }
+    }
+    file_put_contents(ZRAM_PID_FILE, $myPid ?? getmypid());
+    return true;
 }
 
-while (true) {
+/**
+ * One collection tick: refresh settings now and then, resolve the device,
+ * run zramctl, sample Tier 2, append to the history file and write the poll
+ * log line. All loop state lives in $state. $nowSec and $nowMs (epoch seconds
+ * and milliseconds) are for tests; the daemon passes nothing.
+ *
+ * @param array<string,mixed> $state from zram_collector_state_init()
+ */
+function zram_collector_tick(array &$state, ?int $nowSec = null, ?float $nowMs = null): void {
+    global $zramCollectorDiagnosticStates;
     try {
         // Periodically refresh config from disk (not every iteration)
-        $configRefreshCounter++;
-        if ($configRefreshCounter >= $configRefreshEvery) {
-            $configRefreshCounter = 0;
-            $settings = zram_config_read();
-            $interval = max(1, intval($settings['collection_interval'] ?? 3));
+        $state['configRefreshCounter']++;
+        if ($state['configRefreshCounter'] >= $state['configRefreshEvery']) {
+            $state['configRefreshCounter'] = 0;
+            $state['settings'] = zram_config_read();
+            $state['interval'] = max(1, intval($state['settings']['collection_interval'] ?? 3));
             zram_debug_reset();
         }
+        $settings = $state['settings'];
 
         // No Tier 2 re-activation here (Forgejo #30). The collector turned the
         // swap on again during a long array stop, and it undid a manual
@@ -265,35 +299,36 @@ while (true) {
         $cacheExists = file_exists(ZRAM_DEVICE_FILE);
         $cachedDev = $cacheExists ? trim((string) @file_get_contents(ZRAM_DEVICE_FILE)) : '';
         $cacheSignature = ($cacheExists ? (string) @filemtime(ZRAM_DEVICE_FILE) . ':' . $cachedDev : 'absent');
-        $validatedMissing = $validatedDev !== '' && !file_exists("/sys/block/$validatedDev");
-        if (time() >= $deviceResolutionNext || $cacheSignature !== $lastCacheSignature || $validatedMissing) {
+        $validatedMissing = $state['validatedDev'] !== '' && !file_exists(ZRAM_SYS_BLOCK . "/{$state['validatedDev']}");
+        if (($nowSec ?? time()) >= $state['deviceResolutionNext'] || $cacheSignature !== $state['lastCacheSignature'] || $validatedMissing) {
             $ownershipError = '';
             $resolvedDev = zram_collector_find_labelled_device($ownershipError);
-            $validatedDev = preg_match('/^zram\d+$/', $resolvedDev) === 1
-                && file_exists("/sys/block/$resolvedDev") ? $resolvedDev : '';
-            $cacheIsStale = $cacheExists && (
+            $state['validatedDev'] = preg_match('/^zram\d+$/', $resolvedDev) === 1
+                && file_exists(ZRAM_SYS_BLOCK . "/$resolvedDev") ? $resolvedDev : '';
+            $state['cacheIsStale'] = $cacheExists && (
                 preg_match('/^zram\d+$/', $cachedDev) !== 1
-                || !file_exists("/sys/block/$cachedDev")
-                || $validatedDev === ''
-                || $cachedDev !== $validatedDev
+                || !file_exists(ZRAM_SYS_BLOCK . "/$cachedDev")
+                || $state['validatedDev'] === ''
+                || $cachedDev !== $state['validatedDev']
             );
             if ($ownershipError !== '') {
-                $resolutionStatus = 'device_ownership_unverified';
-                $resolutionDetails = 'cached_device=' . ($cachedDev === '' ? 'none' : zram_collector_log_value($cachedDev))
+                $state['resolutionStatus'] = 'device_ownership_unverified';
+                $state['resolutionDetails'] = 'cached_device=' . ($cachedDev === '' ? 'none' : zram_collector_log_value($cachedDev))
                     . ' selected_device=none reason=' . zram_collector_log_value($ownershipError);
-            } elseif ($validatedDev === '') {
-                $resolutionStatus = $cacheIsStale ? 'stale_cached_device' : 'missing_device';
-                $resolutionDetails = 'cached_device=' . ($cachedDev === '' ? 'none' : zram_collector_log_value($cachedDev))
+            } elseif ($state['validatedDev'] === '') {
+                $state['resolutionStatus'] = $state['cacheIsStale'] ? 'stale_cached_device' : 'missing_device';
+                $state['resolutionDetails'] = 'cached_device=' . ($cachedDev === '' ? 'none' : zram_collector_log_value($cachedDev))
                     . ' selected_device=none reason=no plugin-labelled live ZRAM device was found';
             } else {
-                $resolutionStatus = '';
-                $resolutionDetails = '';
+                $state['resolutionStatus'] = '';
+                $state['resolutionDetails'] = '';
             }
-            $lastCacheSignature = $cacheSignature;
-            $deviceResolutionNext = time() + 60;
+            $state['lastCacheSignature'] = $cacheSignature;
+            $state['deviceResolutionNext'] = ($nowSec ?? time()) + 60;
         }
+        $cacheIsStale = $state['cacheIsStale'];
 
-        $ourDev = $validatedDev;
+        $ourDev = $state['validatedDev'];
         $candidateDev = $ourDev !== '' ? $ourDev
             : (preg_match('/^zram\d+$/', $cachedDev) === 1 ? $cachedDev : '');
 
@@ -325,7 +360,8 @@ while (true) {
             // TOTAL = actual RAM occupied (COMPR + per-page metadata + slot rounding).
             // The chart's "Compressed" dataset wants COMPR; "Uncompressed" wants DATA.
             // TOTAL is captured for the aggregates JSON (memorySaved calc) only.
-            if ($zramctlBinary === '') $zramctlBinary = zram_find_binary('zramctl');
+            if ($state['zramctlBinary'] === '') $state['zramctlBinary'] = zram_find_binary('zramctl');
+            $zramctlBinary = $state['zramctlBinary'];
             $raw = [];
             $zramctlExit = 127;
             if ($zramctlBinary === '') {
@@ -333,7 +369,7 @@ while (true) {
             } else {
                 $command = escapeshellarg($zramctlBinary)
                     . ' --bytes --noheadings --raw --output NAME,DISKSIZE,DATA,COMPR,ALGORITHM,TOTAL '
-                    . escapeshellarg("/dev/$ourDev") . ' 2>&1';
+                    . escapeshellarg(ZRAM_DEV_DIR . "/$ourDev") . ' 2>&1';
                 zram_exec($command, $raw, $zramctlExit);
             }
 
@@ -364,14 +400,14 @@ while (true) {
             if ($zramctlExit === 126 || $zramctlExit === 127 || ($zramctlBinary !== '' && !is_executable($zramctlBinary))) {
                 // Re-run discovery next poll in case util-linux moved or became
                 // available after the collector started.
-                $zramctlBinary = '';
+                $state['zramctlBinary'] = '';
             }
 
             // IO ticks for our device
-            $statFile = "/sys/block/$ourDev/stat";
+            $statFile = ZRAM_SYS_BLOCK . "/$ourDev/stat";
             if ($tier1SampleValid && file_exists($statFile)) {
-                $stats = preg_split('/\s+/', trim(@file_get_contents($statFile)));
-                if (count($stats) >= 8) {
+                $stats = preg_split('/\s+/', trim((string) @file_get_contents($statFile)));
+                if (is_array($stats) && count($stats) >= 8) {
                     $currentTotalTicks = intval($stats[3]) + intval($stats[7]);
                 }
             }
@@ -383,11 +419,11 @@ while (true) {
                 . ' selected_device=none reason=ZRAM tier is disabled in settings';
             zram_collector_log_diagnostic('collection', $collectorStatus, $details, 'INFO', 3600);
         } else {
-            $collectorStatus = $resolutionStatus !== ''
-                ? $resolutionStatus
+            $collectorStatus = $state['resolutionStatus'] !== ''
+                ? $state['resolutionStatus']
                 : ($cacheIsStale ? 'stale_cached_device' : 'missing_device');
-            $details = $resolutionDetails !== ''
-                ? $resolutionDetails
+            $details = $state['resolutionDetails'] !== ''
+                ? $state['resolutionDetails']
                 : ($cacheIsStale
                     ? 'cached_device=' . ($cachedDev === '' ? 'empty' : zram_collector_log_value($cachedDev))
                         . ' selected_device=none reason=cached device is invalid or absent from sysfs and no labelled device was found'
@@ -395,48 +431,41 @@ while (true) {
             zram_collector_log_diagnostic('collection', $collectorStatus, $details, 'WARN');
         }
 
-        if (!$tier1SampleValid && $lastCollectorStatus !== '' && $collectorStatus !== $lastCollectorStatus) {
+        if (!$tier1SampleValid && $state['lastCollectorStatus'] !== '' && $collectorStatus !== $state['lastCollectorStatus']) {
             // Revalidate ownership on the next poll when a previously stable
             // collection path changes to a zramctl/inactive/device fault.
-            $deviceResolutionNext = 0;
+            $state['deviceResolutionNext'] = 0;
         }
-        $lastCollectorStatus = $collectorStatus;
+        $state['lastCollectorStatus'] = $collectorStatus;
 
         // Calculate load
-        $now = microtime(true) * 1000;
+        $now = $nowMs ?? microtime(true) * 1000;
         $loadPct = 0;
-        if ($tier1SampleValid && $lastTotalTicks !== null && $lastTime !== null) {
-            $dt = $now - $lastTime;
+        if ($tier1SampleValid && $state['lastTotalTicks'] !== null && $state['lastTime'] !== null) {
+            $dt = $now - $state['lastTime'];
             if ($dt > 0) {
-                $loadPct = max(0, (($currentTotalTicks - $lastTotalTicks) / $dt) * 100);
+                $loadPct = max(0, (($currentTotalTicks - $state['lastTotalTicks']) / $dt) * 100);
             }
         }
-        $lastTotalTicks = $tier1SampleValid ? $currentTotalTicks : null;
-        $lastTime = $tier1SampleValid ? $now : null;
+        $state['lastTotalTicks'] = $tier1SampleValid ? $currentTotalTicks : null;
+        $state['lastTime'] = $tier1SampleValid ? $now : null;
 
         // Sample Tier 2 (SSD swap) used bytes so the dashboard can plot
         // spillover historically. Sourced from `swapon --bytes` filtered to
         // our configured ssd_swap_path. 0 when unconfigured, inactive, or
         // unreadable — the schema treats absent === zero.
-        // Loop-aware: loop-backed swap appears in swapon as /dev/loopN, not
-        // as the image file path — resolve via losetup -j before matching.
+        // Backing-aware: loop-backed swap appears in swapon as /dev/loopN and
+        // zvol-backed swap as the resolved /dev/zdN, not as the configured
+        // path — resolve the name the kernel lists first.
         $ssdUsed = 0;
         $ssdPath = $settings['ssd_swap_path'] ?? '';
         if ($ssdPath !== '') {
-            $backing = $settings['ssd_swap_backing'] ?? 'file';
-            $swapTarget = $ssdPath;
-            if ($backing === 'loop') {
-                $ljOut = [];
-                zram_exec('losetup -j ' . escapeshellarg($ssdPath) . ' 2>/dev/null', $ljOut);
-                foreach ($ljOut as $ljLine) {
-                    if (preg_match('#^(/dev/loop\d+):#', $ljLine, $m)) { $swapTarget = $m[1]; break; }
-                }
-            }
+            $swapTarget = zram_ssd_swap_target($settings['ssd_swap_backing'] ?? 'file', $ssdPath)['target'];
             $swapRows = [];
             zram_exec('swapon --bytes --noheadings --show=NAME,USED 2>/dev/null', $swapRows);
             foreach ($swapRows as $row) {
                 $parts = preg_split('/\s+/', trim($row));
-                if (count($parts) >= 2 && $parts[0] === $swapTarget) {
+                if (is_array($parts) && count($parts) >= 2 && $parts[0] === $swapTarget) {
                     $ssdUsed = intval($parts[1]);
                     break;
                 }
@@ -463,7 +492,7 @@ while (true) {
         // Tier 2 's' series must keep advancing so the Disk chart stays live.
         $historySampleValid = $tier1SampleValid || $ourDev === '';
         if ($historySampleValid) {
-            $history[] = [
+            $state['history'][] = [
                 't' => date('H:i:s'),
                 'o' => $totalOriginal,
                 'c' => $totalCompressed,
@@ -471,11 +500,15 @@ while (true) {
                 'l' => round($loadPct, 1),
                 's' => $ssdUsed,
             ];
-            if (count($history) > $maxPoints) array_shift($history);
+            // Keep the newest maxPoints. A file that is already too long (a lower
+            // limit, or a hand-edited file) shrinks at once, not one point per tick.
+            if (count($state['history']) > $state['maxPoints']) {
+                $state['history'] = array_slice($state['history'], -$state['maxPoints']);
+            }
 
             // Atomic-ish write (write to tmp then rename)
             $tmp = ZRAM_HISTORY_FILE . '.tmp';
-            if (file_put_contents($tmp, json_encode($history)) !== false) {
+            if (@file_put_contents($tmp, json_encode($state['history'])) !== false) {
                 rename($tmp, ZRAM_HISTORY_FILE);
             }
         }
@@ -498,6 +531,15 @@ while (true) {
     } catch (Throwable $e) {
         @file_put_contents(ZRAM_DEBUG_LOG, date('[Y-m-d H:i:s] ') . "[ERROR] Collector: " . $e->getMessage() . "\n", FILE_APPEND);
     }
+}
 
-    sleep($interval);
+// PHPUnit loads the functions above without starting the infinite daemon loop.
+if (defined('ZRAM_COLLECTOR_LIBRARY_ONLY') && ZRAM_COLLECTOR_LIBRARY_ONLY) return;
+
+$zramCollectorState = zram_collector_state_init();
+if (!zram_collector_claim_pid()) exit;
+
+while (true) {
+    zram_collector_tick($zramCollectorState);
+    sleep($zramCollectorState['interval']);
 }

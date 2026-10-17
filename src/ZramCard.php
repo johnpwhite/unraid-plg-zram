@@ -10,8 +10,17 @@
 
 if (!function_exists('getZramDashboardCard')) {
     function getZramDashboardCard() {
-        $docroot = $_SERVER['DOCUMENT_ROOT'] ?: '/usr/local/emhttp';
-        require_once "$docroot/plugins/unraid-zram-card/zram_config.php";
+        $docroot = $_SERVER['DOCUMENT_ROOT'] ?? '';
+        // Under PHPUnit there is no web root: load the neighbouring file.
+        if ($docroot !== '') {
+            require_once "$docroot/plugins/unraid-zram-card/zram_config.php";
+        } else {
+            require_once dirname(__FILE__) . '/zram_config.php';
+        }
+
+        // Remember the caller's output buffer depth. The error path must close
+        // only the buffer this function opened, never the caller's own.
+        $obLevel = ob_get_level();
 
         try {
             $cfg = zram_config_read();
@@ -46,7 +55,7 @@ if (!function_exists('getZramDashboardCard')) {
             }
 
             $ratio = ($totalCompressed > 0) ? round($totalOriginal / $totalCompressed, 2) : 0;
-            $swappiness = trim(@file_get_contents('/proc/sys/vm/swappiness') ?: '60');
+            $swappiness = trim(@file_get_contents(ZRAM_SWAPPINESS_FILE) ?: '60');
 
             // SSD swap info — capture used + size when active so the chip and
             // chart can render real values in Tier-2-only mode.
@@ -82,7 +91,7 @@ if (!function_exists('getZramDashboardCard')) {
                     $resolvedZvol = realpath($ssdPath) ?: '';
                     if ($resolvedZvol !== '') $swapTarget = $resolvedZvol;
                 }
-                $swaps = @file_get_contents('/proc/swaps') ?: '';
+                $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
                 $ssdActive = preg_match('/^' . preg_quote($swapTarget, '/') . '\s/m', $swaps) === 1;
                 if ($ssdActive) {
                     // Show the resolved device name when loop/zvol-backed so
@@ -101,7 +110,7 @@ if (!function_exists('getZramDashboardCard')) {
                         }
                     }
                 } else {
-                    $ssdSize = filesize($ssdPath) ?: 0;
+                    $ssdSize = zram_ssd_swap_backing_size($ssdPath);
                 }
             }
 
@@ -117,8 +126,8 @@ if (!function_exists('getZramDashboardCard')) {
 
             // Unraid 7.2+ responsive check
             $isResp = false;
-            if (file_exists('/etc/unraid-version')) {
-                $v = @parse_ini_file('/etc/unraid-version');
+            if (file_exists(ZRAM_UNRAID_VERSION_FILE)) {
+                $v = @parse_ini_file(ZRAM_UNRAID_VERSION_FILE);
                 if (isset($v['version'])) $isResp = version_compare($v['version'], '7.2.0-beta', '>=');
             }
 
@@ -237,7 +246,7 @@ if (!function_exists('getZramDashboardCard')) {
                     <div class="zram-tier" style="<?php echo $ssdActive ? 'color:#00a4d8;' : 'opacity:0.6;'; ?>"><span class="zram-dot" style="background:<?php echo $ssdActive ? '#00a4d8' : '#9aa0a6'; ?>;"></span>Disk<?php if (!$ssdActive) echo ' (off)'; ?></div>
                     <div class="zram-muted zram-ell" title="<?php echo htmlspecialchars($ssdMount); ?>"><?php echo htmlspecialchars($ssdPool); ?></div>
                     <div class="zram-muted zram-ell" title="<?php echo htmlspecialchars($ssdPath); ?>"><?php echo htmlspecialchars($ssdDevLabel); ?></div>
-                    <div class="zram-num zram-muted"><?php echo $fmt($ssdSize ?: filesize($ssdPath), 0); ?></div>
+                    <div class="zram-num zram-muted"><?php echo $fmt($ssdSize ?: zram_ssd_swap_backing_size($ssdPath), 0); ?></div>
                     <div class="zram-num zram-muted zram-used"><?php echo number_format($ssdUsed / 1073741824, 2); ?> GB</div>
                     <div class="zram-num zram-muted"><?php echo htmlspecialchars((string)$ssdPrio); ?></div>
                     <div class="zram-num zram-muted">&mdash;</div>
@@ -266,7 +275,7 @@ if (!function_exists('getZramDashboardCard')) {
 <?php
             return ob_get_clean();
         } catch (Throwable $e) {
-            if (ob_get_level() > 0) ob_end_clean();
+            while (ob_get_level() > $obLevel) ob_end_clean();
             zram_log("CRITICAL: " . $e->getMessage(), 'ERROR');
             return "<tbody title='ZRAM Error'><tr><td><div style='padding:10px;color:#E57373;text-align:center;'><strong>ZRAM Plugin Error</strong><br><small>cat /tmp/unraid-zram-card/debug.log</small></div></td></tr></tbody>";
         }

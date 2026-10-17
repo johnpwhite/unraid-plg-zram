@@ -35,19 +35,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
         'thp_compaction'      => zram_thp_compaction_valid((string)($_POST['thp_compaction'] ?? '')) ? (string)$_POST['thp_compaction'] : 'system',
         'debug'               => ($_POST['debug'] ?? '') === 'yes' ? 'yes' : 'no',
         'console_visible'     => ($_POST['console_visible'] ?? 'yes') === 'yes' ? 'yes' : 'no',
-        'zram_size'           => $_POST['zram_size'] ?: 'auto',
+        'zram_size'           => ($_POST['zram_size'] ?? '') ?: 'auto',
         'zram_percent'        => max(25, min(75, intval($_POST['zram_percent'] ?? 50))),
-        'zram_algo'           => $_POST['zram_algo'] ?: 'zstd',
+        'zram_algo'           => ($_POST['zram_algo'] ?? '') ?: 'zstd',
     ];
     zram_config_write($updates);
     zram_debug_reset();
-    exec("sysctl -q vm.swappiness=" . escapeshellarg($updates['swappiness']));
+    zram_exec("sysctl -q vm.swappiness=" . escapeshellarg($updates['swappiness']));
     $thpLogs = [];
     zram_apply_thp($updates['thp_mode'], $updates['thp_compaction'], $thpLogs);
 
     // Restart collector to pick up new settings
     $initScript = "$docroot/plugins/unraid-zram-card/zram_init.sh";
-    if (file_exists($initScript)) exec("nohup $initScript > /dev/null 2>&1 & disown");
+    if (file_exists($initScript)) zram_exec("nohup $initScript > /dev/null 2>&1 & disown");
 
     echo "<div class='updated'>Settings Saved</div>";
 }
@@ -67,9 +67,9 @@ $csrf = $var['csrf_token'] ?? '';
 // allocated size?".
 $devSize = '-'; $devAlgo = '-'; $devPrio = '-'; $devActive = false;
 $devUsedCompressed = 0; $devUsedOriginal = 0;
-if ($ourDev && file_exists("/sys/block/$ourDev")) {
+if ($ourDev && file_exists(ZRAM_SYS_BLOCK . "/$ourDev")) {
     $devActive = true;
-    exec("zramctl --bytes --noheadings --raw --output DISKSIZE,ALGORITHM,DATA,TOTAL /dev/$ourDev 2>/dev/null", $di);
+    zram_exec("zramctl --bytes --noheadings --raw --output DISKSIZE,ALGORITHM,DATA,TOTAL /dev/$ourDev 2>/dev/null", $di);
     if (!empty($di)) {
         $dp = preg_split('/\s+/', trim($di[0]));
         $devSize = intval($dp[0] ?? 0);
@@ -77,7 +77,7 @@ if ($ourDev && file_exists("/sys/block/$ourDev")) {
         $devUsedOriginal   = intval($dp[2] ?? 0);
         $devUsedCompressed = intval($dp[3] ?? 0);
     }
-    exec('swapon --noheadings --show=NAME,PRIO 2>/dev/null', $sp);
+    zram_exec('swapon --noheadings --show=NAME,PRIO 2>/dev/null', $sp);
     foreach ($sp as $sl) {
         $spp = preg_split('/\s+/', trim($sl));
         if (count($spp) >= 2 && basename($spp[0]) === $ourDev) { $devPrio = $spp[1]; break; }
@@ -86,7 +86,7 @@ if ($ourDev && file_exists("/sys/block/$ourDev")) {
 
 // Auto-size calculation for display
 $memKb = 0;
-$meminfo = @file_get_contents('/proc/meminfo') ?: '';
+$meminfo = @file_get_contents(ZRAM_PROC_MEMINFO) ?: '';
 if (preg_match('/MemTotal:\s+(\d+)/', $meminfo, $mm)) $memKb = intval($mm[1]);
 $autoSizeGB = round($memKb * intval($settings['zram_percent']) / 100 / 1048576, 1);
 $memTotalGB = round($memKb / 1048576, 1);
@@ -94,9 +94,11 @@ $memTotalGB = round($memKb / 1048576, 1);
 // Supported algorithms
 $algos = ['zstd', 'lz4', 'lzo', 'deflate'];
 // Try to read from any zram device
-foreach (glob('/sys/block/zram*/comp_algorithm') as $af) {
-    $raw = str_replace(['[', ']'], '', @file_get_contents($af));
-    $algos = preg_split('/\s+/', trim($raw));
+foreach (glob(ZRAM_SYS_BLOCK . "/zram*/comp_algorithm") as $af) {
+    $raw = str_replace(['[', ']'], '', (string)@file_get_contents($af));
+    // An empty or unreadable file keeps the default list (no blank choice).
+    $found = preg_split('/\s+/', trim($raw), -1, PREG_SPLIT_NO_EMPTY);
+    if ($found) $algos = $found;
     break;
 }
 
@@ -119,7 +121,7 @@ if ($ssdPath && file_exists($ssdPath)) {
     $swapTarget = $ssdPath;
     if ($backing === 'loop') {
         $ljOut = [];
-        exec('losetup -j ' . escapeshellarg($ssdPath) . ' 2>/dev/null', $ljOut);
+        zram_exec('losetup -j ' . escapeshellarg($ssdPath) . ' 2>/dev/null', $ljOut);
         foreach ($ljOut as $ljLine) {
             if (preg_match('#^(/dev/loop\d+):#', $ljLine, $m)) { $swapTarget = $m[1]; break; }
         }
@@ -127,10 +129,10 @@ if ($ssdPath && file_exists($ssdPath)) {
         $resolvedZvol = realpath($ssdPath) ?: '';
         if ($resolvedZvol !== '') $swapTarget = $resolvedZvol;
     }
-    $swaps = @file_get_contents('/proc/swaps') ?: '';
+    $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
     $ssdActive = preg_match('/^' . preg_quote($swapTarget, '/') . '\s/m', $swaps) === 1;
     if ($ssdActive) {
-        exec('swapon --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssdRows);
+        zram_exec('swapon --bytes --noheadings --show=NAME,SIZE,USED,PRIO 2>/dev/null', $ssdRows);
         foreach ($ssdRows as $row) {
             $rp = preg_split('/\s+/', trim($row));
             if (count($rp) >= 4 && $rp[0] === $swapTarget) {
@@ -146,7 +148,10 @@ if ($ssdPath && file_exists($ssdPath)) {
 }
 
 $fmtB = function($b) { $u = ['B','KB','MB','GB','TB']; if ($b < 1) return '0 B'; $p = min(floor(log(max($b,1))/log(1024)), 4); return round($b/pow(1024,$p), 1).' '.$u[$p]; };
-echo "<script>window.ZRAM_PAGE={CSRF:'".addslashes($csrf)."',API:'/plugins/unraid-zram-card/zram_actions.php',MEM_KB:$memKb,selectedMount:'',selectedBacking:'file'};</script>";
+// The token sits inside a JS string in a <script> block: escape the quote, the backslash,
+// line breaks and angle brackets so a token can never end the string or the block.
+$csrfJs = strtr(addslashes($csrf), ['<' => '\\x3C', '>' => '\\x3E', "\n" => '\\n', "\r" => '\\r']);
+echo "<script>window.ZRAM_PAGE={CSRF:'".$csrfJs."',API:'/plugins/unraid-zram-card/zram_actions.php',MEM_KB:$memKb,selectedMount:'',selectedBacking:'file'};</script>";
 echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"></script>';
 ?>
 
@@ -336,7 +341,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
                 <div style="font-size:0.85em;opacity:0.7;margin-top:2px;">
                     Used: <?php echo $fmtB($devUsedCompressed); ?> / <?php echo $fmtB($devSize); ?>
                     &middot; <?php echo htmlspecialchars($devAlgo); ?>
-                    &middot; priority <?php echo $devPrio; ?> &mdash; used first
+                    &middot; priority <?php echo htmlspecialchars($devPrio); ?> &mdash; used first
                 </div>
 <?php endif; ?>
             </div>
@@ -356,7 +361,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
                     </select>
                     <input type="text" id="zram_custom_size" onblur="saveZramSize()" value="<?php echo ($settings['zram_size'] !== 'auto') ? htmlspecialchars($settings['zram_size']) : '4G'; ?>" style="width:70px;display:<?php echo ($settings['zram_size'] !== 'auto') ? 'inline' : 'none'; ?>;">
                     <span id="zram_auto_info" class="zram-field-info">
-                        <?php echo $settings['zram_percent']; ?>% of <?php echo $memTotalGB; ?>GB = <?php echo $autoSizeGB; ?>GB
+                        <?php echo intval($settings['zram_percent']); ?>% of <?php echo $memTotalGB; ?>GB = <?php echo $autoSizeGB; ?>GB
                     </span>
                 </span>
             </dd>
@@ -372,7 +377,7 @@ echo '<script src="/plugins/unraid-zram-card/js/zram-settings.js?v='.time().'"><
                 <span class="zram-field-row">
                     <select name="zram_algo" id="zram_algo_select" data-autosave="true" style="width:100px;">
                         <?php foreach ($algos as $a): ?>
-                        <option value="<?php echo $a; ?>" <?php echo ($settings['zram_algo'] == $a) ? 'selected' : ''; ?>><?php echo $a; ?></option>
+                        <option value="<?php echo htmlspecialchars($a); ?>" <?php echo ($settings['zram_algo'] == $a) ? 'selected' : ''; ?>><?php echo htmlspecialchars($a); ?></option>
                         <?php endforeach; ?>
                     </select>
                 </span>
@@ -672,7 +677,7 @@ echo "<script>window.ZRAM_OOM_CONFIG=" . json_encode([
     'levels'       => $oomLevels,
     'default_level'=> $oomDefault,
     'OOM_API'      => '/plugins/unraid-zram-card/zram_oom.php',
-]) . ";</script>";
+], JSON_HEX_TAG) . ";</script>";
 ?>
 </div>
 

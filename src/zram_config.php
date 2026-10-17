@@ -32,6 +32,17 @@ defined('ZRAM_SYS_CLASS_BLOCK') || define('ZRAM_SYS_CLASS_BLOCK', '/sys/class/bl
 defined('ZRAM_DEV_DIR')         || define('ZRAM_DEV_DIR', '/dev');
 defined('ZRAM_VAR_INI')         || define('ZRAM_VAR_INI', '/var/local/emhttp/var.ini');
 defined('ZRAM_EMHTTP_ROOT')     || define('ZRAM_EMHTTP_ROOT', '/usr/local/emhttp');
+defined('ZRAM_PROC_DIR')      || define('ZRAM_PROC_DIR', '/proc');
+defined('ZRAM_LIBVIRT_HOOK')  || define('ZRAM_LIBVIRT_HOOK', '/etc/libvirt/hooks/qemu');
+defined('ZRAM_LIBVIRT_RUN')   || define('ZRAM_LIBVIRT_RUN', '/run/libvirt/qemu');
+defined('ZRAM_CGROUP_DIR')    || define('ZRAM_CGROUP_DIR', '/sys/fs/cgroup');
+defined('ZRAM_UNRAID_VERSION_FILE') || define('ZRAM_UNRAID_VERSION_FILE', '/etc/unraid-version');
+// The folders zram_find_binary() searches, in order. Tests point this at a temp folder of stubs.
+defined('ZRAM_SBIN_DIRS')        || define('ZRAM_SBIN_DIRS', ['/sbin', '/usr/sbin']);
+// The folder that holds the drives the plugin may use for disk swap, and how
+// many 250 ms polls to wait for a new ZFS volume device node.
+defined('ZRAM_MNT_ROOT')          || define('ZRAM_MNT_ROOT', '/mnt');
+defined('ZRAM_ZVOL_WAIT_TRIES')   || define('ZRAM_ZVOL_WAIT_TRIES', 20);
 
 defined('ZRAM_DEFAULTS') || define('ZRAM_DEFAULTS', [
     'enabled'             => 'yes',
@@ -75,7 +86,7 @@ function zram_config_write(array $updates): bool {
     if (!is_dir(dirname(ZRAM_CONFIG_FILE))) {
         @mkdir(dirname(ZRAM_CONFIG_FILE), 0777, true);
     }
-    $fp = fopen(ZRAM_LOCK_FILE, 'c');
+    $fp = @fopen(ZRAM_LOCK_FILE, 'c');
     if (!$fp || !flock($fp, LOCK_EX)) {
         if ($fp) fclose($fp);
         return false;
@@ -83,8 +94,14 @@ function zram_config_write(array $updates): bool {
     $current = @parse_ini_file(ZRAM_CONFIG_FILE);
     $merged = array_merge(ZRAM_DEFAULTS, is_array($current) ? $current : [], $updates);
     $lines = [];
-    foreach ($merged as $k => $v) $lines[] = "$k=\"$v\"";
-    $ok = file_put_contents(ZRAM_CONFIG_FILE, implode("\n", $lines) . "\n") !== false;
+    foreach ($merged as $k => $v) {
+        // One value is one line between double quotes. A quote, a line break or a
+        // NUL byte in a value would break the file (every setting would then read
+        // as the default) or add a key. Remove them.
+        $v = str_replace(['"', "\r", "\n", "\0"], '', (string) $v);
+        $lines[] = "$k=\"$v\"";
+    }
+    $ok = @file_put_contents(ZRAM_CONFIG_FILE, implode("\n", $lines) . "\n") !== false;
     flock($fp, LOCK_UN);
     fclose($fp);
     return $ok;
@@ -297,7 +314,9 @@ function zram_apply_thp(string $mode, string $compaction, array &$logs,
 function zram_find_binary(string $name): string {
     if (!preg_match('/^[a-z0-9_-]+$/i', $name)) return '';
 
-    foreach (["/sbin/$name", "/usr/sbin/$name"] as $candidate) {
+    // ZRAM_SBIN_DIRS is /sbin and /usr/sbin in production. A test sets it to folders of stub binaries.
+    foreach (ZRAM_SBIN_DIRS as $dir) {
+        $candidate = $dir . "/$name";
         if (is_file($candidate) && is_executable($candidate)) return $candidate;
     }
 
@@ -351,7 +370,7 @@ function zram_get_our_device(): string {
         zram_exec($cmd, $out);
         foreach ($out as $line) {
             $dev = trim($line);
-            if (strpos($dev, '/dev/zram') === 0) {
+            if (strpos($dev, ZRAM_DEV_DIR . '/zram') === 0) {
                 return basename($dev);
             }
         }
@@ -381,7 +400,7 @@ function zram_ssd_swap_target(string $backing, string $path): array {
         $ljOut = [];
         zram_exec('losetup -j ' . escapeshellarg($path) . ' 2>/dev/null', $ljOut);
         foreach ($ljOut as $ljLine) {
-            if (preg_match('#^(/dev/loop\d+):#', $ljLine, $ljm)) {
+            if (preg_match('#^(' . preg_quote(ZRAM_DEV_DIR, '#') . '/loop\d+):#', $ljLine, $ljm)) {
                 return ['target' => $ljm[1], 'dev' => basename($ljm[1])];
             }
         }
@@ -423,7 +442,7 @@ function zram_get_ssd_swap(): string {
             zram_exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut);
             $loopDev = '';
             foreach ($ljOut as $line) {
-                if (preg_match('#^(/dev/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
+                if (preg_match('#^(' . preg_quote(ZRAM_DEV_DIR, '#') . '/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
             }
             if ($loopDev !== '' && preg_match('/^' . preg_quote($loopDev, '/') . '\s/m', $swaps) === 1) {
                 return $path;
@@ -436,7 +455,7 @@ function zram_get_ssd_swap(): string {
                 return $path;
             }
         } else {
-            if (strpos($swaps, $path) !== false) {
+            if (preg_match('/^' . preg_quote($path, '/') . '\s/m', $swaps) === 1) {
                 return $path;
             }
         }
@@ -472,7 +491,7 @@ function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): b
         zram_exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut);
         $loopDev = '';
         foreach ($ljOut as $line) {
-            if (preg_match('#^(/dev/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
+            if (preg_match('#^(' . preg_quote(ZRAM_DEV_DIR, '#') . '/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
         }
         if ($loopDev !== '') {
             $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
@@ -488,7 +507,8 @@ function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): b
         }
     } else {
         $swaps = @file_get_contents(ZRAM_PROC_SWAPS) ?: '';
-        if (strpos($swaps, $path) !== false) return false;     // already active
+        // Match the whole name column: /swap.img.old must not count as /swap.img.
+        if (preg_match('/^' . preg_quote($path, '/') . '\s/m', $swaps) === 1) return false; // already active
     }
 
     $now = time();
@@ -510,7 +530,7 @@ function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): b
         zram_exec("losetup -j " . escapeshellarg($path) . " 2>/dev/null", $ljOut2);
         $loopDev = '';
         foreach ($ljOut2 as $line) {
-            if (preg_match('#^(/dev/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
+            if (preg_match('#^(' . preg_quote(ZRAM_DEV_DIR, '#') . '/loop\d+):#', $line, $m)) { $loopDev = $m[1]; break; }
         }
         if ($loopDev === '') {
             zram_exec('modprobe loop 2>/dev/null');
@@ -518,7 +538,7 @@ function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): b
             zram_exec("losetup -f --show " . escapeshellarg($path) . " 2>/dev/null", $lfOut);
             $loopDev = trim(end($lfOut) ?: '');
         }
-        if (!preg_match('#^/dev/loop\d+$#', $loopDev)) {
+        if (!preg_match('#^' . preg_quote(ZRAM_DEV_DIR, '#') . '/loop\d+$#', $loopDev)) {
             zram_log("Tier 2 array start: losetup failed for $path — backing off 60s", 'WARN');
             $nextTry = $now + 60;
             return true;
@@ -542,7 +562,7 @@ function zram_reactivate_disk_swap_if_needed(array $cachedCfg, int &$nextTry): b
         // No attach step (unlike loop) — the zvol block device exists for as
         // long as the ZFS dataset does. Just resolve the stable symlink.
         $zvolDev = realpath($path) ?: '';
-        if (!preg_match('#^/dev/zd\d+$#', $zvolDev)) {
+        if (!preg_match('#^' . preg_quote(ZRAM_DEV_DIR, '#') . '/zd\d+$#', $zvolDev)) {
             zram_log("Tier 2 array start: zvol device not found for $path — backing off 60s", 'WARN');
             $nextTry = $now + 60;
             return true;
