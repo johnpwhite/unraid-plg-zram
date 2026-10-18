@@ -373,8 +373,7 @@ fi
 # and a colon cut it in two, so pgrep could match and protect other programs.
 TAB=$'\t'
 PATTERNS="mover${TAB}unraid_mover
-shfs${TAB}shfs
-btrfs${TAB}btrfs"
+shfs${TAB}shfs"
 if [ -n "$OOM_PROC_PATTERNS" ]; then
     # set -f: a pattern such as php* must not expand to file names in the cwd.
     OLDIFS="$IFS"; IFS=','; set -f

@@ -424,11 +424,11 @@ function zram_collector_tick(array &$state, ?int $nowSec = null, ?float $nowMs =
                 }
             }
         } elseif (($settings['enabled'] ?? 'yes') === 'no') {
-            // Tier 2-only setups have no ZRAM device by design. Keep that poll
+            // enabled=no hides the whole dashboard card; no ZRAM device is sampled. Keep that poll
             // informational instead of warning about a "missing" device.
             $collectorStatus = 'tier1_disabled';
             $details = 'cached_device=' . ($cachedDev === '' ? 'none' : zram_collector_log_value($cachedDev))
-                . ' selected_device=none reason=ZRAM tier is disabled in settings';
+                . ' selected_device=none reason=Plugin disabled (enabled=no): dashboard card off, ZRAM device not sampled';
             zram_collector_log_diagnostic('collection', $collectorStatus, $details, 'INFO', 3600);
         } else {
             $collectorStatus = $state['resolutionStatus'] !== ''
