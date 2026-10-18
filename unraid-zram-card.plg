@@ -3,6 +3,17 @@
 <PLUGIN name="unraid-zram-card" author="John White" version="2026.10.18.01" launch="Settings/UnraidZramCard" pluginURL="https://raw.githubusercontent.com/johnpwhite/unraid-plg-zram/main/unraid-zram-card.plg" min="6.12.1" support="https://forums.unraid.net/topic/196763-new-plugin-created-zram/" icon="unraid-zram-card.png">
 
 <CHANGES>
+## 2026.10.18.01
+- Fix: when you REMOVE a disk swap and the swap cannot be turned off, the swap file or volume is now kept and the error is shown. Before, the file was deleted while it was still in use, or the page reported success although nothing had happened.
+- Fix: a swap on /dev/zram1 is no longer confused with /dev/zram10, and a swap file is no longer confused with another file whose name starts the same way — on the dashboard, in the settings and at boot.
+- Fix: a quote or a line break in a saved value (for example a Memory Protection process pattern) no longer breaks the settings file. Before, every setting then read as its default.
+- Fix: in Memory Protection, Apply, Reset and Remove now report a failed save instead of success; the first service in the list no longer shows a container's figures; Reset finds container processes again; a process pattern with a space, a colon or a star stays one pattern; and a hook file with a start marker but no end marker is left alone instead of being cut.
+- Fix: a loop-device swap whose activation fails no longer leaves the device attached, which could keep a pool busy at array stop. This applies at boot and to the ACTIVATE button. At boot, a ZRAM device whose creation fails is now released instead of being left behind.
+- Fix: the Disk history on the dashboard now moves for a swap on a ZFS volume.
+- Fix: the settings page escapes every value it shows, and the Memory Protection list shows an error instead of "Loading items" forever when it cannot load.
+- Fix: the plugin installer checks the downloaded files before it removes the working install, and the uninstall reports a swap that could not be turned off.
+- Improve: the plugin now has behaviour tests for every code path in PHP, JavaScript and bash. This work found and fixed about seventy defects, all listed in the plugin's review record.
+- Fix: Memory Protection no longer protects a hidden btrfs process pattern at boot that the settings page could not show or change; the boot script and the page now use the same list. When the Enabled setting is off, the plugin log now says "Plugin disabled", because that setting turns off the whole dashboard card.
 ## 2026.10.17.02
 - Improve: the Huge pages and Background memory compaction settings now show the real Linux values (always, madvise, never; 0 or 20) with a short meaning for each, and no Leave as is choice. Before you choose, each setting shows the value your server uses now, and nothing changes until you pick another.
 - Fix: on the dashboard, the Disk row now looks like the ZRAM row: it keeps its coloured dot and its blue colour, and the used amount shows in the Used column, which now updates on both rows. Before, the Disk row lost its dot, turned red and showed the amount in its name.
